@@ -69,7 +69,7 @@ The built files will be in the `dist` directory.
 The application supports any OpenAI-compatible API endpoint. Default configuration:
 
 - **Endpoint**: `https://api.groq.com/openai/v1/chat/completions`
-- **Model**: `llama-3.1-70b-versatile`
+- **Model**: `llama-3.3-70b-versatile`
 
 ## Project Structure
 
