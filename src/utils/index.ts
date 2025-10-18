@@ -13,8 +13,9 @@ export function buildUserPrompt(form: FormState): string {
 - height_cm: ${form.heightCm}
 - weight_kg: ${form.weightKg}
 - body_fat_pct: ${form.bodyFat || 'unknown'}
-- activity_factor: ${form.activity}
-- training_age: ${form.trainingAge}
+- training_days_per_week: ${form.trainingDaysPerWeek}
+- workout_level: ${form.workoutLevel}
+- workout_split: ${form.workoutSplit}
 - goal: ${form.goal}
 - target_body_fat_pct: ${form.targetBf || 'n/a'}
 
@@ -142,9 +143,18 @@ export function validateForm(form: FormState): string[] {
   if (form.bodyFat && (Number(form.bodyFat) < 1 || Number(form.bodyFat) > 50)) {
     errors.push('Body fat percentage must be between 1 and 50');
   }
-  
-  if (!form.activity || Number(form.activity) < 1.0 || Number(form.activity) > 2.5) {
-    errors.push('Activity factor must be between 1.0 and 2.5');
+
+  const trainingDays = Number(form.trainingDaysPerWeek);
+  if (!trainingDays || trainingDays < 1 || trainingDays > 7) {
+    errors.push('Training days per week must be between 1 and 7');
+  }
+
+  if (!form.workoutLevel) {
+    errors.push('Workout level is required');
+  }
+
+  if (!form.workoutSplit) {
+    errors.push('Workout split is required');
   }
   
   if (!form.goal.trim()) {
