@@ -8,10 +8,12 @@ export interface FormState {
   heightCm: number | string;
   weightKg: number | string;
   bodyFat: number | string;
-  activity: number | string;
-  trainingAge: 'new' | 'intermediate' | 'advanced' | string;
+  trainingDaysPerWeek: number | string;
+  workoutLevel: 'beginner' | 'intermediate' | 'expert' | string;
+  workoutSplit: string;
   goal: string;
   targetBf?: number | string;
+  timelineWeeks?: number | string;
   schedule: string;
   preferences: string;
   avoid: string;
@@ -122,8 +124,8 @@ export interface ProgressionPhase {
   volumeAdjustment: number; // percentage of base volume
   description: string;
   rationale: string;
+  evidence?: string[];
 }
-
 export interface WeeklyCheckpoint {
   week: number;
   phase: string;
@@ -138,6 +140,7 @@ export interface WeeklyCheckpoint {
   cardioMinutes: number;
   notes: string;
   adaptations: string[];
+  evidence?: string[];
 }
 
 export interface MetabolicAdaptation {
@@ -170,12 +173,18 @@ export interface ProgressivePlan {
     phases: ProgressionPhase[];
     checkpoints: WeeklyCheckpoint[];
     adaptations: MetabolicAdaptation[];
+    evidence?: string[];
+    requestedWeeks?: number;
   };
   strategy: {
     approach: 'aggressive' | 'moderate' | 'conservative';
     dietBreakFrequency: number; // weeks between diet breaks
     refeedFrequency: number; // days between refeeds
     deloadFrequency: number; // weeks between deloads
+    timelineAdjusted?: boolean;
+    requestedTimelineWeeks?: number;
+    actualTimelineWeeks?: number;
+    timelineNote?: string;
   };
   rationale: string;
   references: string[];
