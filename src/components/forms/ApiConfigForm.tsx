@@ -7,29 +7,44 @@ import { Small } from '@/components/ui/Small';
 
 interface ApiConfigFormProps {
   form: FormState;
-  onChange: (key: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onChange: (key: keyof FormState) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
 }
 
 export function ApiConfigForm({ form, onChange }: ApiConfigFormProps) {
   return (
     <Card>
-      <Label>API Key (client-side only)</Label>
-      <Input
-        type="password"
-        placeholder="GROQ_API_KEY"
-        value={form.apiKey}
-        onChange={onChange('apiKey')}
-      />
-      <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <h3 className="font-semibold mb-3">API Configuration</h3>
+      
+      <div className="space-y-3">
+        <div>
+          <Label>API Key</Label>
+          <Input
+            type="password"
+            placeholder="Enter your API key..."
+            value={form.apiKey}
+            onChange={onChange('apiKey')}
+          />
+          <Small>Your API key is stored locally and never sent to our servers</Small>
+        </div>
+
         <div>
           <Label>Endpoint</Label>
-          <Input value={form.endpoint} onChange={onChange('endpoint')} />
-          <Small>OpenAI-compatible chat endpoint</Small>
+          <Input 
+            value={form.endpoint} 
+            onChange={onChange('endpoint')} 
+            placeholder="https://api.example.com/v1/chat/completions"
+          />
+          <Small>API endpoint URL (e.g., https://api.groq.com/openai/v1/chat/completions)</Small>
         </div>
+
         <div>
           <Label>Model</Label>
-          <Input value={form.model} onChange={onChange('model')} />
-          <Small>e.g., llama-3.1-70b-versatile</Small>
+          <Input 
+            value={form.model} 
+            onChange={onChange('model')} 
+            placeholder="e.g., llama-3.3-70b-versatile"
+          />
+          <Small>AI model name to use for generation</Small>
         </div>
       </div>
     </Card>
