@@ -35,7 +35,7 @@ export function ScheduleDietForm({ form, onChange }: ScheduleDietFormProps) {
           id="repOK"
           type="checkbox"
           checked={form.repetitionOk}
-          onChange={(e) => onChange('repetitionOk')(e as any)}
+          onChange={(e) => onChange('repetitionOk')(e)}
         />
         <Label htmlFor="repOK">Repetition OK (repeat meals)</Label>
       </div>
