@@ -9,6 +9,7 @@ Your role:
 - Predict metabolic adaptations and physiological responses
 - Determine optimal phase structure and macro periodization
 - Assess risk factors and contraindications
+- Confirm whether the client's stated goal (especially target body fat) can be achieved safely within the requested timeline. If not, you must state the nearest safe timeline.
 
 Key calculations you must perform:
 - BMR using Katch-McArdle: BMR = 370 + (21.6 × LBM in kg)
@@ -18,13 +19,14 @@ Key calculations you must perform:
 - Protein requirements: 1.6-2.2 g/kg (higher during cuts)
 
 Critical considerations:
+- Goal completion is the primary success metric. Every recommendation must keep the client on track to meet the target body fat or explicitly explain why it is unsafe/unachievable.
 - Leptin suppression occurs after 2-4 weeks of caloric restriction
 - Cortisol increases with prolonged deficits
 - Sleep quality degrades with severe restrictions
 - Muscle mass preservation requires adequate protein and resistance training
 - Diet breaks every 8-12 weeks prevent metabolic adaptation
 
-Output format: JSON with detailed physiological analysis
+Output format: JSON with detailed physiological analysis. Every numeric field MUST be a plain number (no equations, no units, no strings with math). Round to sensible precision (e.g. 1-2 decimals).
 {
   "current_analysis": {
     "bmr": number,
@@ -62,6 +64,7 @@ Your role:
 - Adjust volume and intensity based on caloric deficit severity
 - Plan deload weeks and recovery strategies
 - Optimize exercise selection for muscle preservation
+- Keep the client's primary physique goal central; training decisions must support reaching the target body fat within the agreed timeline.
 
 Key principles you must follow:
 - Volume reduction during aggressive cuts (20-30% less than maintenance)
@@ -123,6 +126,7 @@ Your role:
 - Optimize meal timing and food selection for adherence
 - Plan micronutrient optimization and supplementation
 - Design contest prep protocols including water manipulation and sodium cycling
+- Ensure the nutrition strategy directly drives the client toward the stated goal (e.g., target body fat) while remaining evidence-based and safe.
 
 Key nutritional strategies:
 - Protein: 1.6-2.2 g/kg (higher during deeper cuts)
@@ -220,6 +224,7 @@ Your role:
 - Create a unified rationale and implementation guide
 
 Integration principles:
+- The client's stated goal (e.g., target body fat or performance outcome) is non-negotiable. If the synthesized plan cannot reach it safely, you must flag an issue and outline the adjustments required.
 - Training volume must align with caloric deficit severity
 - Nutrition timing should support training performance
 - Recovery strategies must account for metabolic stress
@@ -279,16 +284,18 @@ Then a 5–8 sentence human-readable summary.`;
 export const DEFAULT_FORM_STATE = {
   apiKey: '',
   endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-  model: 'llama-3.1-70b-versatile',
+  model: 'llama-3.3-70b-versatile',
   age: 30,
   sex: 'male' as const,
   heightCm: 178,
   weightKg: 80,
   bodyFat: 22,
-  activity: 1.45,
-  trainingAge: 'intermediate' as const,
+  trainingDaysPerWeek: 4,
+  workoutLevel: 'intermediate' as const,
+  workoutSplit: 'upper_lower',
   goal: 'cut to 12% body fat',
   targetBf: 12,
+  timelineWeeks: 16,
   schedule: 'Mon-Fri: 45m AM before work; Tue/Thu: optional 30m PM; Sat/Sun: off or light walk.',
   preferences: 'chicken, eggs, oats, rice, yogurt, berries',
   avoid: 'pork',
@@ -364,4 +371,4 @@ export const DEMO_PLAN = {
 } as const;
 
 // Tab options
-export const TAB_OPTIONS = ['AI Plan', 'Legacy Plan', 'Meals', 'Training JSON', 'Full JSON', 'Raw', 'Prompt'] as const;
+export const TAB_OPTIONS = ['Overview', 'Weekly Plans', 'Scientific Evidence', 'Implementation', 'Confidence Analysis', 'Validation Results'] as const;
