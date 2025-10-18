@@ -1,88 +1,41 @@
 import { FitnessPlan, ProgressivePlan, WeeklyCheckpoint } from '@/types';
+import { resolveEvidence } from '@/data/research';
 
 interface DailyMeal {
-  name: string;
+  slot: string;
   timing: string;
   calories: number;
   protein: number;
   carbs: number;
   fat: number;
-  prepTime: number;
-  foods: Array<{
-    name: string;
-    amount: string;
-  }>;
-  instructions: string[];
-  tips: string[];
+  focus: string;
+  guidance: string;
 }
 
 // Generate sample daily meal plan for a specific week
 function generateDailyMealPlan(checkpoint: WeeklyCheckpoint, week: number): DailyMeal[] {
-  const phase = checkpoint.phase.toLowerCase();
-  const isCutting = phase.includes('cut');
-  const isDietBreak = phase.includes('break');
-  
   // Base meal distribution
   const mealDistribution = [
-    { name: 'Pre-Workout Breakfast', timing: '7:00 AM', calories: Math.round(checkpoint.dailyCalories * 0.15), protein: Math.round(checkpoint.proteinGrams * 0.15), carbs: Math.round(checkpoint.carbGrams * 0.20), fat: Math.round(checkpoint.fatGrams * 0.10) },
-    { name: 'Post-Workout Shake', timing: '9:00 AM', calories: Math.round(checkpoint.dailyCalories * 0.20), protein: Math.round(checkpoint.proteinGrams * 0.25), carbs: Math.round(checkpoint.carbGrams * 0.25), fat: Math.round(checkpoint.fatGrams * 0.10) },
-    { name: 'Mid-Morning Snack', timing: '11:00 AM', calories: Math.round(checkpoint.dailyCalories * 0.10), protein: Math.round(checkpoint.proteinGrams * 0.10), carbs: Math.round(checkpoint.carbGrams * 0.10), fat: Math.round(checkpoint.fatGrams * 0.15) },
-    { name: 'Lunch', timing: '1:00 PM', calories: Math.round(checkpoint.dailyCalories * 0.25), protein: Math.round(checkpoint.proteinGrams * 0.25), carbs: Math.round(checkpoint.carbGrams * 0.25), fat: Math.round(checkpoint.fatGrams * 0.25) },
-    { name: 'Afternoon Snack', timing: '4:00 PM', calories: Math.round(checkpoint.dailyCalories * 0.10), protein: Math.round(checkpoint.proteinGrams * 0.10), carbs: Math.round(checkpoint.carbGrams * 0.10), fat: Math.round(checkpoint.fatGrams * 0.15) },
-    { name: 'Dinner', timing: '7:00 PM', calories: Math.round(checkpoint.dailyCalories * 0.20), protein: Math.round(checkpoint.proteinGrams * 0.15), carbs: Math.round(checkpoint.carbGrams * 0.10), fat: Math.round(checkpoint.fatGrams * 0.25) }
+    { slot: 'Meal 1 • Pre-Workout', timing: '07:00', calPct: 0.15, proteinPct: 0.18, carbPct: 0.22, fatPct: 0.1, focus: 'Prime performance with easy-to-digest carbs & lean protein.' },
+    { slot: 'Meal 2 • Post-Workout', timing: '09:30', calPct: 0.2, proteinPct: 0.28, carbPct: 0.28, fatPct: 0.08, focus: 'Fast-digesting protein/carbs to refuel glycogen and recovery.' },
+    { slot: 'Meal 3 • Mid-Morning', timing: '12:00', calPct: 0.15, proteinPct: 0.18, carbPct: 0.2, fatPct: 0.15, focus: 'Satiating meal with fibre to stabilise blood sugar.' },
+    { slot: 'Meal 4 • Lunch', timing: '14:30', calPct: 0.2, proteinPct: 0.2, carbPct: 0.2, fatPct: 0.2, focus: 'Balanced meal prioritising micronutrients and lean protein.' },
+    { slot: 'Meal 5 • Pre-Evening Training', timing: '17:00', calPct: 0.15, proteinPct: 0.1, carbPct: 0.15, fatPct: 0.2, focus: 'Light meal to fuel second session/cardio without heaviness.' },
+    { slot: 'Meal 6 • Evening Recovery', timing: '20:00', calPct: 0.15, proteinPct: 0.16, carbPct: 0.15, fatPct: 0.27, focus: 'Slow-digesting protein & fats to support overnight recovery.' }
   ];
 
   return mealDistribution.map((meal, index) => {
-    const mealNames = [
-      ['Protein Pancakes', 'Greek Yogurt Bowl', 'Oatmeal Power Bowl'],
-      ['Whey Protein Shake', 'Recovery Smoothie', 'Post-Workout Shake'],
-      ['Hard-Boiled Eggs', 'Cottage Cheese', 'Protein Bar'],
-      ['Grilled Chicken Salad', 'Turkey Wrap', 'Salmon Bowl'],
-      ['Almonds & Berries', 'Protein Pudding', 'Veggie Sticks'],
-      ['Grilled Steak & Veggies', 'Baked Fish', 'Chicken Stir-Fry']
-    ];
-
-    const ingredients = [
-      ['Oats (50g)', 'Whey Protein (30g)', 'Banana (1 medium)', 'Almond Butter (15g)'],
-      ['Whey Protein (40g)', 'Banana (1 large)', 'Oats (30g)', 'Almond Milk (200ml)'],
-      ['Hard-Boiled Eggs (2 large)', 'Salt & Pepper', 'Hot Sauce (optional)'],
-      ['Chicken Breast (150g)', 'Mixed Greens (100g)', 'Cherry Tomatoes (50g)', 'Olive Oil (10ml)'],
-      ['Almonds (20g)', 'Blueberries (50g)', 'Greek Yogurt (100g)'],
-      ['Beef Sirloin (120g)', 'Broccoli (100g)', 'Sweet Potato (80g)', 'Olive Oil (15ml)']
-    ];
-
-    const instructions = [
-      ['Mix oats with protein powder', 'Add mashed banana and almond butter', 'Cook in non-stick pan for 3-4 minutes per side'],
-      ['Blend protein powder with banana', 'Add oats and almond milk', 'Blend until smooth'],
-      ['Boil eggs for 8-10 minutes', 'Cool in ice water', 'Peel and season'],
-      ['Season and grill chicken breast', 'Toss greens with tomatoes', 'Drizzle with olive oil'],
-      ['Mix almonds with berries', 'Serve with Greek yogurt', 'Store in airtight container'],
-      ['Season and grill steak to medium-rare', 'Steam broccoli until tender', 'Roast sweet potato until soft']
-    ];
-
-    const tips = [
-      ['Meal prep friendly - can be made in batches', 'Store in fridge for 3-4 days', 'Reheat in microwave'],
-      ['Best consumed within 30 minutes post-workout', 'Can add ice for colder temperature', 'Adjust liquid for desired consistency'],
-      ['Can be prepared in advance', 'Store in fridge for up to 5 days', 'Great for on-the-go'],
-      ['Perfect for meal prep', 'Store components separately', 'Assemble just before eating'],
-      ['Portable snack option', 'Can be pre-portioned', 'Great for busy schedules'],
-      ['Cook steak to your preferred doneness', 'Meal prep the vegetables', 'Store in separate containers']
-    ];
-
     return {
-      name: mealNames[index][week % mealNames[index].length],
+      slot: meal.slot,
       timing: meal.timing,
-      calories: meal.calories,
-      protein: meal.protein,
-      carbs: meal.carbs,
-      fat: meal.fat,
-      prepTime: [15, 5, 10, 20, 5, 25][index],
-      foods: ingredients[index].map(ing => ({
-        name: ing.split(' (')[0],
-        amount: ing.split(' (')[1]?.replace(')', '') || '1 serving'
-      })),
-      instructions: instructions[index],
-      tips: tips[index]
+      calories: Math.round(checkpoint.dailyCalories * meal.calPct),
+      protein: Math.round(checkpoint.proteinGrams * meal.proteinPct),
+      carbs: Math.round(checkpoint.carbGrams * meal.carbPct),
+      fat: Math.round(checkpoint.fatGrams * meal.fatPct),
+      focus: meal.focus,
+      guidance: week % 2 === 0
+        ? 'Prioritise lean protein, colourful vegetables, and the carb source you digest best around training.'
+        : 'Rotate protein sources and adjust carbs ±10% based on training load and morning weigh-ins.'
     };
   });
 }
@@ -127,11 +80,17 @@ async function exportProgressivePlan(
   doc.text(`Generated: ${new Date(plan.createdAt).toLocaleDateString()}`, margin, 70);
   doc.text(`Timeline: ${plan.timeline.totalWeeks} weeks`, margin, 90);
   doc.text(`Approach: ${plan.strategy.approach}`, margin, 110);
-  
+  if (plan.strategy.timelineNote) {
+    doc.setFontSize(10);
+    doc.text(`Timeline Note: ${plan.strategy.timelineNote}`, margin, 130, { maxWidth: 520 });
+    doc.setFontSize(12);
+  }
+
   // Current vs Goal State
   doc.setFontSize(14);
-  doc.text('Current vs Goal State', margin, 140);
-  
+  const goalStateTitleY = plan.strategy.timelineNote ? 160 : 140;
+  doc.text('Current vs Goal State', margin, goalStateTitleY);
+
   const stateData = [
     ['Metric', 'Current', 'Goal', 'Change'],
     ['Weight (kg)', plan.currentState.weight.toFixed(1), plan.goalState.targetWeight.toFixed(1), 
@@ -144,7 +103,7 @@ async function exportProgressivePlan(
   ];
   
   autoTable(doc, {
-    startY: 160,
+    startY: goalStateTitleY + 20,
     head: [stateData[0]],
     body: stateData.slice(1),
     styles: { fontSize: 10 },
@@ -289,73 +248,84 @@ async function exportProgressivePlan(
     margin: { left: margin, right: margin },
   });
 
-  // Daily Meal Plans - Sample Weeks
+  // Coaching Notes & Adaptations
   doc.addPage();
   doc.setFontSize(16);
-  doc.text('Daily Meal Plans - Sample Weeks', margin, 40);
+  doc.text('Weekly Coaching Notes', margin, 40);
+
+  const notesRows = plan.timeline.checkpoints.map(cp => {
+    const evidenceList = resolveEvidence(cp.evidence || []).map(source => {
+      const primaryAuthor = source.authors.split(',')[0] || source.authors;
+      return `${primaryAuthor.trim()} ${source.publicationYear}`;
+    });
+
+    return [
+      `Week ${cp.week}`,
+      cp.phase,
+      cp.notes || '—',
+      cp.adaptations.join('; ') || '—',
+      evidenceList.join('; ') || '—'
+    ];
+  });
+
+  autoTable(doc, {
+    startY: 70,
+    head: [['Week', 'Phase', 'Focus Notes', 'Metabolic Adaptations', 'Evidence']],
+    body: notesRows,
+    styles: { fontSize: 8, cellPadding: 4 },
+    headStyles: { fillColor: [20, 20, 20] },
+    theme: 'grid',
+    margin: { left: margin, right: margin },
+  });
+
+  // Daily Meal Macro Guidance
+  doc.addPage();
+  doc.setFontSize(16);
+  doc.text('Daily Meal Macro Guidance', margin, 40);
   
-  // Show meal plans for weeks 1, 4, 8, 12, 16, 20, 24
   const sampleWeeks = [1, 4, 8, 12, 16, 20, 24].filter(w => w <= plan.timeline.totalWeeks);
   
   for (const week of sampleWeeks) {
     const checkpoint = plan.timeline.checkpoints.find(cp => cp.week === week);
     if (!checkpoint) continue;
-    
+
     doc.addPage();
     doc.setFontSize(14);
-    doc.text(`Week ${week} - ${checkpoint.phase}`, margin, 40);
-    
+    doc.text(`Week ${week} • ${checkpoint.phase}`, margin, 40);
     doc.setFontSize(10);
-    doc.text(`Daily Macros: ${checkpoint.dailyCalories} cal | ${checkpoint.proteinGrams}g protein | ${checkpoint.fatGrams}g fat | ${checkpoint.carbGrams}g carbs`, margin, 60);
-    
-    // Generate sample daily meal plan for this week
+    doc.text(
+      `Daily Targets: ${checkpoint.dailyCalories} kcal • ${checkpoint.proteinGrams}g protein • ${checkpoint.carbGrams}g carbs • ${checkpoint.fatGrams}g fat`,
+      margin,
+      60,
+      { maxWidth: 520 }
+    );
+
     const dailyMeals = generateDailyMealPlan(checkpoint, week);
-    
-    let yPos = 90;
-    for (const meal of dailyMeals) {
-      doc.setFontSize(12);
-      doc.text(`${meal.name} (${meal.timing})`, margin, yPos);
-      
-      doc.setFontSize(9);
-      doc.text(`Macros: ${meal.calories} cal | ${meal.protein}g protein | ${meal.carbs}g carbs | ${meal.fat}g fat`, margin, yPos + 15);
-      
-      doc.text(`Prep Time: ${meal.prepTime} minutes`, margin, yPos + 30);
-      
-      // Ingredients
-      doc.text('Ingredients:', margin, yPos + 45);
-      let ingredientY = yPos + 60;
-      for (const food of meal.foods) {
-        doc.text(`• ${food.name}: ${food.amount}`, margin + 10, ingredientY);
-        ingredientY += 12;
-      }
-      
-      // Instructions
-      doc.text('Instructions:', margin, ingredientY + 5);
-      let instructionY = ingredientY + 20;
-      for (const instruction of meal.instructions) {
-        doc.text(`• ${instruction}`, margin + 10, instructionY);
-        instructionY += 12;
-      }
-      
-      // Tips
-      if (meal.tips.length > 0) {
-        doc.text('Tips:', margin, instructionY + 5);
-        let tipY = instructionY + 20;
-        for (const tip of meal.tips) {
-          doc.text(`• ${tip}`, margin + 10, tipY);
-          tipY += 12;
-        }
-        instructionY = tipY;
-      }
-      
-      yPos = instructionY + 20;
-      
-      // Add page break if needed
-      if (yPos > 700) {
-        doc.addPage();
-        yPos = 40;
-      }
-    }
+    const mealRows = dailyMeals.map(meal => [
+      meal.slot,
+      meal.timing,
+      `${meal.calories} kcal`,
+      `${meal.protein}g P`,
+      `${meal.carbs}g C`,
+      `${meal.fat}g F`,
+      meal.focus,
+      meal.guidance
+    ]);
+
+    autoTable(doc, {
+      startY: 80,
+      head: [['Meal', 'Time', 'Calories', 'Protein', 'Carbs', 'Fat', 'Focus', 'Execution Guidance']],
+      body: mealRows,
+      styles: { fontSize: 8, cellPadding: 4 },
+      headStyles: { fillColor: [20, 20, 20] },
+      columnStyles: {
+        0: { cellWidth: 90 },
+        6: { cellWidth: 120 },
+        7: { cellWidth: 170 }
+      },
+      theme: 'grid',
+      margin: { left: margin, right: margin }
+    });
   }
 
   // Strategy Summary
