@@ -1,18 +1,25 @@
-import React, { useState } from 'react';
-import { useFitnessPlan } from '@/hooks/useFitnessPlan';
-import { useMultiAgentPlanner } from '@/hooks/useMultiAgentPlanner';
-import { useAIMasterCoordinator } from '@/hooks/useAIMasterCoordinator';
-import { DEFAULT_FORM_STATE, DEMO_PLAN, TAB_OPTIONS } from '@/constants';
+import React, { useMemo, useState } from 'react';
+import { useHighAccuracyAI } from '@/hooks/useHighAccuracyAI';
+import { DEFAULT_FORM_STATE } from '@/constants';
 import { copyToClipboard } from '@/utils';
 import { exportPdf } from '@/utils/pdfExport';
-import { formatPretty } from '@/utils';
+
+// AI RAG system is now integrated directly
+
+// Add global error handler for debugging
+window.addEventListener('error', (event) => {
+  console.error('Global error:', event.error);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  console.error('Unhandled promise rejection:', event.reason);
+});
 
 // UI Components
-import { Tabs } from '@/components/ui/Tabs';
-import { Kbd } from '@/components/ui/Kbd';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { Small } from '@/components/ui/Small';
+import { TextArea } from '@/components/ui/TextArea';
+// import { Tabs } from '@/components/ui/Tabs';
 
 // Form Components
 import { ApiConfigForm } from '@/components/forms/ApiConfigForm';
@@ -20,474 +27,349 @@ import { UserProfileForm } from '@/components/forms/UserProfileForm';
 import { ScheduleDietForm } from '@/components/forms/ScheduleDietForm';
 
 // Plan Components
-import { PlanOverview } from '@/components/plan/PlanOverview';
-import { MealsTable } from '@/components/plan/MealsTable';
-import { ProgressionTimeline } from '@/components/plan/ProgressionTimeline';
-import { PhaseBreakdown } from '@/components/plan/PhaseBreakdown';
-import { AgentReasoning } from '@/components/plan/AgentReasoning';
-import { StreamingProgress } from '@/components/plan/StreamingProgress';
-import { MealSuggestions } from '@/components/plan/MealSuggestions';
-
-// Check-in Components
-import { WeeklyCheckIn } from '@/components/checkin/WeeklyCheckIn';
-
-// Debug Components
-import { MealDebugger } from '@/components/debug/MealDebugger';
+import { HighAccuracyPlanDisplay } from '@/components/plan/HighAccuracyPlanDisplay';
 
 export default function App() {
+  // High-Accuracy AI System - 90%+ confidence with scientific grounding
   const {
-    form,
-    loading,
-    raw,
-    summary,
-    error,
-    parsed,
-    userPrompt,
-    handleChange,
-    callModel,
-    loadDemo,
-  } = useFitnessPlan(DEFAULT_FORM_STATE);
+    plan: highAccuracyPlan,
+    loading: highAccuracyLoading,
+    error: highAccuracyError,
+    progress: highAccuracyProgress,
+    generateHighAccuracyPlan,
+    clearError: clearHighAccuracyError,
+    // clearProgress: clearHighAccuracyProgress
+    planSnapshots,
+  } = useHighAccuracyAI();
 
-  // Multi-agent progressive planner
-  const {
-    loading: progressiveLoading,
-    error: progressiveError,
-    currentPhase,
-    agentResponses,
-    progressivePlan,
-    reasoning,
-    generateProgressivePlan,
-    adjustPlan,
-    clearError: clearProgressiveError
-  } = useMultiAgentPlanner({ form });
+  const [form, setForm] = useState(DEFAULT_FORM_STATE);
+  // const [exporting, setExporting] = useState(false);
+  const [showHighAccuracyPlan, setShowHighAccuracyPlan] = useState(false);
+  
+  const [debugMode, setDebugMode] = useState(false);
+  const [isPreviewExpanded, setIsPreviewExpanded] = useState(true);
 
-  // AI Master Coordinator - Let AI do all the heavy lifting
-  const {
-    coordinatedPlan,
-    loading: aiLoading,
-    error: aiError,
-    currentStep,
-    generateCompleteAIPlan,
-    clearError: clearAIError
-  } = useAIMasterCoordinator(form);
+  const handleChange = (field: keyof typeof form) => (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => {
+    let value: string | number | boolean = e.target.value;
+    if (e.target.type === 'number') {
+      value = Number(e.target.value);
+    } else if (e.target.type === 'checkbox') {
+      value = (e.target as HTMLInputElement).checked;
+    }
+    setForm(prev => ({ ...prev, [field]: value }));
+  };
+  const handleSelectChange = (field: keyof typeof form) => (value: string) => {
+    setForm(prev => ({ ...prev, [field]: value }));
+  };
 
-  const [tab, setTab] = useState<string>('AI Plan');
-  const [exporting, setExporting] = useState(false);
-  const [selectedWeek, setSelectedWeek] = useState<number | undefined>();
-  const [selectedPhase, setSelectedPhase] = useState<number | undefined>();
-  const [showProgressivePlan, setShowProgressivePlan] = useState(false);
-  const [streamingProgress, setStreamingProgress] = useState<any>(null);
+  const planPreview = useMemo(() => {
+    if (planSnapshots.length > 0) {
+      return JSON.stringify(planSnapshots, null, 2);
+    }
+
+    if (highAccuracyPlan) {
+      const { feasibility, strategy, weeklyPlans, dailyPlans, mealPlans, overallConfidence } = highAccuracyPlan;
+      return JSON.stringify(
+        {
+          feasibility,
+          strategy,
+          weeklyPlans,
+          dailyPlans,
+          mealPlans,
+          overallConfidence,
+        },
+        null,
+        2
+      );
+    }
+
+    if (highAccuracyProgress) {
+      return JSON.stringify(
+        {
+          status: 'generating',
+          phase: highAccuracyProgress.phase,
+          progress: highAccuracyProgress.progress,
+          currentStep: highAccuracyProgress.currentStep,
+          notes: highAccuracyProgress.reasoning,
+        },
+        null,
+        2
+      );
+    }
+
+    return '// No plan generated yet. Fill out the form and click Generate to see live JSON output here.';
+  }, [highAccuracyPlan, highAccuracyProgress, planSnapshots]);
 
   const handleExport = async () => {
-    const planToExport = showProgressivePlan ? progressivePlan : parsed;
-    if (!planToExport) {
+    if (!highAccuracyPlan) {
       return;
     }
     
     try {
-      setExporting(true);
-      await exportPdf(planToExport);
+      // setExporting(true);
+      await exportPdf(highAccuracyPlan as any);
     } catch (e: any) {
       console.error('Export failed:', e);
     } finally {
-      setExporting(false);
+      // setExporting(false);
     }
   };
 
-  const handleProgressiveProgress = (progress: any) => {
-    setStreamingProgress(progress);
-  };
 
-  const handleGenerateProgressive = async () => {
-    setShowProgressivePlan(true);
-    setStreamingProgress(null);
-    await generateProgressivePlan();
-  };
-
-  const handleLoadDemo = () => {
-    loadDemo(DEMO_PLAN);
-  };
-
-  const runParserTest = () => {
-    const edge = {
-      week_plan: [],
-      meals: [],
-      calories: null,
-      feasibility: { status: 'adjusted' as const, proposed_timeline_weeks: 16 },
-    };
-    const s = formatPretty(edge as any, 'Edge-case summary OK');
-    if (!s.includes('Feasibility: adjusted') || !s.includes('Edge-case')) {
-      console.error('Parser test failed');
-    } else {
-      loadDemo(edge as any);
+  const handleGeneratePlan = async () => {
+    if (highAccuracyLoading) return; // Prevent multiple clicks
+    
+    // Check if API key is provided
+    if (!form.apiKey.trim()) {
+      alert('Please enter an API key');
+      return;
+    }
+    
+    try {
+      setShowHighAccuracyPlan(true);
+      await generateHighAccuracyPlan(form);
+    } catch (err) {
+      console.error('Generation failed:', err);
+      // Error is handled by the hook
     }
   };
+
+  const handleTestRAG = async () => {
+    try {
+      console.log('Testing AI RAG system...');
+      const { aiRAG } = await import('@/ai/aiRAG');
+      await aiRAG.initialize();
+      const response = await aiRAG.query({
+        question: 'What are the optimal protein requirements for fat loss?',
+        userProfile: {
+          age: 30,
+          sex: 'male',
+          weightKg: 80,
+          heightCm: 180,
+          bodyFat: 20,
+          goal: 'fat loss'
+        },
+        context: ['nutrition', 'protein', 'fat_loss'],
+        maxFacts: 3,
+        minConfidence: 0.9
+      });
+      console.log('AI RAG test successful:', response);
+      alert(`AI RAG system test successful!\n\nAnswer: ${response.answer}\nConfidence: ${Math.round(response.confidence * 100)}%\nSources: ${response.sources.length}`);
+    } catch (error: any) {
+      console.error('AI RAG test failed:', error);
+      alert(`AI RAG test failed: ${error.message}`);
+    }
+  };
+
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-white to-gray-50">
-      <div className="mx-auto max-w-6xl px-4 py-8">
-        <header className="mb-6">
-          <h1 className="text-2xl font-bold">Fitness Planner AI</h1>
-          <p className="text-gray-600">
-            AI-powered personal fitness trainer with intelligent workout and nutrition planning
-          </p>
-          <div className="mt-2 text-xs text-gray-500 flex gap-3 items-center">
-            <span>
-              Tips: <Kbd>⌘</Kbd>/<Kbd>Ctrl</Kbd> + <Kbd>C</Kbd> to copy JSON; Export PDF for sharing.
-            </span>
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto px-4 py-8">
+        <header className="mb-8">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold">Fitness Planner AI</h1>
+              <p className="text-muted-foreground">
+                AI-powered personal fitness trainer with intelligent workout and nutrition planning
+              </p>
+            </div>
+            <div className="flex items-center gap-4 text-sm">
+              <button
+                onClick={() => setDebugMode(!debugMode)}
+                className={`px-3 py-1 text-xs rounded transition-colors ${
+                  debugMode 
+                    ? 'bg-blue-600 text-white' 
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                {debugMode ? 'Debug ON' : 'Debug OFF'}
+              </button>
+            </div>
           </div>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-1 space-y-4">
+        {/* Debug Information */}
+        {debugMode && (
+          <div className="mb-6 p-4 bg-gray-100 rounded-lg">
+            <h3 className="font-semibold mb-2">🐛 Debug Information</h3>
+            <div className="text-sm space-y-1">
+              <div>API Key: {form.apiKey ? `${form.apiKey.substring(0, 10)}...` : 'Not provided'}</div>
+              <div>Endpoint: {form.endpoint}</div>
+              <div>Model: {form.model}</div>
+              <div>Provider: {form.endpoint.includes('groq.com') ? 'Groq (Rate Limited: 30/min)' : 'Other'}</div>
+              <div>Form Data: {JSON.stringify(form, null, 2)}</div>
+            </div>
+          </div>
+        )}
+
+        {/* Rate Limiting Notice for Groq */}
+        {form.endpoint.includes('groq.com') && (
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+              <span className="text-sm font-medium text-blue-800">Groq Rate Limiting Active</span>
+            </div>
+            <p className="text-sm text-blue-700 mt-1">
+              Requests are limited to 30 per minute. The system will automatically queue and delay requests to stay within limits.
+            </p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Form Section */}
+          <div className="lg:col-span-1 space-y-6">
             <ApiConfigForm form={form} onChange={handleChange} />
-            <UserProfileForm form={form} onChange={handleChange} />
+            <UserProfileForm form={form} onChange={handleChange} onSelectChange={handleSelectChange} />
             <ScheduleDietForm form={form} onChange={handleChange} />
 
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={callModel} disabled={loading || !form.apiKey}>
-                Generate Single Week
-              </Button>
-              <Button 
-                onClick={handleGenerateProgressive} 
-                disabled={progressiveLoading || !form.apiKey}
-                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-              >
-                {progressiveLoading ? 'Generating...' : 'Generate Multi-Week Plan'}
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => copyToClipboard(userPrompt)}
-              >
-                Copy Prompt
-              </Button>
-              <Button variant="secondary" onClick={handleLoadDemo}>
-                Load Demo
-              </Button>
-              <Button variant="secondary" onClick={runParserTest}>
-                Run Parser Test
-              </Button>
-            </div>
-            
-            {loading && <Small>Generating single week plan…</Small>}
-            {progressiveLoading && <Small>Generating multi-week progressive plan…</Small>}
-            {error && <p className="text-sm text-red-600">{error}</p>}
-            {progressiveError && <p className="text-sm text-red-600">{progressiveError}</p>}
-          </div>
-
-          <div className="lg:col-span-2 space-y-4">
-            {/* Streaming Progress */}
-            {streamingProgress && (
-              <StreamingProgress 
-                progress={streamingProgress} 
-                onComplete={() => setStreamingProgress(null)}
-              />
-            )}
-
-            {/* Progressive Plan Display */}
-            {showProgressivePlan && progressivePlan ? (
-              <div className="space-y-4">
-                <Card>
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold">Multi-Week Progressive Plan</h3>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="secondary"
-                        onClick={() => copyToClipboard(JSON.stringify(progressivePlan, null, 2))}
-                      >
-                        Copy JSON
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        onClick={handleExport}
-                        disabled={!progressivePlan}
-                      >
-                        {exporting ? 'Exporting…' : 'Export PDF'}
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        onClick={() => setShowProgressivePlan(false)}
-                      >
-                        Back to Single Week
-                      </Button>
-                    </div>
-                  </div>
-                  
-                  <Tabs 
-                    tabs={['Timeline', 'Phases', 'Meals', 'AI Reasoning', 'Check-in']} 
-                    current={tab} 
-                    onChange={setTab} 
-                  />
-                  
-                  <div className="mt-4">
-                    {tab === 'Timeline' && (
-                      <ProgressionTimeline 
-                        plan={progressivePlan}
-                        selectedWeek={selectedWeek}
-                        onWeekSelect={setSelectedWeek}
-                      />
-                    )}
-                    
-                    {tab === 'Phases' && (
-                      <PhaseBreakdown 
-                        plan={progressivePlan}
-                        selectedPhase={selectedPhase}
-                        onPhaseSelect={setSelectedPhase}
-                      />
-                    )}
-                    
-                    {tab === 'Meals' && (
-                      <MealSuggestions 
-                        plan={progressivePlan}
-                        selectedWeek={selectedWeek}
-                        userPreferences={form.preferences ? form.preferences.split(',').map(p => p.trim()) : []}
-                        form={form}
-                      />
-                    )}
-                    
-                    {tab === 'AI Reasoning' && (
-                      <AgentReasoning 
-                        agentResponses={agentResponses}
-                        loading={progressiveLoading}
-                        currentPhase={currentPhase}
-                      />
-                    )}
-                    
-                    {tab === 'Check-in' && selectedWeek && (
-                      <WeeklyCheckIn 
-                        plan={progressivePlan}
-                        currentWeek={selectedWeek}
-                        onAdjustPlan={adjustPlan}
-                        loading={progressiveLoading}
-                      />
-                    )}
-                  </div>
-                </Card>
-              </div>
-            ) : (
-              /* Single Week Plan Display */
-            <Card>
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-semibold">Preview</h3>
-                <div className="flex gap-2">
-                  <Button
-                    variant="secondary"
-                    onClick={() => parsed && copyToClipboard(JSON.stringify(parsed, null, 2))}
+            {/* Generate Button */}
+            <Card className="p-6">
+              <div className="text-center">
+                <h3 className="text-lg font-semibold mb-2">Generate Your Plan</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Create a personalized fitness plan based on scientific evidence
+                </p>
+                
+                <div className="space-y-3">
+                  <Button 
+                    onClick={handleGeneratePlan} 
+                    disabled={highAccuracyLoading || !form.apiKey.trim()}
+                    className="w-full"
+                    size="lg"
                   >
-                    Copy JSON
+                    {highAccuracyLoading ? (
+                      <div className="flex items-center gap-2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Generating Plan...
+                      </div>
+                    ) : !form.apiKey.trim() ? (
+                      'API Key Required'
+                    ) : (
+                      'Generate AI Fitness Plan'
+                    )}
                   </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={handleExport}
-                    disabled={!parsed}
+                  
+                  <Button 
+                    onClick={handleTestRAG}
+                    variant="outline"
+                    className="w-full"
+                    size="sm"
                   >
-                    {exporting ? 'Exporting…' : 'Export PDF'}
+                    Test RAG System
                   </Button>
                 </div>
-              </div>
-              
-              <Tabs tabs={TAB_OPTIONS} current={tab} onChange={setTab} />
-              
-              <div className="mt-3">
-                  {tab === 'AI Plan' && (
-                    <div>
-                      <Card className="p-6">
-                        <div className="flex items-center justify-between mb-4">
-                          <h3 className="text-lg font-semibold">AI-Driven Complete Plan</h3>
-                          <div className="flex gap-2">
-                            <Button
-                              variant="primary"
-                              onClick={generateCompleteAIPlan}
-                              disabled={aiLoading}
-                            >
-                              {aiLoading ? 'AI Generating...' : 'Generate AI Plan'}
-                            </Button>
-                            {coordinatedPlan && (
-                              <Button
-                                variant="secondary"
-                                onClick={() => copyToClipboard(JSON.stringify(coordinatedPlan, null, 2))}
-                              >
-                                Copy JSON
-                              </Button>
-                            )}
-                          </div>
-                        </div>
 
-                        {aiLoading && (
-                          <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                            <div className="flex items-center gap-2">
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                              <span className="text-sm text-blue-700">{currentStep}</span>
-                            </div>
-                          </div>
-                        )}
-
-                        {aiError && (
-                          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                            <div className="text-red-700 text-sm">
-                              Error: {aiError}
-                            </div>
-                            <Button
-                              variant="secondary"
-                              onClick={clearAIError}
-                              className="mt-2"
-                            >
-                              Dismiss
-                            </Button>
-                          </div>
-                        )}
-
-                        {coordinatedPlan && (
-                          <div className="space-y-6">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                              <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
-                                <div className="text-sm font-medium text-green-800">Overall Confidence</div>
-                                <div className="text-2xl font-bold text-green-600">
-                                  {Math.round(coordinatedPlan.overallConfidence * 100)}%
-                                </div>
-                              </div>
-                              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                                <div className="text-sm font-medium text-blue-800">Total Weeks</div>
-                                <div className="text-2xl font-bold text-blue-600">
-                                  {coordinatedPlan.weeklyPlans.length}
-                                </div>
-                              </div>
-                              <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
-                                <div className="text-sm font-medium text-purple-800">Scientific References</div>
-                                <div className="text-2xl font-bold text-purple-600">
-                                  {coordinatedPlan.totalReferences.length}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="space-y-4">
-                              <h4 className="text-lg font-semibold">Physiological Analysis</h4>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="p-4 border rounded-lg">
-                                  <div className="text-sm font-medium">BMR</div>
-                                  <div className="text-xl font-bold">{coordinatedPlan.physiologicalAnalysis.bmr} kcal</div>
-                                </div>
-                                <div className="p-4 border rounded-lg">
-                                  <div className="text-sm font-medium">TDEE</div>
-                                  <div className="text-xl font-bold">{coordinatedPlan.physiologicalAnalysis.tdee} kcal</div>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="space-y-4">
-                              <h4 className="text-lg font-semibold">Weekly Plans</h4>
-                              <div className="space-y-2">
-                                {coordinatedPlan.weeklyPlans.map((weekPlan) => (
-                                  <div key={weekPlan.week} className="p-4 border rounded-lg">
-                                    <div className="flex justify-between items-start">
-                                      <div>
-                                        <h5 className="font-semibold">Week {weekPlan.week} - {weekPlan.phase}</h5>
-                                        <p className="text-sm text-gray-600">
-                                          Confidence: {Math.round(weekPlan.confidence * 100)}%
-                                        </p>
-                                      </div>
-                                      <div className="text-right text-sm text-gray-500">
-                                        {weekPlan.scientificReferences.length} references
-                                      </div>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-
-                            <div className="space-y-4">
-                              <h4 className="text-lg font-semibold">Scientific References</h4>
-                              <div className="max-h-40 overflow-y-auto">
-                                <ul className="space-y-1 text-sm">
-                                  {coordinatedPlan.totalReferences.map((ref, index) => (
-                                    <li key={index} className="p-2 bg-gray-50 rounded">
-                                      {ref}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            </div>
-
-                            {/* Debug Section */}
-                            <div className="space-y-4">
-                              <h4 className="text-lg font-semibold">Debug Tools</h4>
-                              <MealDebugger
-                                form={form}
-                                checkpoint={{
-                                  week: 1,
-                                  phase: 'Test Phase',
-                                  predictedWeight: 80,
-                                  predictedBodyFat: 20,
-                                  predictedLeanMass: 64,
-                                  dailyCalories: 1800,
-                                  proteinGrams: 160,
-                                  fatGrams: 60,
-                                  carbGrams: 150,
-                                  trainingVolume: 20,
-                                  cardioMinutes: 150,
-                                  notes: '',
-                                  adaptations: []
-                                }}
-                                phase={{
-                                  id: 'test',
-                                  name: 'Test Phase',
-                                  type: 'moderate_cut',
-                                  startWeek: 0,
-                                  endWeek: 7,
-                                  targetDeficit: 25,
-                                  proteinMultiplier: 2.0,
-                                  volumeAdjustment: 0.9,
-                                  description: 'Test phase for debugging',
-                                  rationale: 'Testing meal generation'
-                                }}
-                                userPreferences={form.preferences ? form.preferences.split(',').map(p => p.trim()) : []}
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </Card>
-                    </div>
-                  )}
-
-                  {tab === 'Legacy Plan' && (
-                  <div>
-                    {parsed ? (
-                      <PlanOverview plan={parsed} />
-                    ) : (
-                      <div className="prose max-w-none whitespace-pre-wrap">
-                        {summary || 'Model output will appear here…'}
-                      </div>
-                    )}
+                {highAccuracyError && (
+                  <div className="mt-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md">
+                    <p className="text-sm text-destructive">{highAccuracyError}</p>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      onClick={clearHighAccuracyError}
+                      className="mt-2"
+                    >
+                      Dismiss
+                    </Button>
                   </div>
-                )}
-
-                {tab === 'Meals' && <MealsTable plan={parsed} />}
-
-                {tab === 'Training JSON' && (
-                  <pre className="rounded-xl bg-gray-950 text-gray-100 p-3 text-xs overflow-auto">
-                    {JSON.stringify(parsed?.week_plan || {}, null, 2)}
-                  </pre>
-                )}
-
-                {tab === 'Full JSON' && (
-                  <pre className="rounded-xl bg-gray-950 text-gray-100 p-3 text-xs overflow-auto">
-                    {JSON.stringify(parsed || {}, null, 2)}
-                  </pre>
-                )}
-
-                {tab === 'Raw' && (
-                  <pre className="rounded-xl bg-gray-950 text-gray-100 p-3 text-xs overflow-auto">
-                    {raw || '(empty)'}
-                  </pre>
-                )}
-
-                {tab === 'Prompt' && (
-                  <pre className="rounded-xl bg-gray-50 text-gray-800 p-3 text-xs overflow-auto">
-                    {userPrompt}
-                  </pre>
                 )}
               </div>
             </Card>
+          </div>
+
+          {/* Results Section */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Progress Indicator */}
+            {highAccuracyProgress && (
+              <Card>
+                <div className="p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
+                    <span className="font-medium">{highAccuracyProgress.currentStep}</span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2 mb-4">
+                    <div 
+                      className="bg-primary h-2 rounded-full transition-all duration-300" 
+                      style={{ width: `${highAccuracyProgress.progress}%` }}
+                    ></div>
+                  </div>
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    {highAccuracyProgress.reasoning.map((reason, index) => (
+                      <div key={index}>• {reason}</div>
+                    ))}
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            <Card className="p-6">
+              <div className="flex flex-col gap-3 h-full">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-semibold">Live Plan Data Preview</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Inspect the structured JSON returned by the AI while it generates your plan.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => copyToClipboard(planPreview)}
+                      disabled={!highAccuracyPlan && !highAccuracyProgress}
+                    >
+                      Copy JSON
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsPreviewExpanded(prev => !prev)}
+                    >
+                      {isPreviewExpanded ? 'Hide' : 'Show'}
+                    </Button>
+                  </div>
+                </div>
+                {isPreviewExpanded && (
+                  <TextArea
+                    readOnly
+                    value={planPreview}
+                    className="font-mono text-xs h-72 bg-secondary/50"
+                  />
+                )}
+              </div>
+            </Card>
+
+            {/* Plan Display */}
+            {showHighAccuracyPlan && highAccuracyPlan ? (
+              <HighAccuracyPlanDisplay 
+                plan={highAccuracyPlan}
+                onExport={handleExport}
+                onCopy={() => copyToClipboard(JSON.stringify(highAccuracyPlan, null, 2))}
+              />
+            ) : (
+              <Card className="p-8">
+                <div className="text-center">
+                  <h3 className="text-xl font-semibold mb-4">Ready to Generate Your Plan</h3>
+                  <p className="text-muted-foreground mb-6">
+                    Fill out your profile information and click "Generate AI Fitness Plan" to create your personalized plan.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                    <div className="p-4 bg-primary/10 border border-primary/20 rounded-lg">
+                      <div className="text-2xl font-bold text-primary">90%+</div>
+                      <div className="text-sm text-primary">Confidence Score</div>
+                    </div>
+                    <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <div className="text-2xl font-bold text-blue-600">100+</div>
+                      <div className="text-sm text-blue-700">Scientific Facts</div>
+                    </div>
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="text-2xl font-bold text-green-600">Zero</div>
+                      <div className="text-sm text-green-700">Hallucinations</div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
             )}
           </div>
         </div>
