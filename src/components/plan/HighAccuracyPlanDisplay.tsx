@@ -4,7 +4,7 @@
 import React from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Tabs } from '@/components/ui/Tabs';
+import { Tabs } from '@/components/ui/tabs';
 import { HighAccuracyPlan } from '@/hooks/useHighAccuracyAI';
 
 interface HighAccuracyPlanDisplayProps {

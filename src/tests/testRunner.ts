@@ -263,7 +263,7 @@ export class TestRunner {
         
         // Test that service requires validation
         try {
-          await integratedPlanningService.generateCompletePlan({} as any);
+          await integratedPlanningService.generatePlan({} as any);
           throw new Error('Should require API key validation');
         } catch (error) {
           if (!(error instanceof Error) || !error.message.includes('not initialized')) {

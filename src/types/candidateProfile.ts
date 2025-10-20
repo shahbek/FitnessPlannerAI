@@ -68,6 +68,7 @@ export interface DietaryPreferences {
   foodAllergies: string[];
   foodsToAvoid: string[];
   preferredMealCount: number; // Meals per day
+  preferredCuisines: string[]; // ["italian", "asian", "mexican", "mediterranean", "flexible"]
   
   cookingSkill: 'beginner' | 'intermediate' | 'advanced';
   budgetLevel: 'low' | 'medium' | 'high';
@@ -91,6 +92,13 @@ export interface Goal {
   biggestChallenge: string; // What usually stops them
 }
 
+export interface MedicalHistory {
+  injuries: string[];
+  chronicConditions: string[];
+  medications: string[];
+  supplements: string[];
+}
+
 export interface CandidateProfile {
   /** Complete candidate profile for AI analysis */
   
@@ -100,6 +108,7 @@ export interface CandidateProfile {
   lifestyle: LifestyleFactors;
   dietaryPreferences: DietaryPreferences;
   goal: Goal;
+  medicalHistory: MedicalHistory;
   
   // Metadata
   profileId: string;

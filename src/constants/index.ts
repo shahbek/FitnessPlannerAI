@@ -282,9 +282,9 @@ Then a 5–8 sentence human-readable summary.`;
 
 // Default form values
 export const DEFAULT_FORM_STATE = {
-  apiKey: '',
+  apiKey: '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',
   endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-  model: 'llama-3.3-70b-versatile',
+  model: 'meta-llama/llama-4-scout-17b-16e-instruct',
   age: 30,
   sex: 'male' as const,
   heightCm: 178,
@@ -292,15 +292,15 @@ export const DEFAULT_FORM_STATE = {
   bodyFat: 22,
   trainingDaysPerWeek: 4,
   workoutLevel: 'intermediate' as const,
-  workoutSplit: 'upper_lower',
-  goal: 'cut to 12% body fat',
+  workoutSplit: 'upper_lower' as const,
+  primaryGoal: 'fat_loss' as const,
   targetBf: 12,
   timelineWeeks: 16,
-  schedule: 'Mon-Fri: 45m AM before work; Tue/Thu: optional 30m PM; Sat/Sun: off or light walk.',
-  preferences: 'chicken, eggs, oats, rice, yogurt, berries',
-  avoid: 'pork',
+  schedule: '',
+  preferences: '',
+  avoid: '',
   repetitionOk: true,
-  equipment: 'dumbbells, bench, pull-up bar',
+  equipment: 'gym_membership' as const,
 };
 
 // Demo data for testing

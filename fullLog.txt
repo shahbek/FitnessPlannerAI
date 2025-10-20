@@ -1,0 +1,4480 @@
+📝 Form data received: {age: 23, sex: 'male', heightCm: 178, weightKg: 80, bodyFat: 22, …}
+FitnessLayout.tsx:93 🔄 Mapped form data for AI service: {age: 23, sex: 'male', heightCm: 178, weightKg: 80, bodyFat: 22, …}
+aiSdkRagService.ts:170 🔧 Initializing AI SDK RAG Service: {endpoint: 'groq', modelName: 'meta-llama/llama-4-scout-17b-16e-instruct'}
+aiSdkRagService.ts:203 🔑 API key cleaned and validated
+aiSdkRagService.ts:177 ✅ Groq provider initialized
+aiSdkRagService.ts:229 🔄 Attempting structured output generation...
+aiSdkRagService.ts:230 📝 Prompt: 
+Based on the following user profile and scientific research, assess the feasibility of their fitness goal and provide optimistic alternatives:
+
+User Profile:
+- Age: 23
+- Sex: male
+- Goal: fat_loss
+- ...
+aiSdkRagService.ts:231 📋 Schema: {
+  "~standard": {
+    "vendor": "zod",
+    "version": 1
+  },
+  "def": {
+    "type": "object",
+    "shape": {
+      "isFeasible": {
+        "~standard": {
+          "vendor": "zod",
+          "version": 1
+        },
+        "def": {
+          "type": "boolean"
+        },
+        "type": "boolean"
+      },
+      "confidenceScore": {
+        "~standard": {
+          "vendor": "zod",
+          "version": 1
+        },
+        "def": {
+          "type": "number",
+          "checks": [
+            {},
+            {}
+          ]
+        },
+        "type": "number",
+        "minValue": 0,
+        "maxValue": 1,
+        "isInt": false,
+        "isFinite": true,
+        "format": null
+      },
+      "reasoning": {
+        "~standard": {
+          "vendor": "zod",
+          "version": 1
+        },
+        "def": {
+          "type": "string"
+        },
+        "type": "string",
+        "format": null,
+        "minLength": null,
+        "maxLength": null
+      },
+      "risks": {
+        "~standard": {
+          "vendor": "zod",
+          "version": 1
+        },
+        "def": {
+          "type": "optional",
+          "innerType": {
+            "~standard": {
+              "vendor": "zod",
+              "version": 1
+            },
+            "def": {
+              "type": "array",
+              "element": {
+                "~standard": {
+                  "vendor": "zod",
+                  "version": 1
+                },
+                "def": {
+                  "type": "string"
+                },
+                "type": "string",
+                "format": null,
+                "minLength": null,
+                "maxLength": null
+              }
+            },
+            "type": "array",
+            "element": {
+              "~standard": {
+                "vendor": "zod",
+                "version": 1
+              },
+              "def": {
+                "type": "string"
+              },
+              "type": "string",
+              "format": null,
+              "minLength": null,
+              "maxLength": null
+            }
+          }
+        },
+        "type": "optional"
+      },
+      "recommendations": {
+        "~standard": {
+          "vendor": "zod",
+          "version": 1
+        },
+        "def": {
+          "type": "optional",
+          "innerType": {
+            "~standard": {
+              "vendor": "zod",
+              "version": 1
+            },
+            "def": {
+              "type": "array",
+              "element": {
+                "~standard": {
+                  "vendor": "zod",
+                  "version": 1
+                },
+                "def": {
+                  "type": "string"
+                },
+                "type": "string",
+                "format": null,
+                "minLength": null,
+                "maxLength": null
+              }
+            },
+            "type": "array",
+            "element": {
+              "~standard": {
+                "vendor": "zod",
+                "version": 1
+              },
+              "def": {
+                "type": "string"
+              },
+              "type": "string",
+              "format": null,
+              "minLength": null,
+              "maxLength": null
+            }
+          }
+        },
+        "type": "optional"
+      }
+    }
+  },
+  "type": "object"
+}
+aiSdkRagService.ts:208 🎯 Getting model: {modelName: 'meta-llama/llama-4-scout-17b-16e-instruct', hasGroq: true, hasOpenAI: false}
+aiSdkRagService.ts:212 ✅ Using Groq model: meta-llama/llama-4-scout-17b-16e-instruct
+aiSdkRagService.ts:241 ✅ Structured output successful!
+aiSdkRagService.ts:242 📊 Structured Response: {
+  "isFeasible": true,
+  "confidenceScore": 0.8,
+  "reasoning": "Given the user's expertise and high training frequency, a 16-week timeline for fat loss is ambitious but achievable with proper periodization and nutrition. However, a more realistic timeline could be 20 weeks to ensure sustainable progress and minimize risks.",
+  "risks": [
+    "plateau due to inadequate periodization",
+    "inadequate nutrition leading to muscle loss",
+    "overtraining"
+  ],
+  "recommendations": [
+    "Implement a daily undulating periodization to vary intensity and volume",
+    "Ensure caloric deficit is properly managed to prevent muscle loss",
+    "Incorporate regular progress monitoring and adjustments"
+  ]
+}
+aiSdkRagService.ts:229 🔄 Attempting structured output generation...
+aiSdkRagService.ts:230 📝 Prompt: 
+Create a strategic framework for this user based on scientific research:
+
+User Profile:
+- Goal: fat_loss
+- Experience: expert
+- Split: push_pull_legs
+- Training days: 6/week
+- Timeline: 16 weeks
+
+Res...
+aiSdkRagService.ts:231 📋 Schema: {
+  "~standard": {
+    "vendor": "zod",
+    "version": 1
+  },
+  "def": {
+    "type": "object",
+    "shape": {
+      "trainingApproach": {
+        "~standard": {
+          "vendor": "zod",
+          "version": 1
+        },
+        "def": {
+          "type": "object",
+          "shape": {
+            "split": {
+              "~standard": {
+                "vendor": "zod",
+                "version": 1
+              },
+              "def": {
+                "type": "string"
+              },
+              "type": "string",
+              "format": null,
+              "minLength": null,
+              "maxLength": null
+            },
+            "frequencyPerWeek": {
+              "~standard": {
+                "vendor": "zod",
+                "version": 1
+              },
+              "def": {
+                "type": "number",
+                "checks": []
+              },
+              "type": "number",
+              "minValue": null,
+              "maxValue": null,
+              "isInt": false,
+              "isFinite": true,
+              "format": null
+            },
+            "sessionDurationMinutes": {
+              "~standard": {
+                "vendor": "zod",
+                "version": 1
+              },
+              "def": {
+                "type": "number",
+                "checks": []
+              },
+              "type": "number",
+              "minValue": null,
+              "maxValue": null,
+              "isInt": false,
+              "isFinite": true,
+              "format": null
+            },
+            "periodization": {
+              "~standard": {
+                "vendor": "zod",
+                "version": 1
+              },
+              "def": {
+                "type": "string"
+              },
+              "type": "string",
+              "format": null,
+              "minLength": null,
+              "maxLength": null
+            },
+            "volumePerMuscleWeekly": {
+              "~standard": {
+                "vendor": "zod",
+                "version": 1
+              },
+              "def": {
+                "type": "record",
+                "keyType": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "string"
+                  },
+                  "type": "string",
+                  "format": null,
+                  "minLength": null,
+                  "maxLength": null
+                },
+                "valueType": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "number",
+                    "checks": []
+                  },
+                  "type": "number",
+                  "minValue": null,
+                  "maxValue": null,
+                  "isInt": false,
+                  "isFinite": true,
+                  "format": null
+                }
+              },
+              "type": "record",
+              "keyType": {
+                "~standard": {
+                  "vendor": "zod",
+                  "version": 1
+                },
+                "def": {
+                  "type": "string"
+                },
+                "type": "string",
+                "format": null,
+                "minLength": null,
+                "maxLength": null
+              },
+              "valueType": {
+                "~standard": {
+                  "vendor": "zod",
+                  "version": 1
+                },
+                "def": {
+                  "type": "number",
+                  "checks": []
+                },
+                "type": "number",
+                "minValue": null,
+                "maxValue": null,
+                "isInt": false,
+                "isFinite": true,
+                "format": null
+              }
+            }
+          }
+        },
+        "type": "object"
+      },
+      "nutritionApproach": {
+        "~standard": {
+          "vendor": "zod",
+          "version": 1
+        },
+        "def": {
+          "type": "object",
+          "shape": {
+            "caloricStrategy": {
+              "~standard": {
+                "vendor": "zod",
+                "version": 1
+              },
+              "def": {
+                "type": "object",
+                "shape": {
+                  "deficitMagnitude": {
+                    "~standard": {
+                      "vendor": "zod",
+                      "version": 1
+                    },
+                    "def": {
+                      "type": "string"
+                    },
+                    "type": "string",
+                    "format": null,
+                    "minLength": null,
+                    "maxLength": null
+                  },
+                  "dailyDeficitCalories": {
+                    "~standard": {
+                      "vendor": "zod",
+                      "version": 1
+                    },
+                    "def"
+aiSdkRagService.ts:208 🎯 Getting model: {modelName: 'meta-llama/llama-4-scout-17b-16e-instruct', hasGroq: true, hasOpenAI: false}
+aiSdkRagService.ts:212 ✅ Using Groq model: meta-llama/llama-4-scout-17b-16e-instruct
+aiSdkRagService.ts:241 ✅ Structured output successful!
+aiSdkRagService.ts:242 📊 Structured Response: {
+  "trainingApproach": {
+    "split": "push_pull_legs",
+    "frequencyPerWeek": 6,
+    "sessionDurationMinutes": 60,
+    "periodization": "undulating",
+    "volumePerMuscleWeekly": {
+      "Chest": 12,
+      "Back": 15,
+      "Shoulders": 10,
+      "Arms": 12,
+      "Legs": 15
+    }
+  },
+  "nutritionApproach": {
+    "caloricStrategy": {
+      "deficitMagnitude": "moderate",
+      "dailyDeficitCalories": 500,
+      "weeklyDeficitCalories": 3500
+    },
+    "macroTargets": {
+      "proteinTotalGrams": 170,
+      "proteinPerKg": 1.7,
+      "carbPercentage": 40,
+      "fatPercentage": 25
+    },
+    "mealFrequency": 5,
+    "timing": {
+      "preWorkout": "1 hour",
+      "postWorkout": "within 30 minutes",
+      "bedtime": "1 hour before sleep"
+    }
+  }
+}
+aiSdkRagService.ts:229 🔄 Attempting structured output generation...
+aiSdkRagService.ts:230 📝 Prompt: 
+Generate a comprehensive exercise library for this user:
+
+User Profile:
+- Experience: expert
+- Equipment: gym_membership
+- Split: push_pull_legs
+- Target muscles: Chest, Back, Shoulders, Arms, Legs
+
+...
+aiSdkRagService.ts:231 📋 Schema: {
+  "~standard": {
+    "vendor": "zod",
+    "version": 1
+  },
+  "def": {
+    "type": "object",
+    "shape": {
+      "exercises": {
+        "~standard": {
+          "vendor": "zod",
+          "version": 1
+        },
+        "def": {
+          "type": "array",
+          "element": {
+            "~standard": {
+              "vendor": "zod",
+              "version": 1
+            },
+            "def": {
+              "type": "object",
+              "shape": {
+                "exerciseId": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "string"
+                  },
+                  "type": "string",
+                  "format": null,
+                  "minLength": null,
+                  "maxLength": null
+                },
+                "name": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "string"
+                  },
+                  "type": "string",
+                  "format": null,
+                  "minLength": null,
+                  "maxLength": null
+                },
+                "muscleGroups": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "array",
+                    "element": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "string"
+                      },
+                      "type": "string",
+                      "format": null,
+                      "minLength": null,
+                      "maxLength": null
+                    }
+                  },
+                  "type": "array",
+                  "element": {
+                    "~standard": {
+                      "vendor": "zod",
+                      "version": 1
+                    },
+                    "def": {
+                      "type": "string"
+                    },
+                    "type": "string",
+                    "format": null,
+                    "minLength": null,
+                    "maxLength": null
+                  }
+                },
+                "equipment": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "array",
+                    "element": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "string"
+                      },
+                      "type": "string",
+                      "format": null,
+                      "minLength": null,
+                      "maxLength": null
+                    }
+                  },
+                  "type": "array",
+                  "element": {
+                    "~standard": {
+                      "vendor": "zod",
+                      "version": 1
+                    },
+                    "def": {
+                      "type": "string"
+                    },
+                    "type": "string",
+                    "format": null,
+                    "minLength": null,
+                    "maxLength": null
+                  }
+                },
+                "difficulty": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "string"
+                  },
+                  "type": "string",
+                  "format": null,
+                  "minLength": null,
+                  "maxLength": null
+                },
+                "formCues": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "array",
+                    "element": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "string"
+                      },
+                      "type": "string",
+                      "format": null,
+                      "minLength": null,
+                      "maxLength": null
+                    }
+                  },
+                  "type": "array",
+                  "element": {
+                    "~standard": {
+                      "vendor": "zod",
+                      "version": 1
+                    },
+                    "def": {
+                      "type": "string"
+                    },
+               
+aiSdkRagService.ts:208 🎯 Getting model: {modelName: 'meta-llama/llama-4-scout-17b-16e-instruct', hasGroq: true, hasOpenAI: false}
+aiSdkRagService.ts:212 ✅ Using Groq model: meta-llama/llama-4-scout-17b-16e-instruct
+aiSdkRagService.ts:241 ✅ Structured output successful!
+aiSdkRagService.ts:242 📊 Structured Response: {
+  "exercises": [
+    {
+      "exerciseId": "1",
+      "name": "Bench Press",
+      "muscleGroups": [
+        "Chest",
+        "Shoulders",
+        "Triceps"
+      ],
+      "equipment": [
+        "Barbell",
+        "Bench"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Squeeze shoulder blades",
+        "Lower to chest",
+        "Press upwards"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Add chains",
+        "Pause reps"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Use dumbbells",
+        "Incline bench"
+      ],
+      "contraindications": [
+        "Shoulder injuries"
+      ]
+    },
+    {
+      "exerciseId": "2",
+      "name": "Pull-ups",
+      "muscleGroups": [
+        "Back",
+        "Biceps"
+      ],
+      "equipment": [
+        "Pull-up bar"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Hang with shoulder blades down",
+        "Pull up to chin",
+        "Lower slowly"
+      ],
+      "progressionOptions": [
+        "Add weight",
+        "Use assisted pull-ups",
+        "Change grip"
+      ],
+      "regressionOptions": [
+        "Use resistance band",
+        "Lat pulldowns",
+        "Decrease reps"
+      ],
+      "contraindications": [
+        "Shoulder injuries",
+        "Back injuries"
+      ]
+    },
+    {
+      "exerciseId": "3",
+      "name": "Squats",
+      "muscleGroups": [
+        "Legs",
+        "Glutes"
+      ],
+      "equipment": [
+        "Barbell"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Keep back straight",
+        "Lower to thighs",
+        "Push through heels"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Pause reps",
+        "Single-leg squats"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Bodyweight squats",
+        "Goblet squats"
+      ],
+      "contraindications": [
+        "Knee injuries",
+        "Back injuries"
+      ]
+    },
+    {
+      "exerciseId": "4",
+      "name": "Dumbbell Shoulder Press",
+      "muscleGroups": [
+        "Shoulders",
+        "Triceps"
+      ],
+      "equipment": [
+        "Dumbbells"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Stand with feet shoulder-width apart",
+        "Press dumbbells up",
+        "Lower slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Alternate arms",
+        "Arnold press"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Seated dumbbell press",
+        "Lateral raises"
+      ],
+      "contraindications": [
+        "Shoulder injuries"
+      ]
+    },
+    {
+      "exerciseId": "5",
+      "name": "Leg Press",
+      "muscleGroups": [
+        "Legs",
+        "Glutes"
+      ],
+      "equipment": [
+        "Leg press machine"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Push through heels",
+        "Lower to knees",
+        "Press upwards"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change foot placement",
+        "Single-leg press"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Bodyweight squats",
+        "Lunges"
+      ],
+      "contraindications": [
+        "Knee injuries",
+        "Back injuries"
+      ]
+    },
+    {
+      "exerciseId": "6",
+      "name": "Bicep Curls",
+      "muscleGroups": [
+        "Biceps"
+      ],
+      "equipment": [
+        "Dumbbells"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Stand with feet shoulder-width apart",
+        "Curl dumbbells up",
+        "Lower slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Alternate arms",
+        "Hammer curls"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Cable curls",
+        "Concentration curls"
+      ],
+      "contraindications": [
+        "Elbow injuries"
+      ]
+    },
+    {
+      "exerciseId": "7",
+      "name": "Tricep Pushdowns",
+      "muscleGroups": [
+        "Triceps"
+      ],
+      "equipment": [
+        "Cable machine"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Stand with feet shoulder-width apart",
+        "Extend cable down",
+        "Return slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change grip",
+        "Single-arm pushdowns"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Overhead dumbbell extensions",
+        "Skull crushers"
+      ],
+      "contraindications": [
+        "Elbow injuries"
+      ]
+    },
+    {
+      "exerciseId": "8",
+      "name": "Lunges",
+      "muscleGroups": [
+        "Legs",
+        "Glutes"
+      ],
+      "equipment": [
+        "Barbell",
+        "Dumbbells"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Keep back straight",
+        "Lower to knee",
+        "Push through front heel"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Alternate legs",
+        "Single-leg lung
+aiSdkRagService.ts:229 🔄 Attempting structured output generation...
+aiSdkRagService.ts:230 📝 Prompt: 
+Create session templates for this training split:
+
+Split: push_pull_legs
+Frequency: 6 days/week
+Duration: 60 minutes
+Experience: expert
+
+Available Exercises: Bench Press, Pull-ups, Squats, Dumbbell S...
+aiSdkRagService.ts:231 📋 Schema: {
+  "~standard": {
+    "vendor": "zod",
+    "version": 1
+  },
+  "def": {
+    "type": "object",
+    "shape": {
+      "sessions": {
+        "~standard": {
+          "vendor": "zod",
+          "version": 1
+        },
+        "def": {
+          "type": "array",
+          "element": {
+            "~standard": {
+              "vendor": "zod",
+              "version": 1
+            },
+            "def": {
+              "type": "object",
+              "shape": {
+                "templateId": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "string"
+                  },
+                  "type": "string",
+                  "format": null,
+                  "minLength": null,
+                  "maxLength": null
+                },
+                "name": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "string"
+                  },
+                  "type": "string",
+                  "format": null,
+                  "minLength": null,
+                  "maxLength": null
+                },
+                "targetMuscles": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "array",
+                    "element": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "string"
+                      },
+                      "type": "string",
+                      "format": null,
+                      "minLength": null,
+                      "maxLength": null
+                    }
+                  },
+                  "type": "array",
+                  "element": {
+                    "~standard": {
+                      "vendor": "zod",
+                      "version": 1
+                    },
+                    "def": {
+                      "type": "string"
+                    },
+                    "type": "string",
+                    "format": null,
+                    "minLength": null,
+                    "maxLength": null
+                  }
+                },
+                "totalDurationMinutes": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "number",
+                    "checks": []
+                  },
+                  "type": "number",
+                  "minValue": null,
+                  "maxValue": null,
+                  "isInt": false,
+                  "isFinite": true,
+                  "format": null
+                },
+                "structure": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "array",
+                    "element": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "object",
+                        "shape": {
+                          "exerciseId": {
+                            "~standard": {
+                              "vendor": "zod",
+                              "version": 1
+                            },
+                            "def": {
+                              "type": "string"
+                            },
+                            "type": "string",
+                            "format": null,
+                            "minLength": null,
+                            "maxLength": null
+                          },
+                          "sets": {
+                            "~standard": {
+                              "vendor": "zod",
+                              "version": 1
+                            },
+                            "def": {
+                              "type": "number",
+                              "checks": []
+                            },
+                            "type": "number",
+                            "minValue": null,
+                            "maxValue": null,
+                            "isInt": false,
+                            "isFinite": true,
+                            "format": null
+                          },
+                          "reps": {
+                            "~standard": {
+                              "vendor": "zod",
+                              "version": 1
+                            },
+                            "def": {
+                              "type": "string"
+                            },
+                            "type": "string",
+aiSdkRagService.ts:208 🎯 Getting model: {modelName: 'meta-llama/llama-4-scout-17b-16e-instruct', hasGroq: true, hasOpenAI: false}
+aiSdkRagService.ts:212 ✅ Using Groq model: meta-llama/llama-4-scout-17b-16e-instruct
+aiSdkRagService.ts:241 ✅ Structured output successful!
+aiSdkRagService.ts:242 📊 Structured Response: {
+  "sessions": [
+    {
+      "templateId": "push_day_1",
+      "name": "Push Day 1",
+      "targetMuscles": [
+        "Chest",
+        "Shoulders",
+        "Triceps"
+      ],
+      "totalDurationMinutes": 60,
+      "structure": [
+        {
+          "exerciseId": "Bench Press",
+          "sets": 4,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": "Warm up with 5-10 minutes of cardio and dynamic stretching"
+        },
+        {
+          "exerciseId": "Dumbbell Shoulder Press",
+          "sets": 3,
+          "reps": "10-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Tricep Pushdowns",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Chest Fly",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Shoulder Rotations",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "templateId": "pull_day_1",
+      "name": "Pull Day 1",
+      "targetMuscles": [
+        "Back",
+        "Biceps"
+      ],
+      "totalDurationMinutes": 60,
+      "structure": [
+        {
+          "exerciseId": "Pull-ups",
+          "sets": 4,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": "Warm up with 5-10 minutes of cardio and dynamic stretching"
+        },
+        {
+          "exerciseId": "Rows",
+          "sets": 3,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Bicep Curls",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Face Pulls",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Hammer Curls",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "templateId": "legs_day_1",
+      "name": "Legs Day 1",
+      "targetMuscles": [
+        "Legs",
+        "Glutes"
+      ],
+      "totalDurationMinutes": 60,
+      "structure": [
+        {
+          "exerciseId": "Squats",
+          "sets": 4,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": "Warm up with 5-10 minutes of cardio and dynamic stretching"
+        },
+        {
+          "exerciseId": "Leg Press",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Lunges",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Leg Extensions",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Glute Bridges",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "templateId": "push_day_2",
+      "name": "Push Day 2",
+      "targetMuscles": [
+        "Chest",
+        "Shoulders",
+        "Triceps"
+      ],
+      "totalDurationMinutes": 60,
+      "structure": [
+        {
+          "exerciseId": "Incline Bench Press",
+          "sets": 4,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": "Warm up with 5-10 minutes of cardio and dynamic stretching"
+        },
+        {
+          "exerciseId": "Dumbbell Shoulder Press",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Skull Crushers",
+          "sets": 3,
+          "reps": "8-10",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Chest Dips",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Shoulder Rotations",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "templateId": "pull_day_2",
+      "name": "Pull Day 2",
+      "targetMuscles": [
+        "Back",
+        "Biceps"
+      ],
+      "totalDurationMinutes": 60,
+      "structure": [
+        {
+          "exerciseId": "Deadlifts",
+          "sets": 4,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": "Warm up with 5-10 minutes of cardio and dynamic stretching"
+        },
+        {
+          "exerciseId": "Rows",
+          "sets": 3,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Bicep Curls",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Russian Twists",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Face Pulls",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "templateId": "legs_day_2",
+      "name": "Legs Day 2",
+      "targetMuscles": [
+        "Legs",
+        "Glutes"
+      ],
+      "totalDurationMinutes": 60,
+      "structure": [
+        {
+          "exerciseId": "Leg Press",
+          "sets": 4,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": "Warm up with 5-10 minutes of cardio and dynamic stretching"
+        },
+        {
+          "exerciseId": "Lunges",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Leg Extensions",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Calf Raises",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Glute Bridges",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        }
+      ]
+    }
+  ]
+}
+aiSdkRagService.ts:229 🔄 Attempting structured output generation...
+aiSdkRagService.ts:230 📝 Prompt: 
+Create meal templates for this user:
+
+User Profile:
+- Goal: fat_loss
+- Timeline: 16 weeks
+- Target BF: 10%
+
+Nutrition Strategy:
+- Daily deficit: 500 calories
+- Protein: 170g
+- Meal frequency: 5 meals...
+aiSdkRagService.ts:231 📋 Schema: {
+  "~standard": {
+    "vendor": "zod",
+    "version": 1
+  },
+  "def": {
+    "type": "object",
+    "shape": {
+      "meals": {
+        "~standard": {
+          "vendor": "zod",
+          "version": 1
+        },
+        "def": {
+          "type": "array",
+          "element": {
+            "~standard": {
+              "vendor": "zod",
+              "version": 1
+            },
+            "def": {
+              "type": "object",
+              "shape": {
+                "templateId": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "string"
+                  },
+                  "type": "string",
+                  "format": null,
+                  "minLength": null,
+                  "maxLength": null
+                },
+                "name": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "string"
+                  },
+                  "type": "string",
+                  "format": null,
+                  "minLength": null,
+                  "maxLength": null
+                },
+                "mealType": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "string"
+                  },
+                  "type": "string",
+                  "format": null,
+                  "minLength": null,
+                  "maxLength": null
+                },
+                "totalCalories": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "number",
+                    "checks": []
+                  },
+                  "type": "number",
+                  "minValue": null,
+                  "maxValue": null,
+                  "isInt": false,
+                  "isFinite": true,
+                  "format": null
+                },
+                "macros": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "object",
+                    "shape": {
+                      "protein": {
+                        "~standard": {
+                          "vendor": "zod",
+                          "version": 1
+                        },
+                        "def": {
+                          "type": "number",
+                          "checks": []
+                        },
+                        "type": "number",
+                        "minValue": null,
+                        "maxValue": null,
+                        "isInt": false,
+                        "isFinite": true,
+                        "format": null
+                      },
+                      "carbs": {
+                        "~standard": {
+                          "vendor": "zod",
+                          "version": 1
+                        },
+                        "def": {
+                          "type": "number",
+                          "checks": []
+                        },
+                        "type": "number",
+                        "minValue": null,
+                        "maxValue": null,
+                        "isInt": false,
+                        "isFinite": true,
+                        "format": null
+                      },
+                      "fat": {
+                        "~standard": {
+                          "vendor": "zod",
+                          "version": 1
+                        },
+                        "def": {
+                          "type": "number",
+                          "checks": []
+                        },
+                        "type": "number",
+                        "minValue": null,
+                        "maxValue": null,
+                        "isInt": false,
+                        "isFinite": true,
+                        "format": null
+                      }
+                    }
+                  },
+                  "type": "object"
+                },
+                "baseRecipe": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "object",
+                    "shape": {
+                      "name": {
+                        "~standard": {
+                          "vendor": "zod",
+                          "version": 1
+                        },
+                        "def": {
+                          "type": "string"
+                        },
+                        "type": "string",
+                        "format": null,
+                        "minLength": null,
+                        "maxLength": null
+                      },
+                      "ingredients": {
+                        "~standard": {
+                          "vendor": "zod",
+                          "version": 1
+                        },
+                        "def": {
+                          "type": "array",
+                          "element": {
+                            "~standard": {
+                              "vendor": "zod",
+                              "version": 1
+                            },
+                            "def": {
+                              "type": "object",
+                              "shape": {
+                                "name": {
+                                  "~standard": {
+                                    "vendor": "zod",
+                                    "version": 1
+                                  },
+                                  "def": {
+                                    "type": "string"
+                                  },
+                                  "type": "string",
+                                  "format": null,
+                                  "minLength": null,
+                                  "maxLength": null
+                                },
+                                "amount": {
+                                  "~standard": {
+                                    "vendor": "zod",
+                                    "version": 1
+                                  },
+                                  "def": {
+                                    "type": "string"
+                                  },
+                                  "type": "string",
+                                  "format": null,
+                                  "minLength": null,
+                                  "maxLength": null
+                                },
+                                "calories": {
+                                  "~standard": {
+                                    "vendor": "zod",
+                                    "version": 1
+                                  },
+                                  "def": {
+                                    "type": "number",
+                                    "checks": []
+                                  },
+                                  "type": "number",
+                                  "minValue": null,
+                                  "maxValue": null,
+                                  "isInt": false,
+                                  "isFinite": true,
+                                  "format": null
+                                }
+                              }
+                            },
+                            "type": "object"
+                          }
+                        },
+                        "type": "array",
+                        "element": {
+                          "~standard": {
+                            "vendor": "zod",
+                            "version": 1
+                          },
+                          "def": {
+                            "type": "object",
+                            "shape": {
+                              "name": {
+                                "~standard": {
+                                  "vendor": "zod",
+                                  "version": 1
+                                },
+                                "def": {
+                                  "type": "string"
+                                },
+                                "type": "string",
+                                "format": null,
+                                "minLength": null,
+                                "maxLength": null
+                              },
+                              "amount": {
+                                "~standard": {
+                                  "vendor": "zod",
+                                  "version": 1
+                                },
+                                "def": {
+                                  "type": "string"
+                                },
+                                "type": "string",
+                                "format": null,
+                                "minLength": null,
+                                "maxLength": null
+                              },
+                              "calories": {
+                                "~standard": {
+                                  "vendor": "zod",
+                                  "version": 1
+                                },
+                                "def": {
+                                  "type": "number",
+                                  "checks": []
+                                },
+                                "type": "number",
+                                "minValue": null,
+                                "maxValue": null,
+                                "isInt": false,
+                                "isFinite": true,
+                                "format": null
+                              }
+                            }
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "instructions": {
+                        "~standard": {
+                          "vendor": "zod",
+                          "version": 1
+                        },
+                        "def": {
+                          "type": "array",
+                          "element": {
+                            "~standard": {
+                              "vendor": "zod",
+                              "version": 1
+                            },
+                            "def": {
+                              "type": "string"
+                            },
+                            "type": "string",
+                            "format": null,
+                            "minLength": null,
+                            "maxLength": null
+                          }
+                        },
+                        "type": "array",
+                        "element": {
+                          "~standard": {
+                            "vendor": "zod",
+                            "version": 1
+                          },
+                          "def": {
+                            "type": "string"
+                          },
+                          "type": "string",
+                          "format": null,
+                          "minLength": null,
+                          "maxLength": null
+                        }
+                      }
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "array",
+        "element": {
+          "~standard": {
+            "vendor": "zod",
+            "version": 1
+          },
+          "def": {
+            "type": "object",
+            "shape": {
+              "templateId": {
+                "~standard": {
+                  "vendor": "zod",
+                  "version": 1
+                },
+                "def": {
+                  "type": "string"
+                },
+                "type": "string",
+                "format": null,
+                "minLength": null,
+                "maxLength": null
+              },
+              "name": {
+                "~standard": {
+                  "vendor": "zod",
+                  "version": 1
+                },
+                "def": {
+                  "type": "string"
+                },
+                "type": "string",
+                "format": null,
+                "minLength": null,
+                "maxLength": null
+              },
+              "mealType": {
+                "~standard": {
+                  "vendor": "zod",
+                  "version": 1
+                },
+                "def": {
+                  "type": "string"
+                },
+                "type": "string",
+                "format": null,
+                "minLength": null,
+                "maxLength": null
+              },
+              "totalCalories": {
+                "~standard": {
+                  "vendor": "zod",
+                  "version": 1
+                },
+                "def": {
+                  "type": "number",
+                  "checks": []
+                },
+                "type": "number",
+                "minValue": null,
+                "maxValue": null,
+                "isInt": false,
+                "isFinite": true,
+                "format": null
+              },
+              "macros": {
+                "~standard": {
+                  "vendor": "zod",
+                  "version": 1
+                },
+                "def": {
+                  "type": "object",
+                  "shape": {
+                    "protein": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "number",
+                        "checks": []
+                      },
+                      "type": "number",
+                      "minValue": null,
+                      "maxValue": null,
+                      "isInt": false,
+                      "isFinite": true,
+                      "format": null
+                    },
+                    "carbs": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "number",
+                        "checks": []
+                      },
+                      "type": "number",
+                      "minValue": null,
+                      "maxValue": null,
+                      "isInt": false,
+                      "isFinite": true,
+                      "format": null
+                    },
+                    "fat": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "number",
+                        "checks": []
+                      },
+                      "type": "number",
+                      "minValue": null,
+                      "maxValue": null,
+                      "isInt": false,
+                      "isFinite": true,
+                      "format": null
+                    }
+                  }
+                },
+                "type": "object"
+              },
+              "baseRecipe": {
+                "~standard": {
+                  "vendor": "zod",
+                  "version": 1
+                },
+                "def": {
+                  "type": "object",
+                  "shape": {
+                    "name": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "string"
+                      },
+                      "type": "string",
+                      "format": null,
+                      "minLength": null,
+                      "maxLength": null
+                    },
+                    "ingredients": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "array",
+                        "element": {
+                          "~standard": {
+                            "vendor": "zod",
+                            "version": 1
+                          },
+                          "def": {
+                            "type": "object",
+                            "shape": {
+                              "name": {
+                                "~standard": {
+                                  "vendor": "zod",
+                                  "version": 1
+                                },
+                                "def": {
+                                  "type": "string"
+                                },
+                                "type": "string",
+                                "format": null,
+                                "minLength": null,
+                                "maxLength": null
+                              },
+                              "amount": {
+                                "~standard": {
+                                  "vendor": "zod",
+                                  "version": 1
+                                },
+                                "def": {
+                                  "type": "string"
+                                },
+                                "type": "string",
+                                "format": null,
+                                "minLength": null,
+                                "maxLength": null
+                              },
+                              "calories": {
+                                "~standard": {
+                                  "vendor": "zod",
+                                  "version": 1
+                                },
+                                "def": {
+                                  "type": "number",
+                                  "checks": []
+                                },
+                                "type": "number",
+                                "minValue": null,
+                                "maxValue": null,
+                                "isInt": false,
+                                "isFinite": true,
+                                "format": null
+                              }
+                            }
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "type": "array",
+                      "element": {
+                        "~standard": {
+                          "vendor": "zod",
+                          "version": 1
+                        },
+                        "def": {
+                          "type": "object",
+                          "shape": {
+                            "name": {
+                              "~standard": {
+                                "vendor": "zod",
+                                "version": 1
+                              },
+                              "def": {
+                                "type": "string"
+                              },
+                              "type": "string",
+                              "format": null,
+                              "minLength": null,
+                              "maxLength": null
+                            },
+                            "amount": {
+                              "~standard": {
+                                "vendor": "zod",
+                                "version": 1
+                              },
+                              "def": {
+                                "type": "string"
+                              },
+                              "type": "string",
+                              "format": null,
+                              "minLength": null,
+                              "maxLength": null
+                            },
+                            "calories": {
+                              "~standard": {
+                                "vendor": "zod",
+                                "version": 1
+                              },
+                              "def": {
+                                "type": "number",
+                                "checks": []
+                              },
+                              "type": "number",
+                              "minValue": null,
+                              "maxValue": null,
+                              "isInt": false,
+                              "isFinite": true,
+                              "format": null
+                            }
+                          }
+                        },
+                        "type": "object"
+                      }
+                    },
+                    "instructions": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "array",
+                        "element": {
+                          "~standard": {
+                            "vendor": "zod",
+                            "version": 1
+                          },
+                          "def": {
+                            "type": "string"
+                          },
+                          "type": "string",
+                          "format": null,
+                          "minLength": null,
+                          "maxLength": null
+                        }
+                      },
+                      "type": "array",
+                      "element": {
+                        "~standard": {
+                          "vendor": "zod",
+                          "version": 1
+                        },
+                        "def": {
+                          "type": "string"
+                        },
+                        "type": "string",
+                        "format": null,
+                        "minLength": null,
+                        "maxLength": null
+                      }
+                    }
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "type": "object"
+        }
+      }
+    }
+  },
+  "type": "object"
+}
+aiSdkRagService.ts:208 🎯 Getting model: {modelName: 'meta-llama/llama-4-scout-17b-16e-instruct', hasGroq: true, hasOpenAI: false}
+aiSdkRagService.ts:212 ✅ Using Groq model: meta-llama/llama-4-scout-17b-16e-instruct
+aiSdkRagService.ts:241 ✅ Structured output successful!
+aiSdkRagService.ts:242 📊 Structured Response: {
+  "meals": [
+    {
+      "templateId": "MT001",
+      "name": "Breakfast - High Protein Omelette",
+      "mealType": "Breakfast",
+      "totalCalories": 350,
+      "macros": {
+        "protein": 35,
+        "carbs": 10,
+        "fat": 15
+      },
+      "baseRecipe": {
+        "name": "High Protein Omelette",
+        "ingredients": [
+          {
+            "name": "Eggs",
+            "amount": "4 large",
+            "calories": 240
+          },
+          {
+            "name": "Spinach",
+            "amount": "1 cup",
+            "calories": 20
+          },
+          {
+            "name": "Feta Cheese",
+            "amount": "1 oz",
+            "calories": 75
+          }
+        ],
+        "instructions": [
+          "Whisk eggs and cook in a pan",
+          "Add spinach and feta cheese",
+          "Fold omelette and serve"
+        ]
+      }
+    },
+    {
+      "templateId": "MT002",
+      "name": "Mid-Morning Snack - Greek Yogurt and Berries",
+      "mealType": "Mid-Morning Snack",
+      "totalCalories": 150,
+      "macros": {
+        "protein": 20,
+        "carbs": 30,
+        "fat": 0
+      },
+      "baseRecipe": {
+        "name": "Greek Yogurt and Berries",
+        "ingredients": [
+          {
+            "name": "Greek Yogurt",
+            "amount": "6 oz",
+            "calories": 100
+          },
+          {
+            "name": "Mixed Berries",
+            "amount": "1 cup",
+            "calories": 50
+          }
+        ],
+        "instructions": [
+          "Mix yogurt and berries in a bowl",
+          "Serve chilled"
+        ]
+      }
+    },
+    {
+      "templateId": "MT003",
+      "name": "Lunch - Grilled Chicken Breast and Quinoa",
+      "mealType": "Lunch",
+      "totalCalories": 400,
+      "macros": {
+        "protein": 40,
+        "carbs": 30,
+        "fat": 10
+      },
+      "baseRecipe": {
+        "name": "Grilled Chicken Breast and Quinoa",
+        "ingredients": [
+          {
+            "name": "Chicken Breast",
+            "amount": "4 oz",
+            "calories": 120
+          },
+          {
+            "name": "Quinoa",
+            "amount": "1 cup cooked",
+            "calories": 150
+          },
+          {
+            "name": "Broccoli",
+            "amount": "1 cup",
+            "calories": 55
+          }
+        ],
+        "instructions": [
+          "Grill chicken breast",
+          "Cook quinoa and steam broccoli",
+          "Serve together"
+        ]
+      }
+    },
+    {
+      "templateId": "MT004",
+      "name": "Pre-Workout Snack - Apple Slices and Almond Butter",
+      "mealType": "Pre-Workout Snack",
+      "totalCalories": 170,
+      "macros": {
+        "protein": 4,
+        "carbs": 25,
+        "fat": 8
+      },
+      "baseRecipe": {
+        "name": "Apple Slices and Almond Butter",
+        "ingredients": [
+          {
+            "name": "Apple",
+            "amount": "1 medium",
+            "calories": 95
+          },
+          {
+            "name": "Almond Butter",
+            "amount": "2 tbsp",
+            "calories": 75
+          }
+        ],
+        "instructions": [
+          "Spread almond butter on apple slices",
+          "Serve"
+        ]
+      }
+    },
+    {
+      "templateId": "MT005",
+      "name": "Post-Workout Snack - Protein Shake and Banana",
+      "mealType": "Post-Workout Snack",
+      "totalCalories": 200,
+      "macros": {
+        "protein": 30,
+        "carbs": 30,
+        "fat": 0
+      },
+      "baseRecipe": {
+        "name": "Protein Shake and Banana",
+        "ingredients": [
+          {
+            "name": "Protein Powder",
+            "amount": "1 scoop",
+            "calories": 120
+          },
+          {
+            "name": "Banana",
+            "amount": "1 medium",
+            "calories": 80
+          }
+        ],
+        "instructions": [
+          "Mix protein powder and banana in a blender",
+          "Blend until smooth"
+        ]
+      }
+    },
+    {
+      "templateId": "MT006",
+      "name": "Dinner - Grilled Salmon and Sweet Potato",
+      "mealType": "Dinner",
+      "totalCalories": 450,
+      "macros": {
+        "protein": 35,
+        "carbs": 30,
+        "fat": 20
+      },
+      "baseRecipe": {
+        "name": "Grilled Salmon and Sweet Potato",
+        "ingredients": [
+          {
+            "name": "Salmon Fillet",
+            "amount": "6 oz",
+            "calories": 210
+          },
+          {
+            "name": "Sweet Potato",
+            "amount": "1 medium",
+            "calories": 100
+          },
+          {
+            "name": "Green Beans",
+            "amount": "1 cup",
+            "calories": 55
+          }
+        ],
+        "instructions": [
+          "Grill salmon fillet",
+          "Bake sweet potato",
+          "Steam green beans",
+          "Serve together"
+        ]
+      }
+    },
+    {
+      "templateId": "MT007",
+      "name": "Mid-Afternoon Snack - Cottage Cheese and Cucumber",
+      "mealType": "Mid-Afternoon Snack",
+      "totalCalories": 100,
+      "macros": {
+        "protein": 20,
+        "carbs": 5,
+        "fat": 0
+      },
+      "baseRecipe": {
+        "name": "Cottage Cheese and Cucumber",
+        "ingredients": [
+          {
+            "name": "Cottage Cheese",
+            "amount": "1/2 cup",
+            "calories": 80
+          },
+          {
+            "name": "Cucumber",
+            "amount": "1/2 cup",
+            "calories": 10
+          }
+        ],
+        "instructions": [
+          "Mix cottage cheese and cucumber in a bowl",
+          "Serve chilled"
+        ]
+      }
+    },
+    {
+      "templateId": "MT008",
+      "name": "Evening Snack - Protein Bar",
+      "mealType": "Evening Snack",
+      "totalCalories": 150,
+      "macros": {
+        "protein": 15,
+        "carbs": 20,
+        "fat": 5
+      },
+      "baseRecipe": {
+        "name": "Protein Bar",
+        "ingredients": [
+          {
+            "name": "Protein Bar",
+            "amount": "1 bar",
+            "calories": 150
+          }
+        ],
+        "instructions": [
+          "Consume protein bar"
+        ]
+      }
+    },
+    {
+      "templateId": "MT009",
+      "name": "Breakfast - Avocado Toast with Scrambled Eggs",
+      "mealType": "Breakfast",
+      "totalCalories": 300,
+      "macros": {
+        "protein": 20,
+        "carbs": 30,
+        "fat": 15
+      },
+      "baseRecipe": {
+        "name": "Avocado Toast with Scrambled Eggs",
+        "ingredients": [
+          {
+            "name": "Whole Wheat Bread",
+            "amount": "2 slices",
+            "calories": 140
+          },
+          {
+            "name": "Avocado",
+            "amount": "1/2 medium",
+            "calories": 110
+          },
+          {
+            "name": "Eggs",
+            "amount": "2 large",
+            "calories": 140
+          }
+        ],
+        "instructions": [
+          "Toast whole wheat bread",
+          "Mash avocado and spread on toast",
+          "Scramble eggs and serve on top"
+        ]
+      }
+    },
+    {
+      "templateId": "MT010",
+      "name": "Lunch - Turkey and Avocado Wrap",
+      "mealType": "Lunch",
+      "totalCalories": 450,
+      "macros": {
+        "protein": 30,
+        "carbs": 40,
+        "fat": 20
+      },
+      "baseRecipe": {
+        "name": "Turkey and Avocado Wrap",
+        "ingredients": [
+          {
+            "name": "Whole Wheat Tortilla",
+            "amount": "1 large",
+            "calories": 100
+          },
+          {
+            "name": "Turkey Breast",
+            "amount": "4 oz",
+            "calories": 120
+          },
+          {
+            "name": "Avocado",
+            "amount": "1/2 medium",
+            "calories": 110
+          },
+          {
+            "name": "Lettuce",
+            "amount": "1 cup",
+            "calories": 10
+          }
+        ],
+        "instructions": [
+          "Assemble wrap with turkey, avocado, and lettuce",
+          "Serve"
+        ]
+      }
+    },
+    {
+      "templateId": "MT011",
+      "name": "Dinner - Grilled Chicken Breast and Brown Rice",
+      "mealType": "Dinner",
+      "totalCalories": 400,
+      "macros": {
+        "protein": 40,
+        "carbs": 40,
+        "fat": 10
+      },
+      "baseRecipe": {
+        "name": "Grilled Chicken Breast and Brown Rice",
+        "ingredients": [
+          {
+            "name": "Chicken Breast",
+            "amount": "4 oz",
+            "calories": 120
+          },
+          {
+            "name": "Brown Rice",
+            "amount": "1 cup cooked",
+            "calories": 110
+          },
+          {
+            "name": "Steamed Broccoli",
+            "amount": "1 cup",
+            "calories": 55
+          }
+        ],
+        "instructions": [
+          "Grill chicken breast",
+          "Cook brown rice",
+          "Steam broccoli",
+          "Serve together"
+        ]
+      }
+    },
+    {
+      "templateId": "MT012",
+      "name": "Mid-Morning Snack - Hard-Boiled Egg and Cherry Tomatoes",
+      "mealType": "Mid-Morning Snack",
+      "totalCalories": 100,
+      "macros": {
+        "protein": 12,
+        "carbs": 5,
+        "fat": 5
+      },
+      "baseRecipe": {
+        "name": "Hard-Boiled Egg and Cherry Tomatoes",
+        "ingredients": [
+          {
+            "name": "Hard-Boiled Egg",
+            "amount": "1 large",
+            "calories": 70
+          },
+          {
+            "name": "Cherry Tomatoes",
+            "amount": "1/2 cup",
+            "calories": 30
+          }
+        ],
+        "instructions": [
+          "Hard-boil egg",
+          "Serve with cherry tomatoes"
+        ]
+      }
+    }
+  ]
+}
+aiSdkRagService.ts:229 🔄 Attempting structured output generation...
+aiSdkRagService.ts:230 📝 Prompt: 
+Create a comprehensive shopping list based on these meal templates:
+
+Meal Templates: Breakfast - High Protein Omelette, Mid-Morning Snack - Greek Yogurt and Berries, Lunch - Grilled Chicken Breast an...
+aiSdkRagService.ts:231 📋 Schema: {
+  "~standard": {
+    "vendor": "zod",
+    "version": 1
+  },
+  "def": {
+    "type": "object",
+    "shape": {
+      "categories": {
+        "~standard": {
+          "vendor": "zod",
+          "version": 1
+        },
+        "def": {
+          "type": "array",
+          "element": {
+            "~standard": {
+              "vendor": "zod",
+              "version": 1
+            },
+            "def": {
+              "type": "object",
+              "shape": {
+                "category": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "string"
+                  },
+                  "type": "string",
+                  "format": null,
+                  "minLength": null,
+                  "maxLength": null
+                },
+                "items": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "array",
+                    "element": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "object",
+                        "shape": {
+                          "name": {
+                            "~standard": {
+                              "vendor": "zod",
+                              "version": 1
+                            },
+                            "def": {
+                              "type": "string"
+                            },
+                            "type": "string",
+                            "format": null,
+                            "minLength": null,
+                            "maxLength": null
+                          },
+                          "quantity": {
+                            "~standard": {
+                              "vendor": "zod",
+                              "version": 1
+                            },
+                            "def": {
+                              "type": "string"
+                            },
+                            "type": "string",
+                            "format": null,
+                            "minLength": null,
+                            "maxLength": null
+                          },
+                          "estimatedCost": {
+                            "~standard": {
+                              "vendor": "zod",
+                              "version": 1
+                            },
+                            "def": {
+                              "type": "optional",
+                              "innerType": {
+                                "~standard": {
+                                  "vendor": "zod",
+                                  "version": 1
+                                },
+                                "def": {
+                                  "type": "number",
+                                  "checks": []
+                                },
+                                "type": "number",
+                                "minValue": null,
+                                "maxValue": null,
+                                "isInt": false,
+                                "isFinite": true,
+                                "format": null
+                              }
+                            },
+                            "type": "optional"
+                          },
+                          "priority": {
+                            "~standard": {
+                              "vendor": "zod",
+                              "version": 1
+                            },
+                            "def": {
+                              "type": "string"
+                            },
+                            "type": "string",
+                            "format": null,
+                            "minLength": null,
+                            "maxLength": null
+                          }
+                        }
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "type": "array",
+                  "element": {
+                    "~standard": {
+                      "vendor": "zod",
+                      "version": 1
+                    },
+                    "def": {
+                      "type": "object",
+                      "shape": {
+                        "name": {
+                          "~standard": {
+                            "vendor": "zod",
+                            "version": 1
+                          },
+                          "def": {
+                            "type": "string"
+                          },
+                          "type": "string",
+                          "format": null,
+                          "minLength": null,
+                          "maxLength": null
+                 
+aiSdkRagService.ts:208 🎯 Getting model: {modelName: 'meta-llama/llama-4-scout-17b-16e-instruct', hasGroq: true, hasOpenAI: false}
+aiSdkRagService.ts:212 ✅ Using Groq model: meta-llama/llama-4-scout-17b-16e-instruct
+aiSdkRagService.ts:241 ✅ Structured output successful!
+aiSdkRagService.ts:242 📊 Structured Response: {
+  "categories": [
+    {
+      "category": "Dairy/Eggs",
+      "items": [
+        {
+          "name": "Greek Yogurt",
+          "quantity": "4-6",
+          "estimatedCost": 6.99,
+          "priority": "High"
+        },
+        {
+          "name": "Cottage Cheese",
+          "quantity": "2-3",
+          "estimatedCost": 4.99,
+          "priority": "Medium"
+        },
+        {
+          "name": "Eggs",
+          "quantity": "12-15",
+          "estimatedCost": 2.49,
+          "priority": "High"
+        }
+      ]
+    },
+    {
+      "category": "Meat/Protein",
+      "items": [
+        {
+          "name": "Chicken Breast",
+          "quantity": "6-8 lbs",
+          "estimatedCost": 15.99,
+          "priority": "High"
+        },
+        {
+          "name": "Salmon Fillets",
+          "quantity": "4-6",
+          "estimatedCost": 24.99,
+          "priority": "Medium"
+        },
+        {
+          "name": "Turkey Breast",
+          "quantity": "2-3 lbs",
+          "estimatedCost": 10.99,
+          "priority": "Medium"
+        },
+        {
+          "name": "Protein Powder",
+          "quantity": "1-2",
+          "estimatedCost": 29.99,
+          "priority": "Medium"
+        }
+      ]
+    },
+    {
+      "category": "Fruits",
+      "items": [
+        {
+          "name": "Berries",
+          "quantity": "2-3",
+          "estimatedCost": 3.99,
+          "priority": "Medium"
+        },
+        {
+          "name": "Apples",
+          "quantity": "6-8",
+          "estimatedCost": 5.99,
+          "priority": "High"
+        },
+        {
+          "name": "Bananas",
+          "quantity": "12-15",
+          "estimatedCost": 1.49,
+          "priority": "High"
+        },
+        {
+          "name": "Cherry Tomatoes",
+          "quantity": "2-3",
+          "estimatedCost": 3.99,
+          "priority": "Medium"
+        },
+        {
+          "name": "Avocado",
+          "quantity": "6-8",
+          "estimatedCost": 5.99,
+          "priority": "Medium"
+        }
+      ]
+    },
+    {
+      "category": "Grains",
+      "items": [
+        {
+          "name": "Quinoa",
+          "quantity": "2-3",
+          "estimatedCost": 4.99,
+          "priority": "Medium"
+        },
+        {
+          "name": "Brown Rice",
+          "quantity": "4-6",
+          "estimatedCost": 2.99,
+          "priority": "Medium"
+        },
+        {
+          "name": "Whole Wheat Tortillas",
+          "quantity": "6-8",
+          "estimatedCost": 2.99,
+          "priority": "Medium"
+        },
+        {
+          "name": "Whole Grain Bread",
+          "quantity": "2-3",
+          "estimatedCost": 2.99,
+          "priority": "Medium"
+        }
+      ]
+    },
+    {
+      "category": "Pantry",
+      "items": [
+        {
+          "name": "Almond Butter",
+          "quantity": "2-3",
+          "estimatedCost": 8.99,
+          "priority": "Medium"
+        },
+        {
+          "name": "Protein Bars",
+          "quantity": "6-12",
+          "estimatedCost": 19.99,
+          "priority": "Medium"
+        }
+      ]
+    },
+    {
+      "category": "Vegetables",
+      "items": [
+        {
+          "name": "Sweet Potatoes",
+          "quantity": "6-8",
+          "estimatedCost": 2.99,
+          "priority": "High"
+        },
+        {
+          "name": "Cucumber",
+          "quantity": "4-6",
+          "estimatedCost": 1.99,
+          "priority": "Medium"
+        }
+      ]
+    }
+  ],
+  "totalEstimatedCost": 153.92,
+  "notes": [
+    "Prices are estimates based on current Canadian market prices.",
+    "Quantities can be adjusted based on individual needs and preferences."
+  ]
+}
+aiSdkRagService.ts:229 🔄 Attempting structured output generation...
+aiSdkRagService.ts:230 📝 Prompt: 
+Create a phase progression plan for this user:
+
+User Profile:
+- Goal: fat_loss
+- Timeline: 16 weeks
+- Experience: expert
+
+Strategic Framework:
+- Split: push_pull_legs
+- Periodization: undulating
+
+Res...
+aiSdkRagService.ts:231 📋 Schema: {
+  "~standard": {
+    "vendor": "zod",
+    "version": 1
+  },
+  "def": {
+    "type": "object",
+    "shape": {
+      "phases": {
+        "~standard": {
+          "vendor": "zod",
+          "version": 1
+        },
+        "def": {
+          "type": "array",
+          "element": {
+            "~standard": {
+              "vendor": "zod",
+              "version": 1
+            },
+            "def": {
+              "type": "object",
+              "shape": {
+                "phaseNumber": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "number",
+                    "checks": []
+                  },
+                  "type": "number",
+                  "minValue": null,
+                  "maxValue": null,
+                  "isInt": false,
+                  "isFinite": true,
+                  "format": null
+                },
+                "name": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "string"
+                  },
+                  "type": "string",
+                  "format": null,
+                  "minLength": null,
+                  "maxLength": null
+                },
+                "durationWeeks": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "number",
+                    "checks": []
+                  },
+                  "type": "number",
+                  "minValue": null,
+                  "maxValue": null,
+                  "isInt": false,
+                  "isFinite": true,
+                  "format": null
+                },
+                "focus": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "string"
+                  },
+                  "type": "string",
+                  "format": null,
+                  "minLength": null,
+                  "maxLength": null
+                },
+                "trainingModifications": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "array",
+                    "element": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "string"
+                      },
+                      "type": "string",
+                      "format": null,
+                      "minLength": null,
+                      "maxLength": null
+                    }
+                  },
+                  "type": "array",
+                  "element": {
+                    "~standard": {
+                      "vendor": "zod",
+                      "version": 1
+                    },
+                    "def": {
+                      "type": "string"
+                    },
+                    "type": "string",
+                    "format": null,
+                    "minLength": null,
+                    "maxLength": null
+                  }
+                },
+                "nutritionModifications": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "array",
+                    "element": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version": 1
+                      },
+                      "def": {
+                        "type": "string"
+                      },
+                      "type": "string",
+                      "format": null,
+                      "minLength": null,
+                      "maxLength": null
+                    }
+                  },
+                  "type": "array",
+                  "element": {
+                    "~standard": {
+                      "vendor": "zod",
+                      "version": 1
+                    },
+                    "def": {
+                      "type": "string"
+                    },
+                    "type": "string",
+                    "format": null,
+                    "minLength": null,
+                    "maxLength": null
+                  }
+                },
+                "expectedOutcomes": {
+                  "~standard": {
+                    "vendor": "zod",
+                    "version": 1
+                  },
+                  "def": {
+                    "type": "array",
+                    "element": {
+                      "~standard": {
+                        "vendor": "zod",
+                        "version
+aiSdkRagService.ts:208 🎯 Getting model: {modelName: 'meta-llama/llama-4-scout-17b-16e-instruct', hasGroq: true, hasOpenAI: false}
+aiSdkRagService.ts:212 ✅ Using Groq model: meta-llama/llama-4-scout-17b-16e-instruct
+aiSdkRagService.ts:241 ✅ Structured output successful!
+aiSdkRagService.ts:242 📊 Structured Response: {
+  "phases": [
+    {
+      "phaseNumber": 1,
+      "name": "High-Volume Foundation",
+      "durationWeeks": 4,
+      "focus": "building muscle endurance and increasing overall training volume",
+      "trainingModifications": [
+        "3 sets of 8-12 reps for all exercises",
+        "increase training volume to 18-20 sets per muscle group per week",
+        "emphasize compound exercises: squats, deadlifts, bench press, rows"
+      ],
+      "nutritionModifications": [
+        "caloric deficit of 250-500 calories per day for fat loss",
+        "protein intake: 1.6-2.2 grams per kilogram of body weight per day"
+      ],
+      "expectedOutcomes": [
+        "increase in muscle endurance",
+        "increase in overall training volume",
+        "initiation of fat loss"
+      ]
+    },
+    {
+      "phaseNumber": 2,
+      "name": "Hypertrophy and Strength",
+      "durationWeeks": 4,
+      "focus": "building muscle hypertrophy and increasing strength",
+      "trainingModifications": [
+        "3-4 sets of 8-12 reps for all exercises",
+        "increase weight by 2.5-5kg/5-10lbs every two weeks",
+        "add isolation exercises: bicep curls, tricep extensions"
+      ],
+      "nutritionModifications": [
+        "caloric deficit of 500-750 calories per day for fat loss",
+        "protein intake: 1.6-2.2 grams per kilogram of body weight per day"
+      ],
+      "expectedOutcomes": [
+        "increase in muscle hypertrophy",
+        "increase in strength",
+        "continued fat loss"
+      ]
+    },
+    {
+      "phaseNumber": 3,
+      "name": "Strength and Power",
+      "durationWeeks": 4,
+      "focus": "increasing strength and power",
+      "trainingModifications": [
+        "3-4 sets of 3-5 reps for all exercises",
+        "increase weight by 5-10kg/10-20lbs every two weeks",
+        "emphasize explosive exercises: box squats, depth jumps"
+      ],
+      "nutritionModifications": [
+        "caloric deficit of 750-1000 calories per day for fat loss",
+        "protein intake: 1.6-2.2 grams per kilogram of body weight per day"
+      ],
+      "expectedOutcomes": [
+        "increase in strength",
+        "increase in power",
+        "acceleration of fat loss"
+      ]
+    },
+    {
+      "phaseNumber": 4,
+      "name": "Taper and Definition",
+      "durationWeeks": 4,
+      "focus": "tapering and achieving muscle definition",
+      "trainingModifications": [
+        "2-3 sets of 12-15 reps for all exercises",
+        "decrease training volume to 10-12 sets per muscle group per week",
+        "emphasize high-rep exercises: leg press, lateral raises"
+      ],
+      "nutritionModifications": [
+        "caloric deficit of 1000-1250 calories per day for fat loss",
+        "protein intake: 1.6-2.2 grams per kilogram of body weight per day"
+      ],
+      "expectedOutcomes": [
+        "muscle definition and separation",
+        "final stages of fat loss",
+        "optimal physique for competition or show"
+      ]
+    }
+  ]
+}
+FitnessLayout.tsx:159 ✅ Plan generation completed, useEffect will handle history addition
+FitnessLayout.tsx:179 🎯 Plan generated successfully, adding to history: {feasibility: {…}, strategicFramework: {…}, exerciseLibrary: Array(20), sessionTemplates: Array(6), mealTemplates: Array(12), …}
+FitnessLayout.tsx:182 📊 Complete Plan JSON Response: {
+  "feasibility": {
+    "isFeasible": true,
+    "confidenceScore": 0.8,
+    "reasoning": "Given the user's expertise and high training frequency, a 16-week timeline for fat loss is ambitious but achievable with proper periodization and nutrition. However, a more realistic timeline could be 20 weeks to ensure sustainable progress and minimize risks.",
+    "risks": [
+      "plateau due to inadequate periodization",
+      "inadequate nutrition leading to muscle loss",
+      "overtraining"
+    ],
+    "recommendations": [
+      "Implement a daily undulating periodization to vary intensity and volume",
+      "Ensure caloric deficit is properly managed to prevent muscle loss",
+      "Incorporate regular progress monitoring and adjustments"
+    ]
+  },
+  "strategicFramework": {
+    "trainingApproach": {
+      "split": "push_pull_legs",
+      "frequencyPerWeek": 6,
+      "sessionDurationMinutes": 60,
+      "periodization": "undulating",
+      "volumePerMuscleWeekly": {
+        "Chest": 12,
+        "Back": 15,
+        "Shoulders": 10,
+        "Arms": 12,
+        "Legs": 15
+      }
+    },
+    "nutritionApproach": {
+      "caloricStrategy": {
+        "deficitMagnitude": "moderate",
+        "dailyDeficitCalories": 500,
+        "weeklyDeficitCalories": 3500
+      },
+      "macroTargets": {
+        "proteinTotalGrams": 170,
+        "proteinPerKg": 1.7,
+        "carbPercentage": 40,
+        "fatPercentage": 25
+      },
+      "mealFrequency": 5,
+      "timing": {
+        "preWorkout": "1 hour",
+        "postWorkout": "within 30 minutes",
+        "bedtime": "1 hour before sleep"
+      }
+    }
+  },
+  "exerciseLibrary": [
+    {
+      "exerciseId": "1",
+      "name": "Bench Press",
+      "muscleGroups": [
+        "Chest",
+        "Shoulders",
+        "Triceps"
+      ],
+      "equipment": [
+        "Barbell",
+        "Bench"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Squeeze shoulder blades",
+        "Lower to chest",
+        "Press upwards"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Add chains",
+        "Pause reps"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Use dumbbells",
+        "Incline bench"
+      ],
+      "contraindications": [
+        "Shoulder injuries"
+      ]
+    },
+    {
+      "exerciseId": "2",
+      "name": "Pull-ups",
+      "muscleGroups": [
+        "Back",
+        "Biceps"
+      ],
+      "equipment": [
+        "Pull-up bar"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Hang with shoulder blades down",
+        "Pull up to chin",
+        "Lower slowly"
+      ],
+      "progressionOptions": [
+        "Add weight",
+        "Use assisted pull-ups",
+        "Change grip"
+      ],
+      "regressionOptions": [
+        "Use resistance band",
+        "Lat pulldowns",
+        "Decrease reps"
+      ],
+      "contraindications": [
+        "Shoulder injuries",
+        "Back injuries"
+      ]
+    },
+    {
+      "exerciseId": "3",
+      "name": "Squats",
+      "muscleGroups": [
+        "Legs",
+        "Glutes"
+      ],
+      "equipment": [
+        "Barbell"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Keep back straight",
+        "Lower to thighs",
+        "Push through heels"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Pause reps",
+        "Single-leg squats"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Bodyweight squats",
+        "Goblet squats"
+      ],
+      "contraindications": [
+        "Knee injuries",
+        "Back injuries"
+      ]
+    },
+    {
+      "exerciseId": "4",
+      "name": "Dumbbell Shoulder Press",
+      "muscleGroups": [
+        "Shoulders",
+        "Triceps"
+      ],
+      "equipment": [
+        "Dumbbells"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Stand with feet shoulder-width apart",
+        "Press dumbbells up",
+        "Lower slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Alternate arms",
+        "Arnold press"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Seated dumbbell press",
+        "Lateral raises"
+      ],
+      "contraindications": [
+        "Shoulder injuries"
+      ]
+    },
+    {
+      "exerciseId": "5",
+      "name": "Leg Press",
+      "muscleGroups": [
+        "Legs",
+        "Glutes"
+      ],
+      "equipment": [
+        "Leg press machine"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Push through heels",
+        "Lower to knees",
+        "Press upwards"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change foot placement",
+        "Single-leg press"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Bodyweight squats",
+        "Lunges"
+      ],
+      "contraindications": [
+        "Knee injuries",
+        "Back injuries"
+      ]
+    },
+    {
+      "exerciseId": "6",
+      "name": "Bicep Curls",
+      "muscleGroups": [
+        "Biceps"
+      ],
+      "equipment": [
+        "Dumbbells"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Stand with feet shoulder-width apart",
+        "Curl dumbbells up",
+        "Lower slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Alternate arms",
+        "Hammer curls"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Cable curls",
+        "Concentration curls"
+      ],
+      "contraindications": [
+        "Elbow injuries"
+      ]
+    },
+    {
+      "exerciseId": "7",
+      "name": "Tricep Pushdowns",
+      "muscleGroups": [
+        "Triceps"
+      ],
+      "equipment": [
+        "Cable machine"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Stand with feet shoulder-width apart",
+        "Extend cable down",
+        "Return slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change grip",
+        "Single-arm pushdowns"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Overhead dumbbell extensions",
+        "Skull crushers"
+      ],
+      "contraindications": [
+        "Elbow injuries"
+      ]
+    },
+    {
+      "exerciseId": "8",
+      "name": "Lunges",
+      "muscleGroups": [
+        "Legs",
+        "Glutes"
+      ],
+      "equipment": [
+        "Barbell",
+        "Dumbbells"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Keep back straight",
+        "Lower to knee",
+        "Push through front heel"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Alternate legs",
+        "Single-leg lunges"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Bodyweight lunges",
+        "Step-ups"
+      ],
+      "contraindications": [
+        "Knee injuries",
+        "Back injuries"
+      ]
+    },
+    {
+      "exerciseId": "9",
+      "name": "Chest Fly",
+      "muscleGroups": [
+        "Chest"
+      ],
+      "equipment": [
+        "Dumbbells"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Lie on flat bench",
+        "Press dumbbells out",
+        "Return slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change grip",
+        "Cable fly"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Bodyweight fly",
+        "Pec deck"
+      ],
+      "contraindications": [
+        "Shoulder injuries"
+      ]
+    },
+    {
+      "exerciseId": "10",
+      "name": "Rows",
+      "muscleGroups": [
+        "Back",
+        "Biceps"
+      ],
+      "equipment": [
+        "Barbell",
+        "Dumbbells"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Keep back straight",
+        "Pull to chest",
+        "Lower slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change grip",
+        "Single-arm rows"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Lat pulldowns",
+        "T-bar rows"
+      ],
+      "contraindications": [
+        "Back injuries",
+        "Shoulder injuries"
+      ]
+    },
+    {
+      "exerciseId": "11",
+      "name": "Shoulder Rotations",
+      "muscleGroups": [
+        "Shoulders"
+      ],
+      "equipment": [
+        "Dumbbells"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Hold dumbbells at sides",
+        "Rotate shoulders up",
+        "Lower slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change grip",
+        "Single-arm rotations"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Cable rotations",
+        "Resistance band rotations"
+      ],
+      "contraindications": [
+        "Shoulder injuries"
+      ]
+    },
+    {
+      "exerciseId": "12",
+      "name": "Leg Extensions",
+      "muscleGroups": [
+        "Legs"
+      ],
+      "equipment": [
+        "Leg extension machine"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Sit with feet under pad",
+        "Lift weight up",
+        "Lower slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change foot placement",
+        "Single-leg extensions"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Bodyweight leg lifts",
+        "Seated leg curls"
+      ],
+      "contraindications": [
+        "Knee injuries"
+      ]
+    },
+    {
+      "exerciseId": "13",
+      "name": "Chest Dips",
+      "muscleGroups": [
+        "Chest",
+        "Triceps"
+      ],
+      "equipment": [
+        "Dip bar"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Hold bar with hands shoulder-width apart",
+        "Lower body down",
+        "Push upwards"
+      ],
+      "progressionOptions": [
+        "Add weight",
+        "Change grip",
+        "Single-arm dips"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Assisted dips",
+        "Incline dips"
+      ],
+      "contraindications": [
+        "Shoulder injuries",
+        "Elbow injuries"
+      ]
+    },
+    {
+      "exerciseId": "14",
+      "name": "Calf Raises",
+      "muscleGroups": [
+        "Calves"
+      ],
+      "equipment": [
+        "Calf raise machine"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Stand on step with heels hanging",
+        "Raise up",
+        "Lower slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change foot placement",
+        "Single-leg calf raises"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Bodyweight calf raises",
+        "Seated calf raises"
+      ],
+      "contraindications": [
+        "Ankle injuries"
+      ]
+    },
+    {
+      "exerciseId": "15",
+      "name": "Russian Twists",
+      "muscleGroups": [
+        "Obliques"
+      ],
+      "equipment": [
+        "Medicine ball"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Sit on floor with knees bent",
+        "Twist torso",
+        "Return slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change grip",
+        "Single-arm twists"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Bodyweight twists",
+        "Cable rotations"
+      ],
+      "contraindications": [
+        "Back injuries"
+      ]
+    },
+    {
+      "exerciseId": "16",
+      "name": "Face Pulls",
+      "muscleGroups": [
+        "Shoulders",
+        "Back"
+      ],
+      "equipment": [
+        "Cable machine"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Stand facing cable machine",
+        "Pull cable to face",
+        "Return slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change grip",
+        "Single-arm face pulls"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Resistance band face pulls",
+        "Rear delt fly"
+      ],
+      "contraindications": [
+        "Shoulder injuries"
+      ]
+    },
+    {
+      "exerciseId": "17",
+      "name": "Glute Bridges",
+      "muscleGroups": [
+        "Glutes"
+      ],
+      "equipment": [
+        "Barbell",
+        "Dumbbells"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Lie on back with knees bent",
+        "Lift hips up",
+        "Lower slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change grip",
+        "Single-leg glute bridges"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Bodyweight glute bridges",
+        "Hip thrusts"
+      ],
+      "contraindications": [
+        "Back injuries",
+        "Knee injuries"
+      ]
+    },
+    {
+      "exerciseId": "18",
+      "name": "Hammer Curls",
+      "muscleGroups": [
+        "Biceps"
+      ],
+      "equipment": [
+        "Dumbbells"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Stand with feet shoulder-width apart",
+        "Curl dumbbells up",
+        "Lower slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Alternate arms",
+        "Preacher curls"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Cable curls",
+        "Concentration curls"
+      ],
+      "contraindications": [
+        "Elbow injuries"
+      ]
+    },
+    {
+      "exerciseId": "19",
+      "name": "Skull Crushers",
+      "muscleGroups": [
+        "Triceps"
+      ],
+      "equipment": [
+        "Barbell",
+        "Dumbbells"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Lie on flat bench",
+        "Lower weight down",
+        "Press upwards"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change grip",
+        "Single-arm skull crushers"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Overhead dumbbell extensions",
+        "Tricep pushdowns"
+      ],
+      "contraindications": [
+        "Elbow injuries"
+      ]
+    },
+    {
+      "exerciseId": "20",
+      "name": "Deadlifts",
+      "muscleGroups": [
+        "Back",
+        "Legs",
+        "Glutes"
+      ],
+      "equipment": [
+        "Barbell"
+      ],
+      "difficulty": "expert",
+      "formCues": [
+        "Stand with feet shoulder-width apart",
+        "Lift weight up",
+        "Lower slowly"
+      ],
+      "progressionOptions": [
+        "Increase weight",
+        "Change grip",
+        "Single-leg deadlifts"
+      ],
+      "regressionOptions": [
+        "Decrease weight",
+        "Bodyweight deadlifts",
+        "Sumo deadlifts"
+      ],
+      "contraindications": [
+        "Back injuries",
+        "Knee injuries"
+      ]
+    }
+  ],
+  "sessionTemplates": [
+    {
+      "templateId": "push_day_1",
+      "name": "Push Day 1",
+      "targetMuscles": [
+        "Chest",
+        "Shoulders",
+        "Triceps"
+      ],
+      "totalDurationMinutes": 60,
+      "structure": [
+        {
+          "exerciseId": "Bench Press",
+          "sets": 4,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": "Warm up with 5-10 minutes of cardio and dynamic stretching"
+        },
+        {
+          "exerciseId": "Dumbbell Shoulder Press",
+          "sets": 3,
+          "reps": "10-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Tricep Pushdowns",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Chest Fly",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Shoulder Rotations",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "templateId": "pull_day_1",
+      "name": "Pull Day 1",
+      "targetMuscles": [
+        "Back",
+        "Biceps"
+      ],
+      "totalDurationMinutes": 60,
+      "structure": [
+        {
+          "exerciseId": "Pull-ups",
+          "sets": 4,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": "Warm up with 5-10 minutes of cardio and dynamic stretching"
+        },
+        {
+          "exerciseId": "Rows",
+          "sets": 3,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Bicep Curls",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Face Pulls",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Hammer Curls",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "templateId": "legs_day_1",
+      "name": "Legs Day 1",
+      "targetMuscles": [
+        "Legs",
+        "Glutes"
+      ],
+      "totalDurationMinutes": 60,
+      "structure": [
+        {
+          "exerciseId": "Squats",
+          "sets": 4,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": "Warm up with 5-10 minutes of cardio and dynamic stretching"
+        },
+        {
+          "exerciseId": "Leg Press",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Lunges",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Leg Extensions",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Glute Bridges",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "templateId": "push_day_2",
+      "name": "Push Day 2",
+      "targetMuscles": [
+        "Chest",
+        "Shoulders",
+        "Triceps"
+      ],
+      "totalDurationMinutes": 60,
+      "structure": [
+        {
+          "exerciseId": "Incline Bench Press",
+          "sets": 4,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": "Warm up with 5-10 minutes of cardio and dynamic stretching"
+        },
+        {
+          "exerciseId": "Dumbbell Shoulder Press",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Skull Crushers",
+          "sets": 3,
+          "reps": "8-10",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Chest Dips",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Shoulder Rotations",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "templateId": "pull_day_2",
+      "name": "Pull Day 2",
+      "targetMuscles": [
+        "Back",
+        "Biceps"
+      ],
+      "totalDurationMinutes": 60,
+      "structure": [
+        {
+          "exerciseId": "Deadlifts",
+          "sets": 4,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": "Warm up with 5-10 minutes of cardio and dynamic stretching"
+        },
+        {
+          "exerciseId": "Rows",
+          "sets": 3,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Bicep Curls",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Russian Twists",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Face Pulls",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "templateId": "legs_day_2",
+      "name": "Legs Day 2",
+      "targetMuscles": [
+        "Legs",
+        "Glutes"
+      ],
+      "totalDurationMinutes": 60,
+      "structure": [
+        {
+          "exerciseId": "Leg Press",
+          "sets": 4,
+          "reps": "8-12",
+          "restSeconds": 60,
+          "notes": "Warm up with 5-10 minutes of cardio and dynamic stretching"
+        },
+        {
+          "exerciseId": "Lunges",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Leg Extensions",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Calf Raises",
+          "sets": 3,
+          "reps": "12-15",
+          "restSeconds": 60,
+          "notes": ""
+        },
+        {
+          "exerciseId": "Glute Bridges",
+          "sets": 3,
+          "reps": "10-12",
+          "restSeconds": 60,
+          "notes": ""
+        }
+      ]
+    }
+  ],
+  "mealTemplates": [
+    {
+      "templateId": "MT001",
+      "name": "Breakfast - High Protein Omelette",
+      "mealType": "Breakfast",
+      "totalCalories": 350,
+      "macros": {
+        "protein": 35,
+        "carbs": 10,
+        "fat": 15
+      },
+      "baseRecipe": {
+        "name": "High Protein Omelette",
+        "ingredients": [
+          {
+            "name": "Eggs",
+            "amount": "4 large",
+            "calories": 240
+          },
+          {
+            "name": "Spinach",
+            "amount": "1 cup",
+            "calories": 20
+          },
+          {
+            "name": "Feta Cheese",
+            "amount": "1 oz",
+            "calories": 75
+          }
+        ],
+        "instructions": [
+          "Whisk eggs and cook in a pan",
+          "Add spinach and feta cheese",
+          "Fold omelette and serve"
+        ]
+      }
+    },
+    {
+      "templateId": "MT002",
+      "name": "Mid-Morning Snack - Greek Yogurt and Berries",
+      "mealType": "Mid-Morning Snack",
+      "totalCalories": 150,
+      "macros": {
+        "protein": 20,
+        "carbs": 30,
+        "fat": 0
+      },
+      "baseRecipe": {
+        "name": "Greek Yogurt and Berries",
+        "ingredients": [
+          {
+            "name": "Greek Yogurt",
+            "amount": "6 oz",
+            "calories": 100
+          },
+          {
+            "name": "Mixed Berries",
+            "amount": "1 cup",
+            "calories": 50
+          }
+        ],
+        "instructions": [
+          "Mix yogurt and berries in a bowl",
+          "Serve chilled"
+        ]
+      }
+    },
+    {
+      "templateId": "MT003",
+      "name": "Lunch - Grilled Chicken Breast and Quinoa",
+      "mealType": "Lunch",
+      "totalCalories": 400,
+      "macros": {
+        "protein": 40,
+        "carbs": 30,
+        "fat": 10
+      },
+      "baseRecipe": {
+        "name": "Grilled Chicken Breast and Quinoa",
+        "ingredients": [
+          {
+            "name": "Chicken Breast",
+            "amount": "4 oz",
+            "calories": 120
+          },
+          {
+            "name": "Quinoa",
+            "amount": "1 cup cooked",
+            "calories": 150
+          },
+          {
+            "name": "Broccoli",
+            "amount": "1 cup",
+            "calories": 55
+          }
+        ],
+        "instructions": [
+          "Grill chicken breast",
+          "Cook quinoa and steam broccoli",
+          "Serve together"
+        ]
+      }
+    },
+    {
+      "templateId": "MT004",
+      "name": "Pre-Workout Snack - Apple Slices and Almond Butter",
+      "mealType": "Pre-Workout Snack",
+      "totalCalories": 170,
+      "macros": {
+        "protein": 4,
+        "carbs": 25,
+        "fat": 8
+      },
+      "baseRecipe": {
+        "name": "Apple Slices and Almond Butter",
+        "ingredients": [
+          {
+            "name": "Apple",
+            "amount": "1 medium",
+            "calories": 95
+          },
+          {
+            "name": "Almond Butter",
+            "amount": "2 tbsp",
+            "calories": 75
+          }
+        ],
+        "instructions": [
+          "Spread almond butter on apple slices",
+          "Serve"
+        ]
+      }
+    },
+    {
+      "templateId": "MT005",
+      "name": "Post-Workout Snack - Protein Shake and Banana",
+      "mealType": "Post-Workout Snack",
+      "totalCalories": 200,
+      "macros": {
+        "protein": 30,
+        "carbs": 30,
+        "fat": 0
+      },
+      "baseRecipe": {
+        "name": "Protein Shake and Banana",
+        "ingredients": [
+          {
+            "name": "Protein Powder",
+            "amount": "1 scoop",
+            "calories": 120
+          },
+          {
+            "name": "Banana",
+            "amount": "1 medium",
+            "calories": 80
+          }
+        ],
+        "instructions": [
+          "Mix protein powder and banana in a blender",
+          "Blend until smooth"
+        ]
+      }
+    },
+    {
+      "templateId": "MT006",
+      "name": "Dinner - Grilled Salmon and Sweet Potato",
+      "mealType": "Dinner",
+      "totalCalories": 450,
+      "macros": {
+        "protein": 35,
+        "carbs": 30,
+        "fat": 20
+      },
+      "baseRecipe": {
+        "name": "Grilled Salmon and Sweet Potato",
+        "ingredients": [
+          {
+            "name": "Salmon Fillet",
+            "amount": "6 oz",
+            "calories": 210
+          },
+          {
+            "name": "Sweet Potato",
+            "amount": "1 medium",
+            "calories": 100
+          },
+          {
+            "name": "Green Beans",
+            "amount": "1 cup",
+            "calories": 55
+          }
+        ],
+        "instructions": [
+          "Grill salmon fillet",
+          "Bake sweet potato",
+          "Steam green beans",
+          "Serve together"
+        ]
+      }
+    },
+    {
+      "templateId": "MT007",
+      "name": "Mid-Afternoon Snack - Cottage Cheese and Cucumber",
+      "mealType": "Mid-Afternoon Snack",
+      "totalCalories": 100,
+      "macros": {
+        "protein": 20,
+        "carbs": 5,
+        "fat": 0
+      },
+      "baseRecipe": {
+        "name": "Cottage Cheese and Cucumber",
+        "ingredients": [
+          {
+            "name": "Cottage Cheese",
+            "amount": "1/2 cup",
+            "calories": 80
+          },
+          {
+            "name": "Cucumber",
+            "amount": "1/2 cup",
+            "calories": 10
+          }
+        ],
+        "instructions": [
+          "Mix cottage cheese and cucumber in a bowl",
+          "Serve chilled"
+        ]
+      }
+    },
+    {
+      "templateId": "MT008",
+      "name": "Evening Snack - Protein Bar",
+      "mealType": "Evening Snack",
+      "totalCalories": 150,
+      "macros": {
+        "protein": 15,
+        "carbs": 20,
+        "fat": 5
+      },
+      "baseRecipe": {
+        "name": "Protein Bar",
+        "ingredients": [
+          {
+            "name": "Protein Bar",
+            "amount": "1 bar",
+            "calories": 150
+          }
+        ],
+        "instructions": [
+          "Consume protein bar"
+        ]
+      }
+    },
+    {
+      "templateId": "MT009",
+      "name": "Breakfast - Avocado Toast with Scrambled Eggs",
+      "mealType": "Breakfast",
+      "totalCalories": 300,
+      "macros": {
+        "protein": 20,
+        "carbs": 30,
+        "fat": 15
+      },
+      "baseRecipe": {
+        "name": "Avocado Toast with Scrambled Eggs",
+        "ingredients": [
+          {
+            "name": "Whole Wheat Bread",
+            "amount": "2 slices",
+            "calories": 140
+          },
+          {
+            "name": "Avocado",
+            "amount": "1/2 medium",
+            "calories": 110
+          },
+          {
+            "name": "Eggs",
+            "amount": "2 large",
+            "calories": 140
+          }
+        ],
+        "instructions": [
+          "Toast whole wheat bread",
+          "Mash avocado and spread on toast",
+          "Scramble eggs and serve on top"
+        ]
+      }
+    },
+    {
+      "templateId": "MT010",
+      "name": "Lunch - Turkey and Avocado Wrap",
+      "mealType": "Lunch",
+      "totalCalories": 450,
+      "macros": {
+        "protein": 30,
+        "carbs": 40,
+        "fat": 20
+      },
+      "baseRecipe": {
+        "name": "Turkey and Avocado Wrap",
+        "ingredients": [
+          {
+            "name": "Whole Wheat Tortilla",
+            "amount": "1 large",
+            "calories": 100
+          },
+          {
+            "name": "Turkey Breast",
+            "amount": "4 oz",
+            "calories": 120
+          },
+          {
+            "name": "Avocado",
+            "amount": "1/2 medium",
+            "calories": 110
+          },
+          {
+            "name": "Lettuce",
+            "amount": "1 cup",
+            "calories": 10
+          }
+        ],
+        "instructions": [
+          "Assemble wrap with turkey, avocado, and lettuce",
+          "Serve"
+        ]
+      }
+    },
+    {
+      "templateId": "MT011",
+      "name": "Dinner - Grilled Chicken Breast and Brown Rice",
+      "mealType": "Dinner",
+      "totalCalories": 400,
+      "macros": {
+        "protein": 40,
+        "carbs": 40,
+        "fat": 10
+      },
+      "baseRecipe": {
+        "name": "Grilled Chicken Breast and Brown Rice",
+        "ingredients": [
+          {
+            "name": "Chicken Breast",
+            "amount": "4 oz",
+            "calories": 120
+          },
+          {
+            "name": "Brown Rice",
+            "amount": "1 cup cooked",
+            "calories": 110
+          },
+          {
+            "name": "Steamed Broccoli",
+            "amount": "1 cup",
+            "calories": 55
+          }
+        ],
+        "instructions": [
+          "Grill chicken breast",
+          "Cook brown rice",
+          "Steam broccoli",
+          "Serve together"
+        ]
+      }
+    },
+    {
+      "templateId": "MT012",
+      "name": "Mid-Morning Snack - Hard-Boiled Egg and Cherry Tomatoes",
+      "mealType": "Mid-Morning Snack",
+      "totalCalories": 100,
+      "macros": {
+        "protein": 12,
+        "carbs": 5,
+        "fat": 5
+      },
+      "baseRecipe": {
+        "name": "Hard-Boiled Egg and Cherry Tomatoes",
+        "ingredients": [
+          {
+            "name": "Hard-Boiled Egg",
+            "amount": "1 large",
+            "calories": 70
+          },
+          {
+            "name": "Cherry Tomatoes",
+            "amount": "1/2 cup",
+            "calories": 30
+          }
+        ],
+        "instructions": [
+          "Hard-boil egg",
+          "Serve with cherry tomatoes"
+        ]
+      }
+    }
+  ],
+  "shoppingList": {
+    "categories": [
+      {
+        "category": "Dairy/Eggs",
+        "items": [
+          {
+            "name": "Greek Yogurt",
+            "quantity": "4-6",
+            "estimatedCost": 6.99,
+            "priority": "High"
+          },
+          {
+            "name": "Cottage Cheese",
+            "quantity": "2-3",
+            "estimatedCost": 4.99,
+            "priority": "Medium"
+          },
+          {
+            "name": "Eggs",
+            "quantity": "12-15",
+            "estimatedCost": 2.49,
+            "priority": "High"
+          }
+        ]
+      },
+      {
+        "category": "Meat/Protein",
+        "items": [
+          {
+            "name": "Chicken Breast",
+            "quantity": "6-8 lbs",
+            "estimatedCost": 15.99,
+            "priority": "High"
+          },
+          {
+            "name": "Salmon Fillets",
+            "quantity": "4-6",
+            "estimatedCost": 24.99,
+            "priority": "Medium"
+          },
+          {
+            "name": "Turkey Breast",
+            "quantity": "2-3 lbs",
+            "estimatedCost": 10.99,
+            "priority": "Medium"
+          },
+          {
+            "name": "Protein Powder",
+            "quantity": "1-2",
+            "estimatedCost": 29.99,
+            "priority": "Medium"
+          }
+        ]
+      },
+      {
+        "category": "Fruits",
+        "items": [
+          {
+            "name": "Berries",
+            "quantity": "2-3",
+            "estimatedCost": 3.99,
+            "priority": "Medium"
+          },
+          {
+            "name": "Apples",
+            "quantity": "6-8",
+            "estimatedCost": 5.99,
+            "priority": "High"
+          },
+          {
+            "name": "Bananas",
+            "quantity": "12-15",
+            "estimatedCost": 1.49,
+            "priority": "High"
+          },
+          {
+            "name": "Cherry Tomatoes",
+            "quantity": "2-3",
+            "estimatedCost": 3.99,
+            "priority": "Medium"
+          },
+          {
+            "name": "Avocado",
+            "quantity": "6-8",
+            "estimatedCost": 5.99,
+            "priority": "Medium"
+          }
+        ]
+      },
+      {
+        "category": "Grains",
+        "items": [
+          {
+            "name": "Quinoa",
+            "quantity": "2-3",
+            "estimatedCost": 4.99,
+            "priority": "Medium"
+          },
+          {
+            "name": "Brown Rice",
+            "quantity": "4-6",
+            "estimatedCost": 2.99,
+            "priority": "Medium"
+          },
+          {
+            "name": "Whole Wheat Tortillas",
+            "quantity": "6-8",
+            "estimatedCost": 2.99,
+            "priority": "Medium"
+          },
+          {
+            "name": "Whole Grain Bread",
+            "quantity": "2-3",
+            "estimatedCost": 2.99,
+            "priority": "Medium"
+          }
+        ]
+      },
+      {
+        "category": "Pantry",
+        "items": [
+          {
+            "name": "Almond Butter",
+            "quantity": "2-3",
+            "estimatedCost": 8.99,
+            "priority": "Medium"
+          },
+          {
+            "name": "Protein Bars",
+            "quantity": "6-12",
+            "estimatedCost": 19.99,
+            "priority": "Medium"
+          }
+        ]
+      },
+      {
+        "category": "Vegetables",
+        "items": [
+          {
+            "name": "Sweet Potatoes",
+            "quantity": "6-8",
+            "estimatedCost": 2.99,
+            "priority": "High"
+          },
+          {
+            "name": "Cucumber",
+            "quantity": "4-6",
+            "estimatedCost": 1.99,
+            "priority": "Medium"
+          }
+        ]
+      }
+    ],
+    "totalEstimatedCost": 153.92,
+    "notes": [
+      "Prices are estimates based on current Canadian market prices.",
+      "Quantities can be adjusted based on individual needs and preferences."
+    ]
+  },
+  "phaseProgression": {
+    "phases": [
+      {
+        "phaseNumber": 1,
+        "name": "High-Volume Foundation",
+        "durationWeeks": 4,
+        "focus": "building muscle endurance and increasing overall training volume",
+        "trainingModifications": [
+          "3 sets of 8-12 reps for all exercises",
+          "increase training volume to 18-20 sets per muscle group per week",
+          "emphasize compound exercises: squats, deadlifts, bench press, rows"
+        ],
+        "nutritionModifications": [
+          "caloric deficit of 250-500 calories per day for fat loss",
+          "protein intake: 1.6-2.2 grams per kilogram of body weight per day"
+        ],
+        "expectedOutcomes": [
+          "increase in muscle endurance",
+          "increase in overall training volume",
+          "initiation of fat loss"
+        ]
+      },
+      {
+        "phaseNumber": 2,
+        "name": "Hypertrophy and Strength",
+        "durationWeeks": 4,
+        "focus": "building muscle hypertrophy and increasing strength",
+        "trainingModifications": [
+          "3-4 sets of 8-12 reps for all exercises",
+          "increase weight by 2.5-5kg/5-10lbs every two weeks",
+          "add isolation exercises: bicep curls, tricep extensions"
+        ],
+        "nutritionModifications": [
+          "caloric deficit of 500-750 calories per day for fat loss",
+          "protein intake: 1.6-2.2 grams per kilogram of body weight per day"
+        ],
+        "expectedOutcomes": [
+          "increase in muscle hypertrophy",
+          "increase in strength",
+          "continued fat loss"
+        ]
+      },
+      {
+        "phaseNumber": 3,
+        "name": "Strength and Power",
+        "durationWeeks": 4,
+        "focus": "increasing strength and power",
+        "trainingModifications": [
+          "3-4 sets of 3-5 reps for all exercises",
+          "increase weight by 5-10kg/10-20lbs every two weeks",
+          "emphasize explosive exercises: box squats, depth jumps"
+        ],
+        "nutritionModifications": [
+          "caloric deficit of 750-1000 calories per day for fat loss",
+          "protein intake: 1.6-2.2 grams per kilogram of body weight per day"
+        ],
+        "expectedOutcomes": [
+          "increase in strength",
+          "increase in power",
+          "acceleration of fat loss"
+        ]
+      },
+      {
+        "phaseNumber": 4,
+        "name": "Taper and Definition",
+        "durationWeeks": 4,
+        "focus": "tapering and achieving muscle definition",
+        "trainingModifications": [
+          "2-3 sets of 12-15 reps for all exercises",
+          "decrease training volume to 10-12 sets per muscle group per week",
+          "emphasize high-rep exercises: leg press, lateral raises"
+        ],
+        "nutritionModifications": [
+          "caloric deficit of 1000-1250 calories per day for fat loss",
+          "protein intake: 1.6-2.2 grams per kilogram of body weight per day"
+        ],
+        "expectedOutcomes": [
+          "muscle definition and separation",
+          "final stages of fat loss",
+          "optimal physique for competition or show"
+        ]
+      }
+    ]
+  },
+  "generatedAt": "2025-10-20T06:47:06.226Z",
+  "confidenceScore": 0.8
+}

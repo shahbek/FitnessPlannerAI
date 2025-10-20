@@ -1,259 +1,201 @@
-// API Key Validation System - CRITICAL SECURITY COMPONENT
-// Enforces mandatory API key validation before any AI operations
+// API Key Validator and Debugger
+// Helps diagnose API key issues
 
-export interface APIKeyValidationResult {
+export interface APIKeyValidation {
   isValid: boolean;
-  error?: string;
-  provider?: 'openai' | 'groq' | 'anthropic';
+  provider: string;
+  format: string;
+  issues: string[];
+  suggestions: string[];
 }
 
 export class APIKeyValidator {
-  private static instance: APIKeyValidator;
-  private validatedKey: string | null = null;
-  private validationCache: Map<string, APIKeyValidationResult> = new Map();
-
-  static getInstance(): APIKeyValidator {
-    if (!APIKeyValidator.instance) {
-      APIKeyValidator.instance = new APIKeyValidator();
-    }
-    return APIKeyValidator.instance;
-  }
-
   /**
-   * Validate API key at application startup - FAIL FAST if invalid
+   * Validate and diagnose API key issues
    */
-  async validateOnStartup(): Promise<string> {
-    console.log('🔐 Starting API key validation...');
+  static validateAPIKey(apiKey: string, endpoint: string): APIKeyValidation {
+    const issues: string[] = [];
+    const suggestions: string[] = [];
     
-    // Check for API key in environment variables first
-    const envApiKey = process.env.OPENAI_API_KEY || 
-                     process.env.GROQ_API_KEY || 
-                     process.env.ANTHROPIC_API_KEY;
-    
-    if (envApiKey) {
-      console.log('✅ Found API key in environment variables');
-      const validation = await this.validateAPIKey(envApiKey);
-      if (validation.isValid) {
-        this.validatedKey = envApiKey;
-        console.log('✅ Environment API key validated successfully');
-        return envApiKey;
-      } else {
-        throw new Error(`❌ Environment API key validation failed: ${validation.error}`);
-      }
+    // Basic validation
+    if (!apiKey || apiKey.trim() === '') {
+      issues.push('API key is empty or undefined');
+      suggestions.push('Please provide a valid API key');
+      return { isValid: false, provider: 'unknown', format: 'unknown', issues, suggestions };
     }
 
-    // If no environment key, check localStorage for development
-    if (typeof window !== 'undefined') {
-      const storedKey = localStorage.getItem('fitness_planner_api_key');
-      if (storedKey) {
-        console.log('🔍 Found API key in localStorage');
-        const validation = await this.validateAPIKey(storedKey);
-        if (validation.isValid) {
-          this.validatedKey = storedKey;
-          console.log('✅ Stored API key validated successfully');
-          return storedKey;
-        } else {
-          console.warn('⚠️ Stored API key validation failed, removing from storage');
-          localStorage.removeItem('fitness_planner_api_key');
-        }
-      }
-    }
-
-    // No valid API key found
-    throw new Error(
-      '❌ FATAL ERROR: No valid API key found!\n\n' +
-      'Please set one of the following:\n' +
-      '1. Environment variable: OPENAI_API_KEY, GROQ_API_KEY, or ANTHROPIC_API_KEY\n' +
-      '2. Or enter your API key in the application form\n\n' +
-      'The application cannot function without a valid API key.'
-    );
-  }
-
-  /**
-   * Validate API key from user input
-   */
-  async validateUserAPIKey(apiKey: string): Promise<APIKeyValidationResult> {
-    if (!apiKey || apiKey.trim().length === 0) {
-      return {
-        isValid: false,
-        error: 'API key cannot be empty'
-      };
-    }
-
-    if (apiKey.length < 20) {
-      return {
-        isValid: false,
-        error: 'API key appears to be too short (minimum 20 characters)'
-      };
-    }
-
-    return await this.validateAPIKey(apiKey);
-  }
-
-  /**
-   * Test API key with actual API call
-   */
-  private async validateAPIKey(apiKey: string): Promise<APIKeyValidationResult> {
-    // Check cache first
-    if (this.validationCache.has(apiKey)) {
-      return this.validationCache.get(apiKey)!;
-    }
-
-    // Determine provider based on key format
-    const provider = this.detectProvider(apiKey);
-    
-    try {
-      const isValid = await this.testAPIKey(apiKey, provider);
-      
-      const result: APIKeyValidationResult = {
-        isValid,
-        provider,
-        error: isValid ? undefined : 'API key validation failed'
-      };
-
-      // Cache result
-      this.validationCache.set(apiKey, result);
-      
-      if (isValid) {
-        this.validatedKey = apiKey;
-        // Store in localStorage for convenience
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('fitness_planner_api_key', apiKey);
-        }
-      }
-
-      return result;
-    } catch (error) {
-      const result: APIKeyValidationResult = {
-        isValid: false,
-        provider,
-        error: error instanceof Error ? error.message : 'Unknown validation error'
-      };
-      
-      this.validationCache.set(apiKey, result);
-      return result;
-    }
-  }
-
-  /**
-   * Detect API provider from key format
-   */
-  private detectProvider(apiKey: string): 'openai' | 'groq' | 'anthropic' {
-    if (apiKey.startsWith('sk-')) {
-      return 'openai';
-    } else if (apiKey.startsWith('gsk_')) {
-      return 'groq';
-    } else if (apiKey.startsWith('sk-ant-')) {
-      return 'anthropic';
+    // Detect provider from endpoint
+    let provider = 'unknown';
+    if (endpoint.includes('groq.com')) {
+      provider = 'groq';
+    } else if (endpoint.includes('openai.com')) {
+      provider = 'openai';
+    } else if (endpoint.includes('anthropic.com')) {
+      provider = 'anthropic';
+    } else if (endpoint.includes('api.together.xyz')) {
+      provider = 'together';
     } else {
-      // Default to OpenAI format
-      return 'openai';
+      provider = 'custom';
     }
+
+    // Validate format based on provider
+    const format = this.detectFormat(apiKey);
+    
+    if (provider === 'groq') {
+      if (!apiKey.startsWith('gsk_')) {
+        issues.push('Groq API keys should start with "gsk_"');
+        suggestions.push('Please check your Groq API key format');
+      }
+    } else if (provider === 'openai') {
+      if (!apiKey.startsWith('sk-')) {
+        issues.push('OpenAI API keys should start with "sk-"');
+        suggestions.push('Please check your OpenAI API key format');
+      }
+    } else if (provider === 'anthropic') {
+      if (!apiKey.startsWith('sk-ant-')) {
+        issues.push('Anthropic API keys should start with "sk-ant-"');
+        suggestions.push('Please check your Anthropic API key format');
+      }
+    }
+
+    // Check key length
+    if (apiKey.length < 20) {
+      issues.push('API key seems too short');
+      suggestions.push('Most API keys are 40+ characters long');
+    }
+
+    // Check for common mistakes
+    if (apiKey.includes(' ')) {
+      issues.push('API key contains spaces');
+      suggestions.push('Remove any spaces from your API key');
+    }
+
+    if (apiKey.includes('\n') || apiKey.includes('\r')) {
+      issues.push('API key contains line breaks');
+      suggestions.push('Remove any line breaks from your API key');
+    }
+
+    return {
+      isValid: issues.length === 0,
+      provider,
+      format,
+      issues,
+      suggestions
+    };
   }
 
   /**
-   * Test API key with actual API call
+   * Detect the format of an API key
    */
-  private async testAPIKey(apiKey: string, provider: 'openai' | 'groq' | 'anthropic'): Promise<boolean> {
-    const endpoints = {
-      openai: 'https://api.openai.com/v1/chat/completions',
-      groq: 'https://api.groq.com/openai/v1/chat/completions',
-      anthropic: 'https://api.anthropic.com/v1/messages'
-    };
+  private static detectFormat(apiKey: string): string {
+    if (apiKey.startsWith('gsk_')) return 'groq';
+    if (apiKey.startsWith('sk-')) return 'openai';
+    if (apiKey.startsWith('sk-ant-')) return 'anthropic';
+    if (apiKey.startsWith('sk-')) return 'openai-compatible';
+    return 'unknown';
+  }
 
-    const endpoint = endpoints[provider];
+  /**
+   * Get debugging information for API calls
+   */
+  static getDebugInfo(apiKey: string, endpoint: string, model: string): string {
+    const validation = this.validateAPIKey(apiKey, endpoint);
+    
+    let debugInfo = `🔍 API Debug Information:\n`;
+    debugInfo += `- Provider: ${validation.provider}\n`;
+    debugInfo += `- Format: ${validation.format}\n`;
+    debugInfo += `- Endpoint: ${endpoint}\n`;
+    debugInfo += `- Model: ${model}\n`;
+    debugInfo += `- Key Length: ${apiKey.length} characters\n`;
+    debugInfo += `- Key Preview: ${apiKey.substring(0, 10)}...\n`;
+    
+    if (validation.issues.length > 0) {
+      debugInfo += `\n❌ Issues Found:\n`;
+      validation.issues.forEach(issue => debugInfo += `- ${issue}\n`);
+    }
+    
+    if (validation.suggestions.length > 0) {
+      debugInfo += `\n💡 Suggestions:\n`;
+      validation.suggestions.forEach(suggestion => debugInfo += `- ${suggestion}\n`);
+    }
+    
+    return debugInfo;
+  }
+
+  /**
+   * Test API key with a simple request
+   */
+  static async testAPIKey(apiKey: string, endpoint: string, model: string): Promise<{
+    success: boolean;
+    error?: string;
+    responseTime?: number;
+  }> {
+    const startTime = Date.now();
     
     try {
+      const validation = this.validateAPIKey(apiKey, endpoint);
+      if (!validation.isValid) {
+        return {
+          success: false,
+          error: `API key validation failed: ${validation.issues.join(', ')}`
+        };
+      }
+
+      // Detect provider for proper headers
+      let headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (endpoint.includes('anthropic.com')) {
+        headers['x-api-key'] = apiKey;
+      } else {
+        headers['Authorization'] = `Bearer ${apiKey}`;
+      }
+
+      // Make a simple test request
+      const testBody = {
+        model: model,
+        messages: [
+          {
+            role: 'user',
+            content: 'Hello, this is a test message. Please respond with "API key is working".'
+          }
+        ],
+        max_tokens: 10,
+        temperature: 0.1
+      };
+
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          ...(provider === 'anthropic' && { 'x-api-key': apiKey })
-        },
-        body: JSON.stringify({
-          model: provider === 'anthropic' ? 'claude-3-haiku-20240307' : 
-                 provider === 'groq' ? 'llama-3.1-8b-instant' : 'gpt-3.5-turbo',
-          messages: provider === 'anthropic' ? 
-            [{ role: 'user', content: 'Hello' }] :
-            [{ role: 'user', content: 'Hello' }],
-          max_tokens: 10,
-          ...(provider === 'anthropic' && { max_tokens: 10 })
-        })
+        headers,
+        body: JSON.stringify(testBody)
       });
 
+      const responseTime = Date.now() - startTime;
+
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const errorText = await response.text();
+        return {
+          success: false,
+          error: `HTTP ${response.status}: ${errorText}`,
+          responseTime
+        };
       }
 
-      const data = await response.json();
-      
-      // Check if we got a valid response
-      if (provider === 'anthropic') {
-        return data.content && Array.isArray(data.content) && data.content.length > 0;
-      } else {
-        return data.choices && Array.isArray(data.choices) && data.choices.length > 0;
-      }
+      return {
+        success: true,
+        responseTime
+      };
+
     } catch (error) {
-      console.error('API key validation failed:', error);
-      return false;
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        responseTime: Date.now() - startTime
+      };
     }
-  }
-
-  /**
-   * Get currently validated API key
-   */
-  getValidatedKey(): string | null {
-    return this.validatedKey;
-  }
-
-  /**
-   * Check if API key is currently validated
-   */
-  isKeyValidated(): boolean {
-    return this.validatedKey !== null;
-  }
-
-  /**
-   * Clear validated key (for logout/security)
-   */
-  clearValidatedKey(): void {
-    this.validatedKey = null;
-    this.validationCache.clear();
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('fitness_planner_api_key');
-    }
-  }
-
-  /**
-   * Get API configuration for validated key
-   */
-  getAPIConfig(): { endpoint: string; model: string; provider: string } | null {
-    if (!this.validatedKey) return null;
-
-    const provider = this.detectProvider(this.validatedKey);
-    
-    const configs = {
-      openai: {
-        endpoint: 'https://api.openai.com/v1/chat/completions',
-        model: 'gpt-4',
-        provider: 'OpenAI'
-      },
-      groq: {
-        endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-        model: 'llama-3.3-70b-versatile',
-        provider: 'Groq'
-      },
-      anthropic: {
-        endpoint: 'https://api.anthropic.com/v1/messages',
-        model: 'claude-3-opus-20240229',
-        provider: 'Anthropic'
-      }
-    };
-
-    return configs[provider];
   }
 }
 
 // Export singleton instance
-export const apiKeyValidator = APIKeyValidator.getInstance();
+export const apiKeyValidator = new APIKeyValidator();
