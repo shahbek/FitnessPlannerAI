@@ -1,10 +1,25 @@
 // High-Accuracy AI Planning Hook - With Integrated RAG + AI Pipeline
 import { useState, useCallback } from 'react';
-import { integratedPlanningService, CompletePlan, DebugSnapshot } from '@/services/integratedPlanningService';
+import { integratedPlanningService, DebugSnapshot } from '@/services/integratedPlanningService';
 import { CandidateProfile, CandidateProfileBuilder, ProfileValidator } from '@/types/candidateProfile';
 
-// Use CompletePlan from integrated service instead of custom interface
-export type HighAccuracyPlan = CompletePlan;
+// Define the plan type based on the integrated service return
+export type HighAccuracyPlan = {
+  feasibility: any;
+  strategicFramework: any;
+  exerciseLibrary: any[];
+  sessionTemplates: any[];
+  mealTemplates: any[];
+  shoppingList: {
+    proteins: string[];
+    carbs: string[];
+    fats: string[];
+    vegetables: string[];
+    condiments: string[];
+  };
+  phaseProgression: any[];
+  debugLog: DebugSnapshot[];
+};
 
 export interface HighAccuracyProgress {
   phase: 'profiling' | 'analysis' | 'planning' | 'validation' | 'complete';
@@ -107,25 +122,15 @@ export function useHighAccuracyAI() {
             });
 
             console.log('🚀 Starting complete plan generation...');
-            const completePlan = await integratedPlanningService.generateCompletePlan(candidateProfile, snapshot => {
+            const completePlan = await integratedPlanningService.generatePlan(candidateProfile, snapshot => {
               setPlanSnapshots(prev => [...prev, snapshot]);
             });
             console.log('📋 Complete plan generated:', completePlan);
 
-      // Step 3: Handle different plan statuses
-      // Note: The system now proceeds with feasible alternatives instead of stopping
-      if (completePlan.status === 'goal_not_feasible') {
-        // This should no longer happen as we proceed with alternatives
-        console.warn('⚠️ Unexpected: Goal not feasible status returned');
-        setError('Unexpected error: Goal feasibility processing failed');
-        setProgress(null);
-        return;
-      }
-
-      if (completePlan.status === 'goal_needs_adjustment') {
-        // This should no longer happen as we apply adjustments automatically
-        console.warn('⚠️ Unexpected: Goal needs adjustment status returned');
-        setError('Unexpected error: Goal adjustment processing failed');
+      // Step 3: Handle feasibility assessment
+      if (!completePlan.feasibility.isFeasible) {
+        console.warn('⚠️ Goal not feasible:', completePlan.feasibility.reasoning);
+        setError(`Goal not feasible: ${completePlan.feasibility.reasoning}`);
         setProgress(null);
         return;
       }
@@ -141,11 +146,12 @@ export function useHighAccuracyAI() {
         progress: 100,
         currentStep: 'High-accuracy AI plan generated successfully!',
         reasoning: [
-          `Plan generated with ${Math.round(completePlan.overallConfidence * 100)}% confidence`,
-          `Based on ${completePlan.totalReferences.length} research sources`,
-          `Generated ${completePlan.weeklyPlans.length} weekly plans`,
-          `Generated ${completePlan.dailyPlans.length} daily plans`,
-          `Generated ${completePlan.mealPlans.length} meal plans`,
+          `Plan generated with ${Math.round(completePlan.feasibility.confidenceScore * 100)}% confidence`,
+          `Based on ${completePlan.feasibility.researchCitations.length} research sources`,
+          `Generated ${completePlan.exerciseLibrary.length} exercises`,
+          `Generated ${completePlan.sessionTemplates.length} session templates`,
+          `Generated ${completePlan.mealTemplates.length} meal templates`,
+          `Generated ${completePlan.phaseProgression.length} program phases`,
           'Zero static data - all calculations from RAG + AI',
           'Ready for implementation!'
         ]
