@@ -282,7 +282,7 @@ Then a 5–8 sentence human-readable summary.`;
 
 // Default form values
 export const DEFAULT_FORM_STATE = {
-  apiKey: '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',
+  apiKey: '',
   endpoint: 'https://api.groq.com/openai/v1/chat/completions',
   model: 'meta-llama/llama-4-scout-17b-16e-instruct',
   age: 30,
