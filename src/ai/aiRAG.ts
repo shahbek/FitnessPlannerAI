@@ -3,7 +3,6 @@
 
 import { researchKnowledgeBase, ResearchFact } from './knowledgeBase';
 import { realAIClient } from './realAIClient';
-import { apiKeyValidator } from '@/utils/apiKeyValidator';
 
 export interface AIQuery {
   question: string;
@@ -25,9 +24,8 @@ export interface AIResponse {
 
 export class AIRAGSystem {
   private isInitialized = false;
-  private apiKey: string = '';
 
-  async initialize(apiKey?: string): Promise<void> {
+  async initialize(apiKey?: string, endpoint?: string, model?: string): Promise<void> {
     if (this.isInitialized) return;
 
     console.log('Initializing AI RAG System...');
@@ -35,12 +33,9 @@ export class AIRAGSystem {
     // Initialize knowledge base
     await researchKnowledgeBase.initialize();
     
-    // Initialize real AI client
-    await realAIClient.initialize();
-    
-    // Set API key if provided
-    if (apiKey) {
-      this.apiKey = apiKey;
+    // Initialize real AI client with provided parameters or defaults
+    if (apiKey && endpoint && model) {
+      await realAIClient.initialize(apiKey, endpoint, model);
     }
     
     this.isInitialized = true;
@@ -111,6 +106,9 @@ User Profile:
 - Training Experience: ${query.userProfile.workoutLevel || query.userProfile.experienceLevel || query.userProfile.trainingAge || 'Not specified'}
 - Preferred Split: ${query.userProfile.workoutSplit || query.userProfile.preferredSplit || 'Not specified'}
 - Goal: ${query.userProfile.goal || 'Not specified'}
+- Dietary Restrictions: ${query.userProfile.dietaryRestrictions?.join(', ') || 'None'}
+- Preferred Cuisines: ${query.userProfile.preferredCuisines?.join(', ') || 'Flexible'}
+- Program Duration: ${query.userProfile.desiredTimelineWeeks || 'Not specified'} weeks
 `;
 
     const researchContext = facts.map(fact => `
@@ -120,6 +118,7 @@ Confidence: ${(fact.confidence * 100).toFixed(0)}%
 Content: ${fact.content}
 ${fact.formulas.length > 0 ? `Formulas: ${fact.formulas.join(', ')}` : ''}
 ${fact.dataPoints.length > 0 ? `Data Points: ${fact.dataPoints.map(dp => `${dp.description}: ${dp.value} ${dp.units}`).join(', ')}` : ''}
+${fact.studyType ? `Study Type: ${fact.studyType}` : ''}
 `).join('\n');
 
     return `
@@ -139,13 +138,18 @@ INSTRUCTIONS:
 4. Include specific recommendations with numbers/percentages
 5. If the research doesn't fully answer the question, say so and explain what additional information would be needed
 6. Always cite the specific research sources
+7. For variety and personalization, provide multiple options when appropriate
+8. Consider dietary restrictions and preferences in recommendations
+9. Include progression strategies for long-term programs
+10. Address both immediate and long-term considerations
 
 RESPONSE FORMAT:
-Answer: [Your evidence-based answer with specific calculations]
+Answer: [Your evidence-based answer with specific calculations and variety options]
 Confidence: [0-100% based on research quality]
 Reasoning: [Step-by-step explanation of your reasoning]
 Warnings: [Any safety concerns or limitations]
-Recommendations: [Specific actionable recommendations]
+Recommendations: [Specific actionable recommendations with variety]
+Variety Options: [Multiple approaches or alternatives when applicable]
 `;
   }
 
@@ -176,7 +180,7 @@ Recommendations: [Specific actionable recommendations]
     };
   }
 
-  private generateFallbackResponse(query: AIQuery, facts: ResearchFact[]): AIResponse {
+  private generateFallbackResponse(_query: AIQuery, facts: ResearchFact[]): AIResponse {
     // Generate a fallback response when AI API fails
     const fact = facts[0]; // Use the most relevant fact
     
@@ -185,7 +189,7 @@ Recommendations: [Specific actionable recommendations]
       confidence: fact.confidence,
       sources: [`${fact.source} (${fact.year})`],
       facts: [fact],
-      reasoning: `This recommendation is based on ${fact.studyType} research with ${(fact.confidence * 100).toFixed(0)}% confidence.`,
+      reasoning: `This recommendation is based on research with ${(fact.confidence * 100).toFixed(0)}% confidence.`,
       warnings: fact.confidence < 0.9 ? ['Confidence below optimal threshold'] : [],
       recommendations: ['Monitor individual response and adjust as needed']
     };
