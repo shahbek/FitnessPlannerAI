@@ -385,41 +385,127 @@ export class RealAIClient {
     options?: {
       maxTokens?: number;
       temperature?: number;
+      retries?: number;
     }
   ): Promise<{ content: string; confidence: number; reasoning: string }> {
-    const structuredPrompt = `${prompt}
-
-IMPORTANT: You must respond with valid JSON in exactly this format:
-${expectedFormat}
-
-Do not include any text before or after the JSON. Only return the JSON object.`;
-
     const maxTokens = options?.maxTokens ?? 4000;
     const temperature = options?.temperature ?? 0.1;
+    const maxRetries = options?.retries ?? 3;
+
+    // Enhanced prompt with multiple attempts to get valid JSON
+    const structuredPrompt = `${prompt}
+
+CRITICAL INSTRUCTIONS:
+1. You MUST respond with ONLY valid JSON
+2. Do NOT include any text before or after the JSON
+3. Do NOT include explanations, comments, or markdown formatting
+4. Ensure all required fields are present
+5. Use the EXACT structure provided below
+
+REQUIRED JSON FORMAT:
+${expectedFormat}
+
+Your response must be valid JSON that can be parsed by JSON.parse() without any modifications.`;
+
+    const enhancedSystemPrompt = `${systemPrompt}
+
+You are a specialized JSON response generator. Your ONLY job is to return valid JSON that matches the exact format requested. Never include any text outside the JSON structure. Never use markdown code blocks or explanations. Just pure JSON.`;
 
     const messages: AIClientMessage[] = [
-      { role: 'system', content: `${systemPrompt}\n\nYou are a JSON response generator. Always respond with valid JSON only.` },
+      { role: 'system', content: enhancedSystemPrompt },
       { role: 'user', content: structuredPrompt }
     ];
 
-    const response = await this.generateResponse({
-      messages,
-      temperature,
-      max_tokens: maxTokens
-    });
+    // Try multiple times with improved prompts if needed
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`🤖 Generating structured response (attempt ${attempt}/${maxRetries})`);
+        
+        const response = await this.generateResponse({
+          messages,
+          temperature: attempt === 1 ? temperature : Math.min(temperature + 0.1, 0.3), // Slightly increase temperature on retries
+          max_tokens: maxTokens
+        });
 
-    console.log('🤖 AI structured response:', response.content);
+        console.log(`🤖 AI structured response (attempt ${attempt}):`, response.content);
 
-    // Extract confidence and reasoning from response
-    const content = response.content;
-    const confidenceMatch = content.match(/confidence[:\s]*(\d+(?:\.\d+)?)/i);
-    const reasoningMatch = content.match(/reasoning[:\s]*(.+?)(?=\n\n|\n[A-Z]|$)/is);
+        // Validate that the response is parseable JSON
+        const cleanedContent = this.extractJsonFromResponse(response.content);
+        
+        try {
+          JSON.parse(cleanedContent);
+          console.log(`✅ Successfully generated valid JSON on attempt ${attempt}`);
+          
+          // Extract confidence and reasoning from response
+          const confidenceMatch = response.content.match(/confidence[:\s]*(\d+(?:\.\d+)?)/i);
+          const reasoningMatch = response.content.match(/reasoning[:\s]*(.+?)(?=\n\n|\n[A-Z]|$)/is);
 
-    return {
-      content,
-      confidence: confidenceMatch ? parseFloat(confidenceMatch[1]) / 100 : 0.8,
-      reasoning: reasoningMatch ? reasoningMatch[1].trim() : 'Based on AI analysis'
-    };
+          return {
+            content: cleanedContent,
+            confidence: confidenceMatch ? parseFloat(confidenceMatch[1]) / 100 : 0.8,
+            reasoning: reasoningMatch ? reasoningMatch[1].trim() : 'Based on AI analysis'
+          };
+        } catch (parseError) {
+          console.warn(`⚠️ Attempt ${attempt} failed JSON validation:`, parseError);
+          
+          if (attempt < maxRetries) {
+            // Add more specific instructions for retry
+            messages.push({
+              role: 'user',
+              content: `The previous response was not valid JSON. Please try again with ONLY valid JSON, no other text. The JSON must be parseable by JSON.parse().`
+            });
+            continue;
+          } else {
+            console.error('❌ All attempts failed to generate valid JSON');
+            throw new Error(`Failed to generate valid JSON after ${maxRetries} attempts. Last error: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+          }
+        }
+      } catch (error) {
+        console.error(`❌ Attempt ${attempt} failed:`, error);
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        // Wait before retry
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+
+    throw new Error(`Failed to generate structured response after ${maxRetries} attempts`);
+  }
+
+  /**
+   * Extract JSON from AI response, handling common formatting issues
+   */
+  private extractJsonFromResponse(content: string): string {
+    let cleaned = content.trim();
+    
+    // Remove markdown code blocks
+    const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (codeBlockMatch) {
+      cleaned = codeBlockMatch[1].trim();
+    }
+    
+    // Find JSON object or array
+    const arrayMatch = cleaned.match(/\[[\s\S]*?\]/);
+    const objectMatch = cleaned.match(/\{[\s\S]*?\}/);
+    
+    if (arrayMatch) {
+      cleaned = arrayMatch[0];
+    } else if (objectMatch) {
+      cleaned = objectMatch[0];
+    }
+    
+    // Remove any trailing text after the JSON
+    const lastBrace = cleaned.lastIndexOf('}');
+    const lastBracket = cleaned.lastIndexOf(']');
+    
+    if (lastBrace > lastBracket && lastBrace !== -1) {
+      cleaned = cleaned.substring(0, lastBrace + 1);
+    } else if (lastBracket !== -1) {
+      cleaned = cleaned.substring(0, lastBracket + 1);
+    }
+    
+    return cleaned.trim();
   }
 
   /**
