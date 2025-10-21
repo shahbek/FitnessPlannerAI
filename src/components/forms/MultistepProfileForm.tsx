@@ -339,6 +339,24 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                 rows={4}
               />
             </div>
+            
+            <div>
+              <Label htmlFor="mealFrequency">Preferred Meal Frequency</Label>
+              <Select 
+                value={formData.mealFrequency?.toString()} 
+                onValueChange={(value) => updateFormData('mealFrequency', parseInt(value))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select meal frequency" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="3">3 meals per day</SelectItem>
+                  <SelectItem value="4">4 meals per day</SelectItem>
+                  <SelectItem value="5">5 meals per day</SelectItem>
+                  <SelectItem value="6">6 meals per day</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         );
 
