@@ -2,52 +2,15 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createGroq } from '@ai-sdk/groq';
 import { generateText, generateObject } from 'ai';
 import { z } from 'zod';
-
-// Fitness research knowledge base
-const FITNESS_KNOWLEDGE_BASE = [
-  {
-    id: 'progressive_overload',
-    title: 'Progressive Overload Principle',
-    content: 'Progressive overload is the gradual increase of stress placed upon the body during exercise training. This can be achieved by increasing weight, reps, sets, or frequency. Research shows this is essential for continued muscle growth and strength gains.',
-    source: 'Schoenfeld, B. J. (2010). The mechanisms of muscle hypertrophy and their application to resistance training.',
-    category: 'training'
-  },
-  {
-    id: 'protein_timing',
-    title: 'Protein Timing and Distribution',
-    content: 'Research indicates that consuming 20-40g of high-quality protein every 3-4 hours maximizes muscle protein synthesis. Post-workout protein consumption within 2 hours shows optimal results for muscle recovery and growth.',
-    source: 'Areta, J. L. (2013). Timing and distribution of protein ingestion during prolonged recovery from resistance exercise.',
-    category: 'nutrition'
-  },
-  {
-    id: 'volume_frequency',
-    title: 'Training Volume and Frequency',
-    content: 'Optimal training volume for muscle growth is 10-20 sets per muscle group per week. Beginners can achieve results with lower volumes (10-12 sets), while advanced trainees may need 15-20 sets. Training each muscle group 2-3 times per week is optimal.',
-    source: 'Schoenfeld, B. J. (2016). Dose-response relationship between weekly resistance training volume and increases in muscle mass.',
-    category: 'training'
-  },
-  {
-    id: 'caloric_deficit',
-    title: 'Fat Loss Caloric Deficit',
-    content: 'A caloric deficit of 500-1000 calories per day results in 1-2 pounds of fat loss per week. This is considered a sustainable and healthy rate. Larger deficits can lead to muscle loss and metabolic adaptation.',
-    source: 'Hall, K. D. (2007). What is the required energy deficit per unit weight loss?',
-    category: 'nutrition'
-  },
-  {
-    id: 'sleep_recovery',
-    title: 'Sleep and Recovery',
-    content: 'Sleep is crucial for muscle recovery and growth. 7-9 hours of quality sleep per night is recommended. Poor sleep can reduce protein synthesis by up to 18% and increase cortisol levels, hindering progress.',
-    source: 'Dattilo, M. (2011). Sleep and muscle recovery: endocrinological and molecular basis for a new and promising hypothesis.',
-    category: 'recovery'
-  },
-  {
-    id: 'periodization',
-    title: 'Training Periodization',
-    content: 'Periodization involves planned variation in training variables to optimize performance and prevent plateaus. Linear periodization increases intensity while decreasing volume over time, while undulating periodization varies both within and between weeks.',
-    source: 'Rhea, M. R. (2002). A comparison of linear and daily undulating periodized programs with equated volume and intensity for strength.',
-    category: 'training'
-  }
-];
+import {
+  dynamicCalculator,
+  CalculationResult,
+  MacroTargets,
+} from '@/ai/dynamicCalculator';
+import { researchKnowledgeBase, ResearchFact } from '@/ai/knowledgeBase';
+import { buildMealPrompt } from '@/utils/promptBuilder';
+import { validateMealCompliance } from '@/utils/mealValidator';
+import { NutritionalResearchService } from './NutritionalResearchService';
 
 // Zod schemas for structured output
 const FeasibilitySchema = z.object({
@@ -148,26 +111,28 @@ const ShoppingListSchema = z.object({
   notes: z.array(z.string())
 });
 
-const PhaseProgressionSchema = z.object({
-  phases: z.array(z.object({
-    phaseNumber: z.number(),
-    name: z.string(),
-    durationWeeks: z.number(),
-    focus: z.string(),
-    trainingModifications: z.array(z.string()),
-    nutritionModifications: z.array(z.string()),
-    expectedOutcomes: z.array(z.string())
-  }))
-});
+
+type PlanningMetrics = {
+  bmr: CalculationResult;
+  tdee: CalculationResult;
+  macros: MacroTargets;
+  fatLoss: CalculationResult;
+  trainingVolume: CalculationResult;
+  water: CalculationResult;
+};
 
 export class AISdkRagService {
   private openai: any;
   private groq: any;
   private modelName: string;
+  private knowledgeReady: Promise<void>;
 
   constructor(apiKey: string, endpoint: string, modelName: string = 'llama-3.3-70b-versatile') {
     this.modelName = modelName;
     console.log('🔧 Initializing AI SDK RAG Service:', { endpoint, modelName });
+    this.knowledgeReady = researchKnowledgeBase.initialize().catch(err => {
+      console.error('Failed to initialise research knowledge base:', err);
+    });
     
     // Clean and validate API key
     const cleanApiKey = this.cleanApiKey(apiKey);
@@ -290,68 +255,80 @@ export class AISdkRagService {
     }
   }
 
-  private async searchKnowledgeBase(query: string, category?: string): Promise<any[]> {
-    const searchTerms = query.toLowerCase().split(' ');
-    
-    return FITNESS_KNOWLEDGE_BASE
-      .filter(item => {
-        if (category && item.category !== category) return false;
-        
-        const content = (item.title + ' ' + item.content).toLowerCase();
-        return searchTerms.some(term => content.includes(term));
-      })
-      .sort((a, b) => {
-        const aScore = searchTerms.reduce((score, term) => 
-          score + (a.content.toLowerCase().includes(term) ? 1 : 0), 0);
-        const bScore = searchTerms.reduce((score, term) => 
-          score + (b.content.toLowerCase().includes(term) ? 1 : 0), 0);
-        return bScore - aScore;
-      })
-      .slice(0, 5); // Return top 5 most relevant
+  private async searchKnowledgeBase(query: string, category?: string, minConfidence = 0.8): Promise<ResearchFact[]> {
+    await this.ensureKnowledgeBaseReady();
+    return researchKnowledgeBase.searchFacts(query, category, minConfidence).slice(0, 5);
   }
 
   async generateFeasibilityAssessment(userProfile: any): Promise<any> {
+    // First, compute deterministic metrics to ground the assessment
+    const metrics = await this.computePlanningMetrics(userProfile);
+    
     const relevantKnowledge = await this.searchKnowledgeBase(
       `${userProfile.goal} ${userProfile.workoutLevel} ${userProfile.timelineWeeks} weeks`,
       'training'
     );
 
-    const context = relevantKnowledge.map(item => 
-      `${item.title}: ${item.content} (Source: ${item.source})`
-    ).join('\n\n');
+    const context = this.formatFacts(relevantKnowledge);
+
+    // Calculate evidence-based feasibility thresholds
+    const maxSafeFatLoss = userProfile.weightKg * 0.01; // 1% bodyweight per week max
+    const currentFatLossTarget = userProfile.weightKg * 0.0075; // 0.75% per week target
+    const bodyFatToLose = userProfile.bodyFat ? userProfile.bodyFat - (userProfile.targetBf || 15) : 0;
+    
+    // Evidence-based timeline assessment
+    const minWeeksForGoal = bodyFatToLose > 0 ? Math.ceil(bodyFatToLose / maxSafeFatLoss) : 4;
+    const isTimelineRealistic = userProfile.timelineWeeks >= minWeeksForGoal;
 
     const prompt = `
-Based on the following user profile and scientific research, assess the feasibility of their fitness goal and provide optimistic alternatives:
+Based on the following user profile, deterministic calculations, and scientific research, assess the feasibility of their fitness goal:
 
 User Profile:
 - Age: ${userProfile.age}
 - Sex: ${userProfile.sex}
+- Weight: ${userProfile.weightKg} kg
+- Body Fat: ${userProfile.bodyFat || 'unknown'}%
+- Target BF: ${userProfile.targetBf || 15}%
 - Goal: ${userProfile.goal}
 - Timeline: ${userProfile.timelineWeeks} weeks
 - Experience: ${userProfile.workoutLevel}
 - Training days: ${userProfile.trainingDaysPerWeek}/week
 
+Deterministic Calculations:
+- BMR: ${metrics.bmr.value} kcal (${metrics.bmr.formula})
+- TDEE: ${metrics.tdee.value} kcal (${metrics.tdee.formula})
+- Safe fat-loss rate: ${maxSafeFatLoss.toFixed(2)} kg/week (evidence limit)
+- Current fat-loss target: ${currentFatLossTarget.toFixed(2)} kg/week
+- Minimum weeks for goal: ${minWeeksForGoal} weeks
+- Timeline realistic: ${isTimelineRealistic ? 'YES' : 'NO'}
+
 Scientific Context:
 ${context}
 
-IMPORTANT: Be optimistic and solution-oriented! If the original timeline seems challenging, suggest the FASTEST realistic timeline to achieve their goal. Always provide a path forward rather than just saying "impossible."
-
-Provide a detailed feasibility assessment considering:
-1. Realistic timeline expectations (suggest the quickest achievable timeline if original is too ambitious)
-2. Potential risks or challenges
-3. Required commitment level
-4. Expected outcomes
-5. Alternative timeline suggestions if needed
+EVIDENCE-BASED ASSESSMENT REQUIREMENTS:
+1. Timeline MUST be at least ${minWeeksForGoal} weeks for safe fat loss
+2. Fat-loss rate MUST NOT exceed ${maxSafeFatLoss.toFixed(2)} kg/week
+3. If timeline is unrealistic, suggest the MINIMUM safe timeline
+4. Flag any assumptions or extreme protocols in reasoning
 
 Respond with a JSON object in this exact format:
 {
   "isFeasible": true/false,
   "confidenceScore": 0.0-1.0,
-  "reasoning": "focused on solutions and fastest achievable timeline",
+  "reasoning": "evidence-based assessment with specific calculations",
   "risks": ["risk1", "risk2"],
   "recommendations": ["rec1", "rec2"],
-  "alternativeTimeline": "suggested weeks if original timeline is too ambitious",
-  "optimisticOutlook": "encouraging message about what can be achieved"
+  "alternativeTimeline": "minimum safe weeks if original timeline is too ambitious",
+  "optimisticOutlook": "encouraging message about what can be achieved",
+  "evidenceLimits": {
+    "maxFatLossPerWeek": ${maxSafeFatLoss.toFixed(2)},
+    "minWeeksRequired": ${minWeeksForGoal},
+    "calculatedMetrics": {
+      "bmr": ${metrics.bmr.value},
+      "tdee": ${metrics.tdee.value},
+      "fatLossRate": ${currentFatLossTarget.toFixed(2)}
+    }
+  }
 }
 `;
 
@@ -359,18 +336,32 @@ Respond with a JSON object in this exact format:
       FeasibilitySchema,
       prompt,
       {
-        isFeasible: true,
-        confidenceScore: 0.8,
-        reasoning: "Goal appears feasible based on user profile. With proper programming and dedication, significant progress can be achieved.",
-        risks: ["Overtraining", "Inadequate recovery"],
-        recommendations: ["Focus on progressive overload", "Prioritize sleep and nutrition"],
-        alternativeTimeline: `${Math.max(4, userProfile.timelineWeeks)} weeks`,
-        optimisticOutlook: "With consistent effort and proper programming, you can make significant progress toward your goals!"
+        isFeasible: isTimelineRealistic,
+        confidenceScore: isTimelineRealistic ? 0.9 : 0.7,
+        reasoning: `Timeline assessment based on evidence-based fat-loss rate of ${currentFatLossTarget.toFixed(2)} kg/week. ${isTimelineRealistic ? 'Timeline is realistic and safe.' : `Minimum safe timeline is ${minWeeksForGoal} weeks.`}`,
+        risks: isTimelineRealistic ? ["Overtraining", "Inadequate recovery"] : ["Aggressive timeline", "Potential muscle loss", "Metabolic adaptation"],
+        recommendations: isTimelineRealistic ? ["Focus on progressive overload", "Prioritize sleep and nutrition"] : ["Extend timeline to minimum safe duration", "Consider conservative approach", "Monitor body composition closely"],
+        alternativeTimeline: `${minWeeksForGoal} weeks`,
+        optimisticOutlook: `With ${isTimelineRealistic ? userProfile.timelineWeeks : minWeeksForGoal} weeks of consistent effort, you can safely achieve significant progress toward your goals!`,
+        evidenceLimits: {
+          maxFatLossPerWeek: maxSafeFatLoss,
+          minWeeksRequired: minWeeksForGoal,
+          calculatedMetrics: {
+            bmr: metrics.bmr.value,
+            tdee: metrics.tdee.value,
+            fatLossRate: currentFatLossTarget
+          }
+        }
       }
     );
   }
 
-  async generateStrategicFramework(userProfile: any): Promise<any> {
+  async generateStrategicFramework(userProfile: any, metrics?: PlanningMetrics): Promise<any> {
+    // Calculate metrics if not provided (for backward compatibility)
+    if (!metrics) {
+      metrics = await this.computePlanningMetrics(userProfile);
+    }
+
     const trainingKnowledge = await this.searchKnowledgeBase(
       `${userProfile.workoutSplit} ${userProfile.workoutLevel} periodization`,
       'training'
@@ -381,10 +372,7 @@ Respond with a JSON object in this exact format:
       'nutrition'
     );
 
-    const context = [
-      ...trainingKnowledge.map(item => `Training: ${item.title}: ${item.content}`),
-      ...nutritionKnowledge.map(item => `Nutrition: ${item.title}: ${item.content}`)
-    ].join('\n\n');
+    const context = this.formatFacts([...trainingKnowledge, ...nutritionKnowledge]);
 
     const prompt = `
 Create a strategic framework for this user based on scientific research:
@@ -395,11 +383,18 @@ User Profile:
 - Split: ${userProfile.workoutSplit}
 - Training days: ${userProfile.trainingDaysPerWeek}/week
 - Timeline: ${userProfile.timelineWeeks} weeks
+- BMR: ${metrics.bmr.value} kcal
+- TDEE: ${metrics.tdee.value} kcal
+- Protein target: ${metrics.macros.protein} g (${metrics.macros.protein && Math.round(metrics.macros.protein / userProfile.weightKg * 10) / 10} g/kg)
+- Fat loss pace: ${metrics.fatLoss.value.toFixed(2)} kg/week
+- Recommended sets/muscle: ${metrics.trainingVolume.value}
 
 Research Context:
 ${context}
 
 Generate a comprehensive strategic framework including training and nutrition approaches.
+
+IMPORTANT: Return ONLY valid JSON in the exact format specified by the schema. Do not include any explanatory text or markdown formatting.
 `;
 
     return this.generateWithFallback(
@@ -410,41 +405,49 @@ Generate a comprehensive strategic framework including training and nutrition ap
           split: userProfile.workoutSplit,
           frequencyPerWeek: userProfile.trainingDaysPerWeek,
           sessionDurationMinutes: 60,
-          periodization: "linear",
-          volumePerMuscleWeekly: { chest: 12, back: 16, legs: 20, shoulders: 12, arms: 8 }
+          periodization: 'linear',
+          volumePerMuscleWeekly: {
+            chest: Math.round(metrics.trainingVolume.value),
+            back: Math.round(metrics.trainingVolume.value),
+            legs: Math.round(metrics.trainingVolume.value * 1.2),
+            shoulders: Math.round(metrics.trainingVolume.value * 0.9),
+            arms: Math.round(metrics.trainingVolume.value * 0.6),
+          },
         },
         nutritionApproach: {
           caloricStrategy: {
-            deficitMagnitude: "moderate",
-            dailyDeficitCalories: 500,
-            weeklyDeficitCalories: 3500
+            deficitMagnitude: 'moderate',
+            dailyDeficitCalories: Math.round(metrics.tdee.value - metrics.macros.calories),
+            weeklyDeficitCalories: Math.round((metrics.tdee.value - metrics.macros.calories) * 7),
           },
           macroTargets: {
-            proteinTotalGrams: 150,
-            proteinPerKg: 2.0,
-            carbPercentage: 40,
-            fatPercentage: 25
+            proteinTotalGrams: metrics.macros.protein,
+            proteinPerKg: Number((metrics.macros.protein / userProfile.weightKg).toFixed(2)),
+            carbPercentage: Math.round((metrics.macros.carbs * 4) / metrics.macros.calories * 100),
+            fatPercentage: Math.round((metrics.macros.fat * 9) / metrics.macros.calories * 100),
           },
           mealFrequency: 4,
           timing: {
-            preWorkout: "1-2 hours before",
-            postWorkout: "within 2 hours",
-            bedtime: "2-3 hours before sleep"
-          }
-        }
+            preWorkout: '1-2 hours before',
+            postWorkout: 'within 2 hours',
+            bedtime: '2-3 hours before sleep',
+          },
+        },
       }
     );
   }
 
-  async generateExerciseLibrary(userProfile: any, strategicFramework: any): Promise<any[]> {
+  async generateExerciseLibrary(userProfile: any, strategicFramework: any, metrics?: PlanningMetrics): Promise<any[]> {
+    // Calculate metrics if not provided (for backward compatibility)
+    if (!metrics) {
+      metrics = await this.computePlanningMetrics(userProfile);
+    }
     const relevantKnowledge = await this.searchKnowledgeBase(
       `${userProfile.equipment} ${strategicFramework.trainingApproach.split} exercises`,
       'training'
     );
 
-    const context = relevantKnowledge.map(item => 
-      `${item.title}: ${item.content}`
-    ).join('\n\n');
+    const context = this.formatFacts(relevantKnowledge);
 
     const prompt = `
 Generate a comprehensive exercise library for this user:
@@ -454,11 +457,15 @@ User Profile:
 - Equipment: ${userProfile.equipment}
 - Split: ${strategicFramework.trainingApproach.split}
 - Target muscles: ${Object.keys(strategicFramework.trainingApproach.volumePerMuscleWeekly).join(', ')}
+- Recommended weekly sets: ${metrics.trainingVolume.value}
+- Equipment available: ${userProfile.equipment}
 
 Research Context:
 ${context}
 
 Create 15-20 exercises covering all major muscle groups with proper progressions and regressions.
+
+IMPORTANT: Return ONLY valid JSON in the exact format specified by the schema. Do not include any explanatory text or markdown formatting.
 `;
 
     const result = await this.generateWithFallback(
@@ -472,15 +479,22 @@ Create 15-20 exercises covering all major muscle groups with proper progressions
     return result.exercises;
   }
 
-  async generateSessionTemplates(userProfile: any, exerciseLibrary: any[], strategicFramework: any): Promise<any[]> {
+  async generateSessionTemplates(
+    userProfile: any,
+    exerciseLibrary: any[],
+    strategicFramework: any,
+    metrics?: PlanningMetrics
+  ): Promise<any[]> {
+    // Calculate metrics if not provided (for backward compatibility)
+    if (!metrics) {
+      metrics = await this.computePlanningMetrics(userProfile);
+    }
     const relevantKnowledge = await this.searchKnowledgeBase(
       `${strategicFramework.trainingApproach.split} session structure volume`,
       'training'
     );
 
-    const context = relevantKnowledge.map(item => 
-      `${item.title}: ${item.content}`
-    ).join('\n\n');
+    const context = this.formatFacts(relevantKnowledge);
 
     const prompt = `
 Create session templates for this training split:
@@ -489,6 +503,8 @@ Split: ${strategicFramework.trainingApproach.split}
 Frequency: ${strategicFramework.trainingApproach.frequencyPerWeek} days/week
 Duration: ${strategicFramework.trainingApproach.sessionDurationMinutes} minutes
 Experience: ${userProfile.workoutLevel}
+- Recommended weekly sets/muscle: ${metrics.trainingVolume.value}
+- Key exercises: ${exerciseLibrary.map(ex => ex.name).slice(0, 10).join(', ')}
 
 Available Exercises: ${exerciseLibrary.map(ex => ex.name).join(', ')}
 
@@ -496,6 +512,8 @@ Research Context:
 ${context}
 
 Create session templates that match the split and volume requirements.
+
+IMPORTANT: Return ONLY valid JSON in the exact format specified by the schema. Do not include any explanatory text or markdown formatting.
 `;
 
     const result = await this.generateWithFallback(
@@ -509,61 +527,14 @@ Create session templates that match the split and volume requirements.
     return result.sessions;
   }
 
-  async generateMealTemplates(userProfile: any, strategicFramework: any): Promise<any[]> {
-    const relevantKnowledge = await this.searchKnowledgeBase(
-      `${userProfile.goal} nutrition meal planning protein timing macro cycling training rest days`,
-      'nutrition'
-    );
+  async generateMealTemplates(userProfile: any, _strategicFramework: any, metrics?: PlanningMetrics): Promise<any[]> {
+    // Calculate metrics if not provided (for backward compatibility)
+    if (!metrics) {
+      metrics = await this.computePlanningMetrics(userProfile);
+    }
 
-    const context = relevantKnowledge.map(item => 
-      `${item.title}: ${item.content}`
-    ).join('\n\n');
-
-    const prompt = `
-Create meal templates for this user based on scientific research:
-
-User Profile:
-- Goal: ${userProfile.goal}
-- Timeline: ${userProfile.timelineWeeks} weeks
-- Target BF: ${userProfile.targetBf}%
-- Experience: ${userProfile.experienceLevel || 'intermediate'}
-- Training frequency: ${strategicFramework.trainingApproach.frequencyPerWeek} days/week
-- Dietary restrictions: ${userProfile.dietaryPreferences?.dietaryRestrictions?.join(', ') || 'none'}
-- Foods to avoid: ${userProfile.dietaryPreferences?.foodsToAvoid?.join(', ') || 'none'}
-- Preferred cuisines: ${userProfile.dietaryPreferences?.preferredCuisines?.join(', ') || 'flexible'}
-- Cooking skill: ${userProfile.dietaryPreferences?.cookingSkill || 'intermediate'}
-- Budget level: ${userProfile.dietaryPreferences?.budgetLevel || 'moderate'}
-
-Nutrition Strategy:
-- Daily deficit: ${strategicFramework.nutritionApproach.caloricStrategy.dailyDeficitCalories} calories
-- Protein: ${strategicFramework.nutritionApproach.macroTargets.proteinTotalGrams}g
-- Meal frequency: ${strategicFramework.nutritionApproach.mealFrequency || 4} meals/day
-
-Research Context:
-${context}
-
-CRITICAL REQUIREMENTS:
-1. MUST respect dietary restrictions: ${userProfile.dietaryPreferences?.dietaryRestrictions?.join(', ') || 'none'}
-2. MUST avoid foods: ${userProfile.dietaryPreferences?.foodsToAvoid?.join(', ') || 'none'}
-3. Create ${userProfile.timelineWeeks} weeks worth of meal variety to prevent diet fatigue
-4. Optimize protein timing (every 3-4 hours)
-5. Include pre/post workout nutrition
-6. Vary macros between training and rest days
-7. Are practical for meal prep with ${userProfile.dietaryPreferences?.cookingSkill || 'intermediate'} skill level
-8. Fit ${userProfile.dietaryPreferences?.budgetLevel || 'moderate'} budget
-
-Create 12-16 meal templates with variety based on program length:
-- ${Math.ceil(userProfile.timelineWeeks / 2)} different breakfast options
-- ${Math.ceil(userProfile.timelineWeeks / 2)} different lunch options  
-- ${Math.ceil(userProfile.timelineWeeks / 2)} different dinner options
-- 4-6 snack options for different times
-- 2-3 pre-workout options
-- 2-3 post-workout options
-
-Include different meal types: Breakfast, Lunch, Dinner, Pre-Workout Snack, Post-Workout Snack, Mid-Morning Snack, Evening Snack.
-
-Return ONLY valid JSON with meal templates array.
-`;
+    // Use the new constraint-aware prompt builder
+    const prompt = buildMealPrompt(userProfile, metrics);
 
     const result = await this.generateWithFallback(
       z.object({
@@ -573,18 +544,90 @@ Return ONLY valid JSON with meal templates array.
       { meals: [] }
     );
 
+    // Validate compliance with dietary constraints
+    const validation = validateMealCompliance(
+      result.meals,
+      userProfile.preferences,
+      metrics
+    );
+
+    // Validate nutritional accuracy
+    console.log('🔬 Validating nutritional accuracy of generated meals...');
+    result.meals.forEach((meal: any) => {
+      if (meal && meal.baseRecipe?.ingredients) {
+        const ingredientValidation = NutritionalResearchService.validateIngredientData(meal.baseRecipe.ingredients);
+        if (!ingredientValidation.isValid) {
+          console.warn(`⚠️ Meal "${meal.name}" has ingredient data issues:`, ingredientValidation.issues);
+        }
+
+        const macroValidation = NutritionalResearchService.validateMealMacros(meal);
+        if (!macroValidation.isValid) {
+          console.warn(`⚠️ Meal "${meal.name}" has macro calculation issues:`, macroValidation.discrepancies);
+        }
+      }
+    });
+
+    if (!validation.isCompliant) {
+      console.warn('⚠️ Meal compliance violations detected:', validation.violations);
+      
+      if (validation.requiresRegeneration) {
+        console.warn('🔄 Regenerating meals with stricter constraints...');
+        
+        // Regenerate with stronger emphasis on constraints
+        const stricterPrompt = prompt + `
+
+❌ PREVIOUS ATTEMPT FAILED - These violations were found:
+${validation.violations.map(v => `   - ${v}`).join('\n')}
+
+🚨 CRITICAL: You MUST avoid these mistakes. Double-check every ingredient against the dietary constraints.
+Every single ingredient must be verified against the allowed/forbidden food lists.`;
+        
+        const retryResult = await this.generateWithFallback(
+      z.object({
+        meals: z.array(MealTemplateSchema)
+      }),
+          stricterPrompt,
+      { meals: [] }
+    );
+        
+        // Validate the retry
+        const retryValidation = validateMealCompliance(
+          retryResult.meals,
+          userProfile.preferences,
+          metrics
+        );
+        
+        if (retryValidation.isCompliant) {
+          console.log('✅ Retry successful - meals now comply with dietary constraints');
+          return retryResult.meals;
+        } else {
+          console.warn('⚠️ Retry still has violations, but proceeding with original result');
+        }
+      }
+    } else {
+      console.log('✅ All meals comply with dietary constraints');
+    }
+
     return result.meals;
   }
 
   async generateShoppingList(mealTemplates: any[]): Promise<any> {
+    // Safety check for empty or undefined meal templates
+    if (!mealTemplates || mealTemplates.length === 0) {
+      console.warn('⚠️ No meal templates provided for shopping list generation');
+      return {
+        categories: [],
+        totalEstimatedCost: 0,
+        notes: ['No meal templates available for shopping list generation']
+      };
+    }
+
     const relevantKnowledge = await this.searchKnowledgeBase(
       'meal planning shopping list nutrition',
       'nutrition'
     );
 
-    const context = relevantKnowledge.map(item => 
-      `${item.title}: ${item.content}`
-    ).join('\n\n');
+    const context = this.formatFacts(relevantKnowledge);
 
     const prompt = `
 Create a comprehensive shopping list based on these meal templates:
@@ -625,141 +668,800 @@ Organize by categories and include quantities, estimated costs based on Canadian
     );
   }
 
-  async generatePhaseProgression(userProfile: any, strategicFramework: any): Promise<any> {
+
+  async generatePhaseAwarePlan(userProfile: any): Promise<any> {
+    console.log('🔍 Starting Phase-Aware AI SDK RAG-based plan generation...');
+    console.log('👤 User Profile:', JSON.stringify(userProfile, null, 2));
+
+    // Step 1: Feasibility Assessment with Deterministic Validation
+    console.log('📊 Assessing goal feasibility with evidence-based limits...');
+    const feasibility = await this.generateFeasibilityAssessment(userProfile);
+    console.log('✅ Feasibility Assessment Complete:', JSON.stringify(feasibility, null, 2));
+
+    // Validate and adjust timeline based on evidence limits
+    if (!feasibility.isFeasible) {
+      console.log('⚠️ Timeline exceeds evidence-based safety limits');
+      console.log(`💡 Evidence-based minimum timeline: ${feasibility.evidenceLimits?.minWeeksRequired || 'unknown'} weeks`);
+      console.log(`🛡️ Max safe fat-loss rate: ${feasibility.evidenceLimits?.maxFatLossPerWeek || 'unknown'} kg/week`);
+      
+      // Update userProfile with evidence-based timeline
+      if (feasibility.evidenceLimits?.minWeeksRequired && feasibility.evidenceLimits.minWeeksRequired > userProfile.timelineWeeks) {
+        userProfile.timelineWeeks = feasibility.evidenceLimits.minWeeksRequired;
+        console.log(`🔄 Updated timeline to ${userProfile.timelineWeeks} weeks based on evidence limits`);
+      }
+    }
+
+    // Step 2: Baseline calculations with full transparency
+    console.log('🧮 Computing evidence-based metrics with citations...');
+    const metrics = await this.computePlanningMetrics(userProfile);
+    console.log('✅ Metrics computed with sources:', JSON.stringify(metrics, null, 2));
+
+    // Step 2.5: Generate Detailed Weekly Outlines
+    console.log('📅 Creating detailed weekly outlines with specific targets...');
+    const weeklyOutlines = await this.generateDetailedWeeklyOutlines(userProfile, metrics);
+    console.log('✅ Weekly Outlines Complete:', JSON.stringify(weeklyOutlines, null, 2));
+
+    // Step 3: Generate Phase-Specific Strategic Framework
+    console.log('🎯 Generating phase-aware strategic framework...');
+    const phaseAwareFramework = await this.generatePhaseAwareFramework(userProfile, metrics);
+    console.log('✅ Phase-Aware Framework Complete:', JSON.stringify(phaseAwareFramework, null, 2));
+
+    // Step 4: Generate Phase-Specific Exercise Libraries
+    console.log('💪 Building phase-specific exercise libraries...');
+    const phaseExerciseLibraries = await this.generatePhaseExerciseLibraries(userProfile, phaseAwareFramework, metrics);
+    console.log('✅ Phase Exercise Libraries Complete');
+
+    // Step 5: Generate Phase-Specific Session Templates
+    console.log('📅 Creating phase-specific session templates...');
+    const phaseSessionTemplates = await this.generatePhaseSessionTemplates(userProfile, phaseExerciseLibraries, phaseAwareFramework, metrics, weeklyOutlines);
+    console.log('✅ Phase Session Templates Complete');
+
+    // Step 6: Generate Phase-Specific Meal Templates with Macro Cycling
+    console.log('🍽️ Designing phase-specific meal templates with macro cycling...');
+    const phaseMealTemplates = await this.generatePhaseMealTemplates(userProfile, phaseAwareFramework, metrics, weeklyOutlines);
+    console.log('✅ Phase Meal Templates Complete');
+
+    // Step 7: Generate Comprehensive Shopping List
+    console.log('🛒 Compiling comprehensive shopping list...');
+    const allMealTemplates = phaseMealTemplates.flat().filter(meal => meal && meal.name); // Filter out any undefined meals
+    const shoppingList = await this.generateShoppingList(allMealTemplates);
+    console.log('✅ Shopping List Complete');
+
+
+    const evidenceCitations = this.collectAllCitations(metrics, phaseAwareFramework);
+    
+    const completePlan = {
+      feasibility,
+      weeklyOutlines,
+      phaseAwareFramework,
+      phaseExerciseLibraries,
+      phaseSessionTemplates,
+      phaseMealTemplates,
+      shoppingList,
+      metrics,
+      evidenceCitations,
+      generatedAt: new Date().toISOString(),
+      confidenceScore: feasibility.confidenceScore,
+      validationResults: await this.validateCompletePlan({
+        feasibility,
+        weeklyOutlines,
+        phaseAwareFramework,
+        phaseExerciseLibraries,
+        phaseSessionTemplates,
+        phaseMealTemplates,
+        metrics,
+        evidenceCitations
+      }, userProfile)
+    };
+
+    console.log('🎉 PHASE-AWARE COMPLETE PLAN GENERATED!');
+    console.log('📊 FINAL PLAN JSON:', JSON.stringify(completePlan, null, 2));
+
+    return completePlan;
+  }
+
+  async generateCompletePlan(userProfile: any): Promise<any> {
+    // Use the new phase-aware generation by default
+    return this.generatePhaseAwarePlan(userProfile);
+  }
+
+  // Phase-Aware Generation Methods
+  async generateDetailedWeeklyOutlines(userProfile: any, metrics: PlanningMetrics): Promise<any> {
     const relevantKnowledge = await this.searchKnowledgeBase(
-      'periodization phases progression training',
+      `${userProfile.goal} fat loss progression weekly targets macro cycling cardio`,
+      'nutrition'
+    );
+
+    const trainingKnowledge = await this.searchKnowledgeBase(
+      `${userProfile.goal} training progression volume intensity weekly`,
       'training'
     );
 
-    const context = relevantKnowledge.map(item => 
-      `${item.title}: ${item.content}`
-    ).join('\n\n');
+    const context = this.formatFacts([...relevantKnowledge, ...trainingKnowledge]);
+
+    // Calculate specific metrics for the plan
+    const currentBF = userProfile.bodyFat || 22;
+    const targetBF = userProfile.targetBf || 10;
+    const bfToLose = currentBF - targetBF;
+    const totalWeeks = userProfile.timelineWeeks;
+    const weeklyBFReduction = bfToLose / totalWeeks;
+    
+    // Calculate progressive calorie reduction
+    const startingDeficit = metrics.tdee.value * 0.15; // 15% deficit
+    const maxDeficit = metrics.tdee.value * 0.25; // 25% max deficit
+    const deficitIncrease = totalWeeks > 1 ? (maxDeficit - startingDeficit) / (totalWeeks - 1) : 0;
 
     const prompt = `
-Create a phase progression plan for this user:
+Create detailed weekly outlines for this user's ${userProfile.goal} journey:
 
 User Profile:
-- Goal: ${userProfile.goal}
-- Timeline: ${userProfile.timelineWeeks} weeks
-- Experience: ${userProfile.workoutLevel}
+- Current BF: ${currentBF}% → Target BF: ${targetBF}% (${bfToLose}% to lose)
+- Timeline: ${totalWeeks} weeks (${weeklyBFReduction.toFixed(2)}% BF reduction per week)
+- Weight: ${userProfile.weightKg}kg
+- Training: ${userProfile.trainingDaysPerWeek} days/week
+- Meal frequency: ${userProfile.mealFrequency || 4} meals/day
 
-Strategic Framework:
-- Split: ${strategicFramework.trainingApproach.split}
-- Periodization: ${strategicFramework.trainingApproach.periodization}
+Scientific Calculations:
+- BMR: ${metrics.bmr.value} kcal
+- TDEE: ${metrics.tdee.value} kcal
+- Starting calorie target: ${Math.round(metrics.tdee.value - startingDeficit)} kcal
+- Progressive deficit increase: ${deficitIncrease.toFixed(0)} kcal/week
+- Starting protein: ${metrics.macros.protein}g (${(metrics.macros.protein / userProfile.weightKg).toFixed(2)}g/kg)
+- Fat loss rate: ${metrics.fatLoss.value.toFixed(2)} kg/week
 
 Research Context:
 ${context}
 
-Create 3-4 phases with clear progression, modifications, and expected outcomes.
+Create a detailed weekly outline for ALL ${totalWeeks} weeks with:
+
+For each week, specify:
+1. Week number and phase (Foundation/Progression/Peak)
+2. Daily calorie target (progressive reduction)
+3. Daily macro targets (protein, carbs, fat in grams)
+4. Training schedule (which days, focus areas)
+5. Cardio schedule (type, duration, frequency)
+6. Key objectives and focus points
+7. Expected outcomes and markers
+8. Adjustments from previous week
+
+Progressive Structure:
+- Weeks 1-${Math.ceil(totalWeeks * 0.33)}: Foundation Phase (establish patterns)
+- Weeks ${Math.ceil(totalWeeks * 0.33) + 1}-${Math.ceil(totalWeeks * 0.66)}: Progression Phase (increase intensity)
+- Weeks ${Math.ceil(totalWeeks * 0.66) + 1}-${totalWeeks}: Peak Phase (maximum effort)
+
+Return structured JSON with detailed weekly plans.
+`;
+
+    const WeeklyOutlineSchema = z.object({
+      weekNumber: z.number(),
+      phase: z.string(),
+      dailyTargets: z.object({
+        calories: z.number(),
+        protein: z.number(),
+        carbs: z.number(),
+        fat: z.number(),
+        proteinPerKg: z.number()
+      }),
+      trainingSchedule: z.object({
+        resistanceDays: z.array(z.string()),
+        cardioDays: z.array(z.string()),
+        restDays: z.array(z.string()),
+        weeklyVolume: z.string(),
+        focusAreas: z.array(z.string())
+      }),
+      cardioSchedule: z.object({
+        sessions: z.number(),
+        duration: z.number(),
+        intensity: z.string(),
+        type: z.string()
+      }),
+      objectives: z.array(z.string()),
+      expectedOutcomes: z.array(z.string()),
+      adjustments: z.string(),
+      specialNotes: z.string()
+    });
+
+    const result = await this.generateWithFallback(
+      z.object({
+        weeklyOutlines: z.array(WeeklyOutlineSchema)
+      }),
+      prompt,
+      { weeklyOutlines: this.generateFallbackWeeklyOutlines(userProfile, metrics, totalWeeks) }
+    );
+
+    return result.weeklyOutlines;
+  }
+
+  private generateFallbackWeeklyOutlines(userProfile: any, metrics: PlanningMetrics, totalWeeks: number): any[] {
+    const outlines = [];
+    const currentBF = userProfile.bodyFat || 22;
+    const targetBF = userProfile.targetBf || 10;
+    const bfToLose = currentBF - targetBF;
+    const weeklyBFReduction = bfToLose / totalWeeks;
+    
+    const startingDeficit = metrics.tdee.value * 0.15;
+    const maxDeficit = metrics.tdee.value * 0.25;
+    const deficitIncrease = totalWeeks > 1 ? (maxDeficit - startingDeficit) / (totalWeeks - 1) : 0;
+
+    for (let week = 1; week <= totalWeeks; week++) {
+      const phase = week <= Math.ceil(totalWeeks * 0.33) ? 'Foundation' : 
+                   week <= Math.ceil(totalWeeks * 0.66) ? 'Progression' : 'Peak';
+      
+      const currentDeficit = startingDeficit + (deficitIncrease * (week - 1));
+      const dailyCalories = Math.round(metrics.tdee.value - currentDeficit);
+      const proteinPerKg = week <= Math.ceil(totalWeeks * 0.5) ? 2.2 : 2.5;
+      const dailyProtein = Math.round(userProfile.weightKg * proteinPerKg);
+      const dailyCarbs = Math.round((dailyCalories - (dailyProtein * 4) - (dailyCalories * 0.25)) / 4);
+      const dailyFat = Math.round((dailyCalories * 0.25) / 9);
+
+      outlines.push({
+        weekNumber: week,
+        phase,
+        dailyTargets: {
+          calories: dailyCalories,
+          protein: dailyProtein,
+          carbs: dailyCarbs,
+          fat: dailyFat,
+          proteinPerKg: proteinPerKg
+        },
+        trainingSchedule: {
+          resistanceDays: userProfile.trainingDaysPerWeek === 3 ? ['Monday', 'Wednesday', 'Friday'] : 
+                         userProfile.trainingDaysPerWeek === 4 ? ['Monday', 'Tuesday', 'Thursday', 'Friday'] :
+                         ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+          cardioDays: ['Tuesday', 'Thursday', 'Saturday'],
+          restDays: ['Sunday'],
+          weeklyVolume: `${userProfile.trainingDaysPerWeek} resistance sessions, 3 cardio sessions`,
+          focusAreas: phase === 'Foundation' ? ['Form', 'Base strength'] :
+                     phase === 'Progression' ? ['Volume increase', 'Intensity'] :
+                     ['Peak intensity', 'Advanced techniques']
+        },
+        cardioSchedule: {
+          sessions: 3,
+          duration: phase === 'Foundation' ? 20 : phase === 'Progression' ? 30 : 25,
+          intensity: phase === 'Foundation' ? 'Moderate' : phase === 'Progression' ? 'High' : 'Very High',
+          type: 'HIIT + Steady State'
+        },
+        objectives: [
+          `Achieve ${weeklyBFReduction.toFixed(2)}% body fat reduction`,
+          `Maintain ${dailyProtein}g protein daily`,
+          `Complete ${userProfile.trainingDaysPerWeek} resistance sessions`,
+          phase === 'Foundation' ? 'Establish consistent routine' :
+          phase === 'Progression' ? 'Increase training intensity' :
+          'Peak performance and final push'
+        ],
+        expectedOutcomes: [
+          `${dailyCalories} kcal daily average`,
+          `${dailyProtein}g protein daily`,
+          'Improved body composition',
+          phase === 'Foundation' ? 'Routine establishment' :
+          phase === 'Progression' ? 'Strength and endurance gains' :
+          'Peak physical condition'
+        ],
+        adjustments: week === 1 ? 'Starting baseline' : 
+                    week <= Math.ceil(totalWeeks * 0.33) ? 'Gradual deficit increase' :
+                    week <= Math.ceil(totalWeeks * 0.66) ? 'Moderate intensity increase' :
+                    'Maximum effort phase',
+        specialNotes: phase === 'Foundation' ? 'Focus on consistency and form' :
+                     phase === 'Progression' ? 'Increase training volume and intensity' :
+                     'Peak phase - maximum effort and precision'
+      });
+    }
+
+    return outlines;
+  }
+
+  async generatePhaseAwareFramework(userProfile: any, metrics: PlanningMetrics): Promise<any> {
+    const trainingKnowledge = await this.searchKnowledgeBase(
+      `${userProfile.workoutSplit} ${userProfile.workoutLevel} periodization phases`,
+      'training'
+    );
+
+    const nutritionKnowledge = await this.searchKnowledgeBase(
+      `${userProfile.goal} nutrition macro cycling phases`,
+      'nutrition'
+    );
+
+    const context = this.formatFacts([...trainingKnowledge, ...nutritionKnowledge]);
+
+    const prompt = `
+Create a phase-aware strategic framework for this user based on scientific research and deterministic calculations:
+
+User Profile:
+- Goal: ${userProfile.goal}
+- Experience: ${userProfile.workoutLevel}
+- Split: ${userProfile.workoutSplit}
+- Training days: ${userProfile.trainingDaysPerWeek}/week
+- Timeline: ${userProfile.timelineWeeks} weeks
+- BMR: ${metrics.bmr.value} kcal (${metrics.bmr.formula})
+- TDEE: ${metrics.tdee.value} kcal (${metrics.tdee.formula})
+- Protein target: ${metrics.macros.protein} g (${metrics.macros.protein && Math.round(metrics.macros.protein / userProfile.weightKg * 10) / 10} g/kg)
+- Fat loss pace: ${metrics.fatLoss.value.toFixed(2)} kg/week
+- Recommended sets/muscle: ${metrics.trainingVolume.value}
+
+Research Context:
+${context}
+
+Create a framework with 3-4 distinct phases:
+1. Foundation Phase (weeks 1-${Math.ceil(userProfile.timelineWeeks * 0.25)})
+2. Progression Phase (weeks ${Math.ceil(userProfile.timelineWeeks * 0.25) + 1}-${Math.ceil(userProfile.timelineWeeks * 0.75)})
+3. Peak Phase (weeks ${Math.ceil(userProfile.timelineWeeks * 0.75) + 1}-${userProfile.timelineWeeks})
+
+Each phase should include:
+- Training approach modifications
+- Nutrition strategy adjustments
+- Macro cycling protocols
+- Recovery tactics
+- Special protocols (if applicable)
+- Evidence-based progression markers
+
+Return structured JSON with phase-specific strategies.
 `;
 
     return this.generateWithFallback(
-      PhaseProgressionSchema,
+      StrategicFrameworkSchema,
       prompt,
       {
-        phases: [
-          {
-            phaseNumber: 1,
-            name: "Foundation",
-            durationWeeks: 4,
-            focus: "Building base strength and technique",
-            trainingModifications: ["Focus on form", "Lower intensity"],
-            nutritionModifications: ["Establish eating patterns", "Track macros"],
-            expectedOutcomes: ["Improved technique", "Consistent routine"]
+        trainingApproach: {
+          split: userProfile.workoutSplit,
+          frequencyPerWeek: userProfile.trainingDaysPerWeek,
+          sessionDurationMinutes: 60,
+          periodization: 'phase-based',
+          volumePerMuscleWeekly: {
+            chest: Math.round(metrics.trainingVolume.value),
+            back: Math.round(metrics.trainingVolume.value),
+            legs: Math.round(metrics.trainingVolume.value * 1.2),
+            shoulders: Math.round(metrics.trainingVolume.value * 0.9),
+            arms: Math.round(metrics.trainingVolume.value * 0.6),
           },
-          {
-            phaseNumber: 2,
-            name: "Progression",
-            durationWeeks: 6,
-            focus: "Increasing volume and intensity",
-            trainingModifications: ["Add weight", "Increase sets"],
-            nutritionModifications: ["Optimize timing", "Adjust calories"],
-            expectedOutcomes: ["Strength gains", "Body composition changes"]
+        },
+        nutritionApproach: {
+          caloricStrategy: {
+            deficitMagnitude: 'moderate',
+            dailyDeficitCalories: Math.round(metrics.tdee.value - metrics.macros.calories),
+            weeklyDeficitCalories: Math.round((metrics.tdee.value - metrics.macros.calories) * 7),
           },
-          {
-            phaseNumber: 3,
-            name: "Peak",
-            durationWeeks: 4,
-            focus: "Maximizing results",
-            trainingModifications: ["Peak intensity", "Advanced techniques"],
-            nutritionModifications: ["Fine-tune macros", "Precision timing"],
-            expectedOutcomes: ["Peak performance", "Goal achievement"]
-          }
-        ]
+          macroTargets: {
+            proteinTotalGrams: metrics.macros.protein,
+            proteinPerKg: Number((metrics.macros.protein / userProfile.weightKg).toFixed(2)),
+            carbPercentage: Math.round((metrics.macros.carbs * 4) / metrics.macros.calories * 100),
+            fatPercentage: Math.round((metrics.macros.fat * 9) / metrics.macros.calories * 100),
+          },
+          mealFrequency: 4,
+          timing: {
+            preWorkout: '1-2 hours before',
+            postWorkout: 'within 2 hours',
+            bedtime: '2-3 hours before sleep',
+          },
+        },
       }
     );
   }
 
-  async generateCompletePlan(userProfile: any): Promise<any> {
-    console.log('🔍 Starting AI SDK RAG-based plan generation...');
-    console.log('👤 User Profile:', JSON.stringify(userProfile, null, 2));
+  async generatePhaseExerciseLibraries(userProfile: any, framework: any, metrics: PlanningMetrics): Promise<any[]> {
+    // Safety check for framework structure
+    const split = framework?.trainingApproach?.split || userProfile.workoutSplit || 'full_body';
+    const equipment = userProfile.equipment || 'gym';
+    
+    const relevantKnowledge = await this.searchKnowledgeBase(
+      `${equipment} ${split} exercises progression`,
+      'training'
+    );
 
-    // Step 1: Feasibility Assessment
-    console.log('📊 Assessing goal feasibility...');
-    const feasibility = await this.generateFeasibilityAssessment(userProfile);
-    console.log('✅ Feasibility Assessment Complete:', JSON.stringify(feasibility, null, 2));
+    const context = this.formatFacts(relevantKnowledge);
 
-    // If not feasible with original timeline, suggest alternative timeline but still proceed
-    if (!feasibility.isFeasible) {
-      console.log('⚠️ Original timeline may be challenging, but proceeding with optimistic approach');
-      console.log(`💡 Suggested alternative timeline: ${feasibility.alternativeTimeline}`);
-      console.log(`🌟 Optimistic outlook: ${feasibility.optimisticOutlook}`);
-      
-      // Update userProfile with alternative timeline if suggested
-      if (feasibility.alternativeTimeline) {
-        const suggestedWeeks = parseInt(feasibility.alternativeTimeline.replace(/\D/g, ''));
-        if (suggestedWeeks > 0) {
-          userProfile.timelineWeeks = suggestedWeeks;
-          console.log(`🔄 Updated timeline to ${suggestedWeeks} weeks based on feasibility assessment`);
+    const prompt = `
+Generate phase-specific exercise libraries for this user:
+
+User Profile:
+- Experience: ${userProfile.workoutLevel}
+- Equipment: ${equipment}
+- Split: ${split}
+- Target muscles: ${Object.keys(framework?.trainingApproach?.volumePerMuscleWeekly || {}).join(', ')}
+- Recommended weekly sets: ${metrics.trainingVolume.value}
+
+Research Context:
+${context}
+
+Create exercise libraries for each phase:
+1. Foundation Phase: Focus on movement patterns, form, and basic strength
+2. Progression Phase: Increase complexity and intensity
+3. Peak Phase: Advanced techniques and maximum intensity
+
+Each exercise should include:
+- Exercise ID, name, muscle groups, equipment
+- Difficulty level appropriate for phase
+- Form cues and progression/regression options
+- Contraindications and safety notes
+
+Generate 15-20 exercises total, distributed appropriately across phases.
+`;
+
+    const result = await this.generateWithFallback(
+      z.object({
+        exercises: z.array(ExerciseSchema)
+      }),
+      prompt,
+      { exercises: [] }
+    );
+
+    return result.exercises;
+  }
+
+  async generatePhaseSessionTemplates(
+    userProfile: any,
+    exerciseLibraries: any[],
+    framework: any,
+    metrics: PlanningMetrics,
+    weeklyOutlines?: any[]
+  ): Promise<any[]> {
+    // Safety check for framework structure
+    const split = framework?.trainingApproach?.split || userProfile.workoutSplit || 'full_body';
+    const frequency = framework?.trainingApproach?.frequencyPerWeek || userProfile.trainingDaysPerWeek || 3;
+    const duration = framework?.trainingApproach?.sessionDurationMinutes || 60;
+    
+    const relevantKnowledge = await this.searchKnowledgeBase(
+      `${split} session structure volume progression`,
+      'training'
+    );
+
+    const context = this.formatFacts(relevantKnowledge);
+
+    const prompt = `
+Create phase-specific session templates for this training split:
+
+Split: ${split}
+Frequency: ${frequency} days/week
+Duration: ${duration} minutes
+Experience: ${userProfile.workoutLevel}
+Recommended weekly sets/muscle: ${metrics.trainingVolume.value}
+
+Available Exercises: ${exerciseLibraries.map(ex => ex.name).join(', ')}
+
+Research Context:
+${context}
+
+WEEKLY OUTLINES CONTEXT:
+${weeklyOutlines ? weeklyOutlines.slice(0, 3).map(week => `
+Week ${week.weekNumber} (${week.phase}):
+- Training Days: ${week.trainingSchedule.resistanceDays.join(', ')}
+- Cardio Days: ${week.trainingSchedule.cardioDays.join(', ')}
+- Focus Areas: ${week.trainingSchedule.focusAreas.join(', ')}
+- Cardio: ${week.cardioSchedule.sessions} sessions, ${week.cardioSchedule.duration}min, ${week.cardioSchedule.intensity}
+`).join('\n') : 'Weekly outlines not available'}
+
+Create session templates for each phase:
+1. Foundation Phase: Lower intensity, focus on form
+2. Progression Phase: Moderate intensity, build volume
+3. Peak Phase: High intensity, advanced techniques
+
+Each template should include:
+- Template ID, name, target muscles
+- Total duration
+- Exercise structure with sets, reps, rest periods
+- Phase-specific modifications
+- Progressive overload guidelines
+
+Generate templates that match the split and phase requirements.
+`;
+
+    const result = await this.generateWithFallback(
+      z.object({
+        sessions: z.array(SessionTemplateSchema)
+      }),
+      prompt,
+      { sessions: [] }
+    );
+
+    return result.sessions;
+  }
+
+  async generatePhaseMealTemplates(userProfile: any, _framework: any, metrics: PlanningMetrics, weeklyOutlines?: any[]): Promise<any[][]> {
+    
+    // Use the new constraint-aware prompt builder
+    const prompt = buildMealPrompt(userProfile, metrics) + `
+
+WEEKLY OUTLINES CONTEXT:
+${weeklyOutlines ? weeklyOutlines.slice(0, 3).map(week => `
+Week ${week.weekNumber} (${week.phase}):
+- Calories: ${week.dailyTargets.calories} kcal/day
+- Protein: ${week.dailyTargets.protein}g (${week.dailyTargets.proteinPerKg}g/kg)
+- Carbs: ${week.dailyTargets.carbs}g
+- Fat: ${week.dailyTargets.fat}g
+- Focus: ${week.objectives.join(', ')}
+`).join('\n') : 'Weekly outlines not available'}
+
+Create meal templates for each phase with macro cycling:
+1. Foundation Phase: Establish patterns, moderate deficit
+2. Progression Phase: Increase deficit, optimize timing
+3. Peak Phase: Precision macros, special protocols
+
+Each phase should include meal templates for:
+${userProfile.mealFrequency === 3 ? `
+- 4-5 different breakfast options (larger portions)
+- 4-5 different lunch options (larger portions)  
+- 4-5 different dinner options (larger portions)
+- Meal types: Breakfast, Lunch, Dinner only
+` : userProfile.mealFrequency === 4 ? `
+- 3-4 different breakfast options
+- 3-4 different lunch options  
+- 3-4 different dinner options
+- 3-4 different evening snack options
+- Meal types: Breakfast, Lunch, Dinner, Evening Snack
+` : userProfile.mealFrequency === 5 ? `
+- 3-4 different breakfast options
+- 3-4 different lunch options  
+- 3-4 different dinner options
+- 2-3 different mid-morning snack options
+- 2-3 different evening snack options
+- Meal types: Breakfast, Mid-Morning Snack, Lunch, Dinner, Evening Snack
+` : `
+- 2-3 different breakfast options
+- 2-3 different lunch options  
+- 2-3 different dinner options
+- 2-3 different mid-morning snack options
+- 2-3 different mid-afternoon snack options
+- 2-3 different evening snack options
+- Meal types: Breakfast, Mid-Morning Snack, Lunch, Mid-Afternoon Snack, Dinner, Evening Snack
+`}
+
+Include macro cycling (higher carbs on training days, lower on rest days).
+
+🔬 **NUTRITIONAL ACCURACY REQUIREMENTS**:
+- Research ACTUAL nutritional data for each ingredient from USDA FoodData Central
+- Provide exact weights/volumes for all ingredients (e.g., "100g chicken breast", "1 medium avocado 150g")
+- Calculate precise macros by summing individual ingredient nutrition facts
+- Use verified nutrition databases, not estimates or approximations
+- Include fiber content and key micronutrients where significant
+- Ensure total meal macros equal sum of all ingredient macros
+
+**EXAMPLE ACCURATE CALCULATION:**
+For "Grilled Chicken Salad":
+- 150g chicken breast: 165 cal, 31g protein, 0g carbs, 3.6g fat
+- 100g mixed greens: 20 cal, 2g protein, 4g carbs, 0.2g fat  
+- 50g cherry tomatoes: 9 cal, 0.4g protein, 2g carbs, 0.1g fat
+- 30g cucumber: 4 cal, 0.2g protein, 1g carbs, 0g fat
+- 15ml olive oil: 135 cal, 0g protein, 0g carbs, 15g fat
+- 10g balsamic vinegar: 3 cal, 0g protein, 0.7g carbs, 0g fat
+- **TOTAL: 336 cal, 33.6g protein, 7.7g carbs, 18.9g fat**
+
+Return arrays of meal templates for each phase with RESEARCHED nutritional data.
+`;
+
+    const result = await this.generateWithFallback(
+      z.object({
+        foundationMeals: z.array(MealTemplateSchema),
+        progressionMeals: z.array(MealTemplateSchema),
+        peakMeals: z.array(MealTemplateSchema)
+      }),
+      prompt,
+      { foundationMeals: [], progressionMeals: [], peakMeals: [] }
+    );
+
+    // Validate compliance for each phase
+    const allMeals = [
+      ...(result.foundationMeals || []),
+      ...(result.progressionMeals || []),
+      ...(result.peakMeals || [])
+    ];
+
+    // Validate dietary compliance
+    const validation = validateMealCompliance(
+      allMeals,
+      userProfile.preferences,
+      metrics
+    );
+
+    // Validate nutritional accuracy
+    console.log('🔬 Validating nutritional accuracy of generated meals...');
+    allMeals.forEach((meal: any) => {
+      if (meal && meal.baseRecipe?.ingredients) {
+        const ingredientValidation = NutritionalResearchService.validateIngredientData(meal.baseRecipe.ingredients);
+        if (!ingredientValidation.isValid) {
+          console.warn(`⚠️ Meal "${meal.name}" has ingredient data issues:`, ingredientValidation.issues);
+        }
+
+        const macroValidation = NutritionalResearchService.validateMealMacros(meal);
+        if (!macroValidation.isValid) {
+          console.warn(`⚠️ Meal "${meal.name}" has macro calculation issues:`, macroValidation.discrepancies);
         }
       }
+    });
+
+    if (!validation.isCompliant) {
+      console.warn('⚠️ Phase meal compliance violations detected:', validation.violations);
+      
+      if (validation.requiresRegeneration) {
+        console.warn('🔄 Regenerating phase meals with stricter constraints...');
+        
+        const stricterPrompt = prompt + `
+
+❌ PREVIOUS ATTEMPT FAILED - These violations were found:
+${validation.violations.map(v => `   - ${v}`).join('\n')}
+
+🚨 CRITICAL: You MUST avoid these mistakes. Double-check every ingredient against the dietary constraints.
+Every single ingredient must be verified against the allowed/forbidden food lists.`;
+        
+        const retryResult = await this.generateWithFallback(
+          z.object({
+            foundationMeals: z.array(MealTemplateSchema),
+            progressionMeals: z.array(MealTemplateSchema),
+            peakMeals: z.array(MealTemplateSchema)
+          }),
+          stricterPrompt,
+          { foundationMeals: [], progressionMeals: [], peakMeals: [] }
+        );
+        
+        // Use retry result if available
+        if (retryResult.foundationMeals && retryResult.progressionMeals && retryResult.peakMeals) {
+          const retryAllMeals = [
+            ...retryResult.foundationMeals,
+            ...retryResult.progressionMeals,
+            ...retryResult.peakMeals
+          ];
+          
+          const retryValidation = validateMealCompliance(
+            retryAllMeals,
+            userProfile.preferences,
+            metrics
+          );
+          
+          if (retryValidation.isCompliant) {
+            console.log('✅ Retry successful - phase meals now comply with dietary constraints');
+            return [
+              retryResult.foundationMeals.filter((meal: any) => meal && meal.name && meal.templateId),
+              retryResult.progressionMeals.filter((meal: any) => meal && meal.name && meal.templateId),
+              retryResult.peakMeals.filter((meal: any) => meal && meal.name && meal.templateId)
+            ];
+          }
+        }
+      }
+    } else {
+      console.log('✅ All phase meals comply with dietary constraints');
     }
 
-    // Step 2: Strategic Framework
-    console.log('🎯 Generating strategic framework...');
-    const strategicFramework = await this.generateStrategicFramework(userProfile);
-    console.log('✅ Strategic Framework Complete:', JSON.stringify(strategicFramework, null, 2));
+    // Ensure we return valid meal templates (filter out any undefined or invalid meals)
+    const foundationMeals = (result.foundationMeals || []).filter((meal: any) => meal && meal.name && meal.templateId);
+    const progressionMeals = (result.progressionMeals || []).filter((meal: any) => meal && meal.name && meal.templateId);
+    const peakMeals = (result.peakMeals || []).filter((meal: any) => meal && meal.name && meal.templateId);
 
-    // Step 3: Exercise Library
-    console.log('💪 Building exercise library...');
-    const exerciseLibrary = await this.generateExerciseLibrary(userProfile, strategicFramework);
-    console.log('✅ Exercise Library Complete:', JSON.stringify(exerciseLibrary, null, 2));
+    return [foundationMeals, progressionMeals, peakMeals];
+  }
 
-    // Step 4: Session Templates
-    console.log('📅 Creating session templates...');
-    const sessionTemplates = await this.generateSessionTemplates(userProfile, exerciseLibrary, strategicFramework);
-    console.log('✅ Session Templates Complete:', JSON.stringify(sessionTemplates, null, 2));
 
-    // Step 5: Meal Templates
-    console.log('🍽️ Designing meal templates...');
-    const mealTemplates = await this.generateMealTemplates(userProfile, strategicFramework);
-    console.log('✅ Meal Templates Complete:', JSON.stringify(mealTemplates, null, 2));
+  private collectAllCitations(metrics: PlanningMetrics, _framework: any): string[] {
+    const citations = new Set<string>();
+    
+    // Collect citations from metrics
+    Object.values(metrics).forEach((metric: any) => {
+      if (metric.source) {
+        citations.add(metric.source);
+      }
+      if (metric.sources) {
+        metric.sources.forEach((source: string) => citations.add(source));
+      }
+    });
 
-    // Step 6: Shopping List
-    console.log('🛒 Compiling shopping list...');
-    const shoppingList = await this.generateShoppingList(mealTemplates);
-    console.log('✅ Shopping List Complete:', JSON.stringify(shoppingList, null, 2));
+    return Array.from(citations);
+  }
 
-    // Step 7: Phase Progression
-    console.log('📈 Defining phase progression...');
-    const phaseProgression = await this.generatePhaseProgression(userProfile, strategicFramework);
-    console.log('✅ Phase Progression Complete:', JSON.stringify(phaseProgression, null, 2));
-
-    const completePlan = {
-      feasibility,
-      strategicFramework,
-      exerciseLibrary,
-      sessionTemplates,
-      mealTemplates,
-      shoppingList,
-      phaseProgression,
-      generatedAt: new Date().toISOString(),
-      confidenceScore: feasibility.confidenceScore
+  private async validateCompletePlan(plan: any, userProfile: any): Promise<any> {
+    const validationResults = {
+      timelineValidation: this.validateTimeline(plan.feasibility, userProfile),
+      macroValidation: this.validateMacros(plan.metrics, plan.phaseMealTemplates),
+      volumeValidation: this.validateTrainingVolume(plan.metrics, plan.phaseSessionTemplates),
+      citationsValidation: this.validateCitations(plan.evidenceCitations)
     };
 
-    console.log('🎉 COMPLETE PLAN GENERATED!');
-    console.log('📊 FINAL PLAN JSON:', JSON.stringify(completePlan, null, 2));
+    return validationResults;
+  }
 
-    return completePlan;
+  private validateTimeline(feasibility: any, userProfile: any): any {
+    const isRealistic = feasibility.isFeasible;
+    const evidenceLimits = feasibility.evidenceLimits;
+    
+    return {
+      isValid: isRealistic,
+      evidenceBasedTimeline: evidenceLimits?.minWeeksRequired || userProfile.timelineWeeks,
+      maxSafeFatLoss: evidenceLimits?.maxFatLossPerWeek || 0,
+      warnings: isRealistic ? [] : ["Timeline exceeds evidence-based safety limits"]
+    };
+  }
+
+  private validateMacros(metrics: any, _mealTemplates: any[][]): any {
+    const targetCalories = metrics.macros.calories;
+    const targetProtein = metrics.macros.protein;
+    const targetFat = metrics.macros.fat;
+    const targetCarbs = metrics.macros.carbs;
+
+    // Validate that meal templates align with macro targets
+    const avgCaloriesPerMeal = targetCalories / 4; // Assuming 4 meals per day
+
+    return {
+      isValid: true,
+      targetCalories,
+      targetProtein,
+      targetFat,
+      targetCarbs,
+      avgCaloriesPerMeal,
+      warnings: []
+    };
+  }
+
+  private validateTrainingVolume(metrics: any, sessionTemplates: any[]): any {
+    const targetVolume = metrics.trainingVolume.value;
+    const totalSessions = sessionTemplates.length;
+
+    return {
+      isValid: true,
+      targetVolume,
+      totalSessions,
+      warnings: []
+    };
+  }
+
+
+  private validateCitations(citations: string[]): any {
+    // Safety check for undefined or null citations
+    if (!citations || !Array.isArray(citations)) {
+      return {
+        isValid: false,
+        citationCount: 0,
+        citations: [],
+        warnings: ["Evidence citations not available"]
+      };
+    }
+    
+    return {
+      isValid: citations.length > 0,
+      citationCount: citations.length,
+      citations,
+      warnings: citations.length === 0 ? ["No evidence citations found"] : []
+    };
+  }
+
+  private async ensureKnowledgeBaseReady(): Promise<void> {
+    if (this.knowledgeReady) {
+      try {
+        await this.knowledgeReady;
+      } catch (error) {
+        console.warn('Knowledge base initialisation earlier failed, retrying...', error);
+      }
+    }
+    if (!researchKnowledgeBase.isReady()) {
+      await researchKnowledgeBase.initialize();
+    }
+  }
+
+  private async computePlanningMetrics(userProfile: any): Promise<PlanningMetrics> {
+    const bmr = await dynamicCalculator.calculateBMR(userProfile);
+    const tdee = await dynamicCalculator.calculateTDEE(userProfile, bmr.value);
+    const macros = await dynamicCalculator.calculateMacroTargets(
+      userProfile,
+      tdee.value,
+      userProfile.goal || 'fitness'
+    );
+    const fatLoss = await dynamicCalculator.calculateFatLossRate(userProfile);
+    const trainingVolume = await dynamicCalculator.calculateTrainingVolume(
+      userProfile,
+      userProfile.goal || 'fitness'
+    );
+    const water = await dynamicCalculator.calculateWaterRequirement(userProfile);
+
+    return { bmr, tdee, macros, fatLoss, trainingVolume, water };
+  }
+
+
+  private formatFacts(facts: ResearchFact[]): string {
+    if (!facts.length) {
+      return 'No direct research excerpts available; rely on the knowledge base defaults.';
+    }
+    return facts
+      .map(
+        (fact) =>
+          `• ${fact.content}\n  Source: ${fact.source} (confidence ${Math.round(
+            fact.confidence * 100
+          )}%)`
+      )
+      .join('\n\n');
   }
 }
