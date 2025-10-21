@@ -79,7 +79,8 @@ export function WeeklyShoppingTable({ data }: WeeklyShoppingTableProps) {
 
   // Calculate total cost for all weeks
   const totalCost = data.reduce((sum, week) => sum + week.weekTotal, 0);
-  const monthlyCost = totalCost * 4; // Assuming 4 weeks per month
+  const weeklyCost = totalCost / data.length;
+  const monthlyCost = weeklyCost * 4; // Assuming 4 weeks per month
 
   return (
     <div className="space-y-6">
