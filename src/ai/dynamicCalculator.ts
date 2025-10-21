@@ -1,13 +1,16 @@
-// Dynamic Calculator System
-// Replaces ALL static data with formula-based calculations from research
+// Dynamic Calculator System (self-contained)
+// Provides evidence-aligned calculations without relying on the removed enhancedRAG layer.
 
-import { enhancedRAG } from './enhancedRAG';
+import {
+  researchKnowledgeBase,
+  ResearchFact,
+} from './knowledgeBase';
 
 export interface CalculationResult {
   value: number;
   confidence: number;
   formula: string;
-  variables: { [key: string]: number };
+  variables: Record<string, number>;
   source: string;
   warnings: string[];
   recommendations: string[];
@@ -22,384 +25,345 @@ export interface MacroTargets {
   sources: string[];
 }
 
-export interface MetabolicProfile {
-  bmr: number;
-  tdee: number;
-  activityFactor: number;
-  confidence: number;
-  sources: string[];
-}
-
-export interface BodyComposition {
-  leanBodyMass: number;
-  fatMass: number;
-  bodyFatPercentage: number;
-  confidence: number;
-  sources: string[];
-}
-
 export class DynamicCalculator {
-  private ragSystem: typeof enhancedRAG;
-
   constructor() {
-    this.ragSystem = enhancedRAG;
+    if (!researchKnowledgeBase.isReady()) {
+      void researchKnowledgeBase.initialize();
+    }
   }
 
   /**
-   * Calculate BMR using the best available method
+   * Basal metabolic rate using Katch–McArdle (if body-fat% available) or Mifflin–St Jeor.
    */
   async calculateBMR(userProfile: any): Promise<CalculationResult> {
-    // Try enhanced RAG first, fallback to simple RAG
-    let response;
-    try {
-      const query = {
-        userProfile,
-        question: 'Calculate BMR for this user using the most accurate method',
-        context: ['metabolism', 'bmr', 'energy'],
-        confidenceThreshold: 0.9
-      };
-      response = await enhancedRAG.query(query);
-    } catch (error) {
-      console.warn('Enhanced RAG failed, using simple RAG for BMR calculation');
-      response = await simpleRAG.getBMRCalculation(userProfile);
-    }
-    
-    // Extract BMR formula from research (for future use)
-    // const bmrFormula = this.extractBMRFormula(response);
-    
-    // Calculate BMR based on user data
-    let bmr: number;
-    let formula: string;
-    let variables: { [key: string]: number };
+    await this.ensureKnowledgeBase();
 
-    if (userProfile.bodyFat && userProfile.bodyFat > 0) {
-      // Use Katch-McArdle if body fat is available
-      const leanBodyMass = userProfile.weightKg * (1 - userProfile.bodyFat / 100);
-      bmr = 370 + (21.6 * leanBodyMass);
+    const hasBodyFat =
+      typeof userProfile.bodyFat === 'number' && userProfile.bodyFat > 0;
+    let value: number;
+    let formula: string;
+    let variables: Record<string, number>;
+    let sourceFact: ResearchFact | undefined;
+
+    if (hasBodyFat) {
+      const leanBodyMass =
+        userProfile.weightKg * (1 - userProfile.bodyFat / 100);
+      value = 370 + 21.6 * leanBodyMass;
       formula = 'BMR = 370 + (21.6 × LBM_kg)';
       variables = { LBM_kg: leanBodyMass };
+      sourceFact = researchKnowledgeBase.getFactById('katch_mcardle_bmr');
     } else {
-      // Use Mifflin-St Jeor as fallback
       const genderFactor = userProfile.sex === 'male' ? 5 : -161;
-      bmr = (10 * userProfile.weightKg) + (6.25 * userProfile.heightCm) - (5 * userProfile.age) + genderFactor;
-      formula = 'BMR = (10 × weight_kg) + (6.25 × height_cm) - (5 × age) + gender_factor';
-      variables = { 
-        weight_kg: userProfile.weightKg, 
-        height_cm: userProfile.heightCm, 
-        age: userProfile.age, 
-        gender_factor: genderFactor 
+      value =
+        10 * userProfile.weightKg +
+        6.25 * userProfile.heightCm -
+        5 * userProfile.age +
+        genderFactor;
+      formula =
+        'BMR = (10 × weight_kg) + (6.25 × height_cm) - (5 × age) + gender_factor';
+      variables = {
+        weight_kg: userProfile.weightKg,
+        height_cm: userProfile.heightCm,
+        age: userProfile.age,
+        gender_factor: genderFactor,
       };
+      sourceFact = researchKnowledgeBase.getFactById('mifflin_st_jeor_bmr');
     }
 
     return {
-      value: Math.round(bmr),
-      confidence: response.confidence,
+      value: Math.round(value),
+      confidence: 0.92,
       formula,
       variables,
-      source: (response.citations && response.citations[0]) || (response as any).sources?.[0] || 'Research-based calculation',
-      warnings: response.warnings,
-      recommendations: response.recommendations
+      source: sourceFact?.source ?? 'Research-backed BMR formula',
+      warnings: [],
+      recommendations: [],
     };
   }
 
   /**
-   * Calculate TDEE based on activity level
+   * Total daily energy expenditure based on activity factors.
    */
-  async calculateTDEE(userProfile: any, bmr: number): Promise<CalculationResult> {
-    const query = {
-      userProfile,
-      question: 'Calculate TDEE and determine appropriate activity factor',
-      context: ['metabolism', 'tdee', 'activity', 'energy'],
-      confidenceThreshold: 0.85
-    };
+  async calculateTDEE(
+    userProfile: any,
+    bmr: number,
+  ): Promise<CalculationResult> {
+    await this.ensureKnowledgeBase();
 
-    const response = await this.ragSystem.query(query);
-    
-    // Get activity factor from research
-    const activityFactor = this.determineActivityFactor(userProfile, response);
+    const activityFactor = this.determineActivityFactor(userProfile);
     const tdee = bmr * activityFactor;
 
     return {
       value: Math.round(tdee),
-      confidence: response.confidence,
-      formula: `TDEE = BMR × activity_factor`,
+      confidence: 0.9,
+      formula: 'TDEE = BMR × activity_factor',
       variables: { BMR: bmr, activity_factor: activityFactor },
-      source: (response.citations && response.citations[0]) || (response as any).sources?.[0] || 'Research-based calculation',
-      warnings: response.warnings,
-      recommendations: response.recommendations
+      source:
+        researchKnowledgeBase.getFactById('activity_factors')?.source ??
+        'Activity factor guidelines',
+      warnings: [],
+      recommendations: [],
     };
   }
 
   /**
-   * Calculate optimal macronutrient targets
+   * Macro distribution tailored to goal (fat loss, recomp, gain).
    */
-  async calculateMacroTargets(userProfile: any, tdee: number, goal: string): Promise<MacroTargets> {
-    // Try enhanced RAG first, fallback to simple RAG
-    let response;
-    try {
-      const query = {
-        userProfile,
-        question: `Calculate optimal macronutrient targets for ${goal} with ${tdee} kcal TDEE`,
-        context: ['nutrition', 'macros', 'protein', 'fat', 'carbs'],
-        confidenceThreshold: 0.9
-      };
-      response = await enhancedRAG.query(query);
-    } catch (error) {
-      console.warn('Enhanced RAG failed, using simple RAG for macro calculation');
-      response = await simpleRAG.getMacroRecommendations(userProfile);
-    }
-    
-    // Extract macro recommendations from research
-    const macroData = this.extractMacroData(response, userProfile, goal);
-    
-    // Calculate targets
-    const protein = userProfile.weightKg * macroData.proteinPerKg;
-    const fat = userProfile.weightKg * macroData.fatPerKg;
-    const proteinCals = protein * 4;
-    const fatCals = fat * 9;
-    const carbCals = tdee - proteinCals - fatCals;
-    const carbs = carbCals / 4;
+  async calculateMacroTargets(
+    userProfile: any,
+    tdee: number,
+    goal: string,
+  ): Promise<MacroTargets> {
+    await this.ensureKnowledgeBase();
+
+    const { proteinPerKg, fatPerKg } = this.deriveMacroRatios(goal);
+    const protein = userProfile.weightKg * proteinPerKg;
+    const fat = userProfile.weightKg * fatPerKg;
+    const remainingCalories = Math.max(tdee - protein * 4 - fat * 9, 200);
+    const carbs = remainingCalories / 4;
 
     return {
       calories: Math.round(tdee),
       protein: Math.round(protein),
       fat: Math.round(fat),
       carbs: Math.round(carbs),
-      confidence: response.confidence,
-      sources: response.citations || (response as any).sources || []
+      confidence: 0.88,
+      sources: this.collectMacroSources(goal),
     };
   }
 
   /**
-   * Calculate safe fat loss rate
+   * Weekly fat-loss rate grounded in Helms/Peos guidelines.
    */
   async calculateFatLossRate(userProfile: any): Promise<CalculationResult> {
-    const query = {
-      userProfile,
-      question: 'Determine safe fat loss rate for this user',
-      context: ['fat_loss', 'body_composition', 'safety'],
-      confidenceThreshold: 0.9
-    };
+    await this.ensureKnowledgeBase();
 
-    const response = await this.ragSystem.query(query);
-    
-    // Extract fat loss rate from research
-    const fatLossRate = this.extractFatLossRate(response, userProfile);
-    const weeklyLoss = userProfile.weightKg * fatLossRate;
+    const rate = this.deriveFatLossRate(userProfile);
+    const weeklyLossKg = userProfile.weightKg * rate;
 
     return {
-      value: weeklyLoss,
-      confidence: response.confidence,
-      formula: `Weekly fat loss = bodyweight × ${fatLossRate}%`,
-      variables: { bodyweight: userProfile.weightKg, rate_percent: fatLossRate },
-      source: (response.citations && response.citations[0]) || (response as any).sources?.[0] || 'Research-based calculation',
-      warnings: response.warnings,
-      recommendations: response.recommendations
-    };
-  }
-
-  /**
-   * Calculate metabolic adaptation over time
-   */
-  async calculateMetabolicAdaptation(userProfile: any, weeksInDeficit: number): Promise<CalculationResult> {
-    const query = {
-      userProfile,
-      question: 'Calculate metabolic adaptation after prolonged caloric deficit',
-      context: ['metabolism', 'adaptation', 'deficit'],
-      confidenceThreshold: 0.85
-    };
-
-    const response = await this.ragSystem.query(query);
-    
-    // Extract adaptation rate from research
-    const adaptationRate = this.extractAdaptationRate(response);
-    const adaptationPercent = Math.min(adaptationRate * weeksInDeficit, 0.15); // Cap at 15%
-
-    return {
-      value: adaptationPercent,
-      confidence: response.confidence,
-      formula: `Adaptation = min(${adaptationRate} × weeks, 0.15)`,
-      variables: { weeks: weeksInDeficit, rate: adaptationRate },
-      source: (response.citations && response.citations[0]) || (response as any).sources?.[0] || 'Research-based calculation',
-      warnings: response.warnings,
-      recommendations: response.recommendations
-    };
-  }
-
-  /**
-   * Calculate training volume recommendations
-   */
-  async calculateTrainingVolume(userProfile: any, goal: string): Promise<CalculationResult> {
-    const query = {
-      userProfile,
-      question: `Calculate optimal training volume for ${goal}`,
-      context: ['training', 'volume', 'exercise', 'frequency'],
-      confidenceThreshold: 0.8
-    };
-
-    const response = await this.ragSystem.query(query);
-    
-    // Extract training volume from research
-    const volumeData = this.extractTrainingVolume(response, userProfile);
-    const weeklyVolume = volumeData.setsPerWeek;
-
-    return {
-      value: weeklyVolume,
-      confidence: response.confidence,
-      formula: `Weekly volume = ${volumeData.setsPerWeek} sets`,
-      variables: { sets_per_week: volumeData.setsPerWeek },
-      source: (response.citations && response.citations[0]) || (response as any).sources?.[0] || 'Research-based calculation',
-      warnings: response.warnings,
-      recommendations: response.recommendations
-    };
-  }
-
-  /**
-   * Calculate water requirements
-   */
-  async calculateWaterRequirement(userProfile: any): Promise<CalculationResult> {
-    const query = {
-      userProfile,
-      question: 'Calculate daily water requirement for this user',
-      context: ['hydration', 'water', 'fluids'],
-      confidenceThreshold: 0.8
-    };
-
-    const response = await this.ragSystem.query(query);
-    
-    // Standard water requirement: 35ml per kg bodyweight
-    const waterMl = userProfile.weightKg * 35;
-    const waterL = waterMl / 1000;
-
-    return {
-      value: waterL,
+      value: weeklyLossKg,
       confidence: 0.9,
-      formula: `Water = 35ml × bodyweight_kg`,
-      variables: { bodyweight_kg: userProfile.weightKg },
-      source: 'General hydration guidelines',
+      formula: `Weekly fat loss = bodyweight × ${rate * 100}%`,
+      variables: { bodyweight: userProfile.weightKg, rate },
+      source:
+        researchKnowledgeBase.getFactById('helms_fat_loss_rate')?.source ??
+        'Evidence-based fat-loss rate',
       warnings: [],
-      recommendations: ['Adjust based on activity level and climate']
+      recommendations: [
+        'If average weekly loss exceeds targets, increase calories slightly.',
+        'Consider diet breaks if rates stall for >3 weeks.',
+      ],
     };
   }
 
-  private extractBMRFormula(_response: any): string {
-    // Look for BMR formulas in the response
-    // const formulas = response.supportingEvidence.formulas;
-    // const bmrFormula = formulas.find((f: any) => 
-    //   f.content.toLowerCase().includes('bmr') || f.content.toLowerCase().includes('basal')
-    // );
-    return 'BMR = 370 + (21.6 × LBM_kg)';
+  /**
+   * Estimated metabolic adaptation after weeks in deficit.
+   */
+  async calculateMetabolicAdaptation(
+    _userProfile: any,
+    weeksInDeficit: number,
+  ): Promise<CalculationResult> {
+    await this.ensureKnowledgeBase();
+
+    const weeklyRate = 0.0125; // ~1.25% per Trexler et al.
+    const adaptation = Math.min(weeklyRate * weeksInDeficit, 0.15);
+
+    return {
+      value: adaptation,
+      confidence: 0.85,
+      formula: `Adaptation = min(${weeklyRate} × weeks, 0.15)`,
+      variables: { weeks: weeksInDeficit, weekly_rate: weeklyRate },
+      source:
+        researchKnowledgeBase.getFactById('trexler_metabolic_adaptation')
+          ?.source ?? 'Metabolic adaptation research',
+      warnings: [],
+      recommendations: [
+        'Schedule refeeds/diet breaks every 6–8 weeks.',
+        'Monitor resting heart rate and energy levels.',
+      ],
+    };
   }
 
-  private determineActivityFactor(userProfile: any, _response: any): number {
-    // Extract activity factor from research or use default based on user input
+  /**
+   * Training volume recommendations (sets per muscle per week).
+   */
+  async calculateTrainingVolume(
+    userProfile: any,
+    goal: string,
+  ): Promise<CalculationResult> {
+    await this.ensureKnowledgeBase();
+
+    const { setsPerWeek, frequency } = this.deriveTrainingVolume(
+      userProfile,
+      goal,
+    );
+
+    return {
+      value: setsPerWeek,
+      confidence: 0.82,
+      formula: 'Recommended weekly sets per muscle group',
+      variables: { sets_per_week: setsPerWeek, frequency },
+      source:
+        researchKnowledgeBase.searchFacts(
+          'resistance training volume hypertrophy',
+          'training',
+        )[0]?.source ?? 'Hypertrophy volume research',
+      warnings: [],
+      recommendations: [
+        `Distribute volume across ${frequency} sessions for recovery.`,
+        'Track performance to adjust sets up or down 10–15%.',
+      ],
+    };
+  }
+
+  /**
+   * Basic hydration guidance (35 ml/kg baseline).
+   */
+  async calculateWaterRequirement(
+    userProfile: any,
+  ): Promise<CalculationResult> {
+    const waterLitres = (userProfile.weightKg * 35) / 1000;
+
+    return {
+      value: Number(waterLitres.toFixed(2)),
+      confidence: 0.8,
+      formula: 'Water = 35ml × bodyweight_kg',
+      variables: { bodyweight_kg: userProfile.weightKg },
+      source: 'General hydration guidelines (ACSM)',
+      warnings: [],
+      recommendations: [
+        'Increase intake on training days and in hotter climates.',
+        'Monitor urine colour as a hydration marker.',
+      ],
+    };
+  }
+
+  // --------------------------------------------------------------------------
+  // Internal helpers
+  // --------------------------------------------------------------------------
+
+  private async ensureKnowledgeBase(): Promise<void> {
+    if (!researchKnowledgeBase.isReady()) {
+      await researchKnowledgeBase.initialize();
+    }
+  }
+
+  private determineActivityFactor(userProfile: any): number {
     const trainingDays =
       userProfile.trainingDaysPerWeek ??
       userProfile.currentTrainingDaysPerWeek ??
       userProfile.trainingHistory?.currentTrainingDaysPerWeek;
-    const activityLevel = trainingDays
-      ? this.mapTrainingDaysToActivityFactor(trainingDays)
-      : userProfile.activityLevel || userProfile.activity || 1.45;
-    
-    // Validate against research recommendations
-    if (activityLevel < 1.2) return 1.2;
-    if (activityLevel > 1.9) return 1.9;
-    
-    return activityLevel;
+
+    if (typeof userProfile.activityLevel === 'number') {
+      return this.clampActivity(userProfile.activityLevel);
+    }
+
+    if (
+      typeof userProfile.activityLevel === 'string' &&
+      ACTIVITY_LEVEL_MAP[userProfile.activityLevel]
+    ) {
+      return ACTIVITY_LEVEL_MAP[userProfile.activityLevel];
+    }
+
+    if (typeof trainingDays === 'number') {
+      return this.clampActivity(this.mapTrainingDaysToActivityFactor(trainingDays));
+    }
+
+    return 1.45;
+  }
+
+  private clampActivity(value: number): number {
+    return Math.min(Math.max(value, 1.2), 1.9);
   }
 
   private mapTrainingDaysToActivityFactor(days: number): number {
     if (days <= 1) return 1.2;
     if (days === 2) return 1.35;
-    if (days === 3) return 1.45;
-    if (days === 4) return 1.55;
+    if (days === 3) return 1.5;
+    if (days === 4) return 1.6;
     if (days === 5) return 1.7;
-    return 1.85;
+    return 1.8;
   }
 
-  private extractMacroData(_response: any, _userProfile: any, goal: string): {
-    proteinPerKg: number;
-    fatPerKg: number;
-  } {
-    // Extract macro recommendations from research
-    let proteinPerKg = 1.6; // Default
-    let fatPerKg = 0.6; // Default
+  private deriveMacroRatios(goal: string): { proteinPerKg: number; fatPerKg: number } {
+    const lowerGoal = goal.toLowerCase();
+    if (lowerGoal.includes('fat') || lowerGoal.includes('cut')) {
+      return { proteinPerKg: 2.2, fatPerKg: 0.7 };
+    }
+    if (lowerGoal.includes('muscle') || lowerGoal.includes('gain')) {
+      return { proteinPerKg: 2.0, fatPerKg: 0.9 };
+    }
+    return { proteinPerKg: 1.8, fatPerKg: 0.8 };
+  }
 
-    // Adjust for goals
-    if (goal.toLowerCase().includes('fat') || goal.toLowerCase().includes('cut')) {
-      proteinPerKg = Math.max(proteinPerKg, 2.2); // Higher protein during cuts
+  private collectMacroSources(goal: string): string[] {
+    const sourceSet = new Set<string>();
+    [
+      'helms_protein_cut',
+      'peos_protein_peak',
+      'helms_calorie_deficit',
+    ].forEach((id) => {
+      const fact = researchKnowledgeBase.getFactById(id);
+      if (fact) {
+        sourceSet.add(fact.source);
+      }
+    });
+
+    if (goal.toLowerCase().includes('muscle')) {
+      const muscleFact = researchKnowledgeBase.searchFacts(
+        'hypertrophy volume protein',
+        'training',
+      )[0];
+      if (muscleFact) {
+        sourceSet.add(muscleFact.source);
+      }
     }
 
-    return { proteinPerKg, fatPerKg };
+    return Array.from(sourceSet);
   }
 
-  private extractFatLossRate(_response: any, _userProfile: any): number {
-    // Extract fat loss rate from research
-    // const dataPoints = response.supportingEvidence.dataPoints;
-    // const fatLossData = dataPoints.find((dp: any) => 
-    //   dp.content.toLowerCase().includes('fat loss') || dp.content.toLowerCase().includes('weight loss')
-    // );
-    
-    // if (fatLossData) {
-    //   const rateMatch = fatLossData.content.match(/(\d+\.?\d*)\s*-\s*(\d+\.?\d*)\s*%/);
-    //   if (rateMatch) {
-    //     return parseFloat(rateMatch[1]) / 100; // Convert to decimal
-    //   }
-    // }
-    
-    // Default safe rate
-    return 0.005; // 0.5% per week
+  private deriveFatLossRate(userProfile: any): number {
+    const experience =
+      String(userProfile.workoutLevel || userProfile.experienceLevel || '').toLowerCase();
+    if (experience.includes('advanced') || experience.includes('expert')) {
+      return 0.006;
+    }
+    return 0.0075;
   }
 
-  private extractAdaptationRate(_response: any): number {
-    // Extract metabolic adaptation rate from research
-    // const dataPoints = response.supportingEvidence.dataPoints;
-    // const adaptationData = dataPoints.find((dp: any) => 
-    //   dp.content.toLowerCase().includes('adaptation') || dp.content.toLowerCase().includes('metabolic')
-    // );
-    
-    // if (adaptationData) {
-    //   const rateMatch = adaptationData.content.match(/(\d+\.?\d*)\s*-\s*(\d+\.?\d*)\s*%/);
-    //   if (rateMatch) {
-    //     return parseFloat(rateMatch[1]) / 100; // Convert to decimal
-    //   }
-    // }
-    
-    // Default adaptation rate
-    return 0.0125; // 1.25% per week
-  }
-
-  private extractTrainingVolume(_response: any, userProfile: any): {
+  private deriveTrainingVolume(userProfile: any, goal: string): {
     setsPerWeek: number;
     frequency: number;
   } {
-    // Extract training volume from research
-    // const recommendations = response.supportingEvidence.recommendations;
-    // const trainingRecs = recommendations.filter((r: any) => 
-    //   r.content.toLowerCase().includes('volume') || r.content.toLowerCase().includes('sets')
-    // );
-    
-    let setsPerWeek = 10; // Default
-    let frequency = 3; // Default
-    
-    // Adjust based on training experience
-    const experience = String(
-      userProfile.experienceLevel ||
-      userProfile.workoutLevel ||
-      userProfile.trainingAge ||
-      ''
-    ).toLowerCase();
-    if (experience === 'beginner' || experience === 'novice' || experience === 'new') {
-      setsPerWeek = Math.min(setsPerWeek, 8);
+    let sets = 10;
+    let frequency = 3;
+
+    const experience =
+      String(userProfile.workoutLevel || userProfile.experienceLevel || '').toLowerCase();
+
+    if (experience.includes('beginner')) {
+      sets = 8;
       frequency = 2;
-    } else if (experience === 'advanced' || experience === 'expert') {
-      setsPerWeek = Math.max(setsPerWeek, 15);
+    } else if (experience.includes('advanced') || experience.includes('expert')) {
+      sets = 14;
       frequency = 4;
     }
-    
-    return { setsPerWeek, frequency };
+
+    if (goal.toLowerCase().includes('muscle')) {
+      sets = Math.max(sets, 12);
+    }
+
+    return { setsPerWeek: sets, frequency };
   }
 }
 
-// Export singleton instance
+const ACTIVITY_LEVEL_MAP: Record<string, number> = {
+  sedentary: 1.2,
+  light: 1.375,
+  moderate: 1.55,
+  active: 1.725,
+  'very_active': 1.9,
+};
+
 export const dynamicCalculator = new DynamicCalculator();
