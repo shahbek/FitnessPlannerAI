@@ -253,9 +253,21 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
     });
   }
 
-  // Parse Exercise Library
-  if (jsonData.exerciseLibrary && Array.isArray(jsonData.exerciseLibrary)) {
-    jsonData.exerciseLibrary.forEach((exercise: any) => {
+  // Parse Exercise Library - Support both old and new structures
+  let allExercises: any[] = [];
+  
+  // Handle new phaseExerciseLibraries structure
+  if (jsonData.phaseExerciseLibraries && Array.isArray(jsonData.phaseExerciseLibraries)) {
+    allExercises = jsonData.phaseExerciseLibraries;
+  }
+  // Fallback to old exerciseLibrary structure
+  else if (jsonData.exerciseLibrary && Array.isArray(jsonData.exerciseLibrary)) {
+    allExercises = jsonData.exerciseLibrary;
+  }
+
+  // Process all exercises
+  if (allExercises.length > 0) {
+    allExercises.forEach((exercise: any) => {
       // Exercise Library
       exerciseLibrary.push({
         exerciseId: exercise.exerciseId || '',
@@ -285,9 +297,21 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
     });
   }
 
-  // Parse Session Templates
-  if (jsonData.sessionTemplates && Array.isArray(jsonData.sessionTemplates)) {
-    jsonData.sessionTemplates.forEach((session: any) => {
+  // Parse Session Templates - Support both old and new structures
+  let allSessionTemplates: any[] = [];
+  
+  // Handle new phaseSessionTemplates structure
+  if (jsonData.phaseSessionTemplates && Array.isArray(jsonData.phaseSessionTemplates)) {
+    allSessionTemplates = jsonData.phaseSessionTemplates;
+  }
+  // Fallback to old sessionTemplates structure
+  else if (jsonData.sessionTemplates && Array.isArray(jsonData.sessionTemplates)) {
+    allSessionTemplates = jsonData.sessionTemplates;
+  }
+
+  // Process all session templates
+  if (allSessionTemplates.length > 0) {
+    allSessionTemplates.forEach((session: any) => {
       // Session Templates
       sessionTemplates.push({
         templateId: session.templateId || '',
@@ -312,29 +336,80 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
     });
   }
 
-  // Parse Meal Templates
-  if (jsonData.mealTemplates && Array.isArray(jsonData.mealTemplates)) {
-    jsonData.mealTemplates.forEach((meal: any) => {
-      // Meal Templates
+  // Parse Meal Templates - Support both old and new structures
+  let allMealTemplates: any[] = [];
+  
+  // Handle new phaseMealTemplates structure (array of arrays)
+  if (jsonData.phaseMealTemplates && Array.isArray(jsonData.phaseMealTemplates)) {
+    allMealTemplates = jsonData.phaseMealTemplates.flat().filter(meal => meal && meal.name);
+  }
+  // Fallback to old mealTemplates structure
+  else if (jsonData.mealTemplates && Array.isArray(jsonData.mealTemplates)) {
+    allMealTemplates = jsonData.mealTemplates;
+  }
+
+  // Process all meal templates
+  if (allMealTemplates.length > 0) {
+    allMealTemplates.forEach((meal: any) => {
+      // Apply the same calorie adjustments as Weekly Schedule for consistency
+      let adjustedCalories = meal.totalCalories || 0;
+      let adjustedProtein = meal.macros?.protein || 0;
+      let adjustedCarbs = meal.macros?.carbs || 0;
+      let adjustedFat = meal.macros?.fat || 0;
+
+      // Apply weekly target adjustments if available (same logic as Weekly Schedule)
+      if (jsonData.weeklyOutlines && jsonData.weeklyOutlines.length > 0) {
+        const firstWeek = jsonData.weeklyOutlines[0];
+        if (firstWeek.dailyTargets && firstWeek.dailyTargets.calories) {
+          const weeklyTargets = firstWeek.dailyTargets;
+          const mealFrequency = jsonData.mealFrequency || 4;
+          
+          // Define realistic meal calorie distribution percentages (same as Weekly Schedule)
+          const mealCalorieDistribution: { [key: string]: number } = {
+            'Breakfast': 0.25,        // 25% - Most important meal
+            'Mid-Morning Snack': 0.10, // 10% - Small snack
+            'Lunch': 0.30,            // 30% - Second largest meal
+            'Mid-Afternoon Snack': 0.10, // 10% - Small snack
+            'Dinner': 0.20,           // 20% - Moderate dinner
+            'Evening Snack': 0.05,    // 5% - Small evening snack
+            'Pre-Workout Snack': 0.15, // 15% - Energy for workout
+            'Post-Workout Snack': 0.15  // 15% - Recovery snack
+          };
+          
+          // Get the percentage for this meal type, default to equal distribution if not found
+          const mealPercentage = mealCalorieDistribution[meal.mealType] || (1 / mealFrequency);
+          const targetCaloriesForThisMeal = Math.round(weeklyTargets.calories * mealPercentage);
+          
+          // Only adjust if the target is reasonable (not too extreme)
+          const adjustmentFactor = targetCaloriesForThisMeal / (meal.totalCalories || 1);
+          if (adjustmentFactor > 0.5 && adjustmentFactor < 2.0) { // Allow more flexibility
+            adjustedCalories = targetCaloriesForThisMeal;
+            adjustedProtein = Math.round((meal.macros?.protein || 0) * adjustmentFactor);
+            adjustedCarbs = Math.round((meal.macros?.carbs || 0) * adjustmentFactor);
+            adjustedFat = Math.round((meal.macros?.fat || 0) * adjustmentFactor);
+          }
+        }
+      }
+
+      // Meal Templates (use same adjusted values for consistency)
       mealTemplates.push({
         templateId: meal.templateId || '',
         name: meal.name || '',
         mealType: meal.mealType || '',
-        totalCalories: meal.totalCalories || 0,
-        proteinGrams: meal.macros?.protein || 0,
-        carbsGrams: meal.macros?.carbs || 0,
-        fatGrams: meal.macros?.fat || 0
+        totalCalories: adjustedCalories,
+        proteinGrams: adjustedProtein,
+        carbsGrams: adjustedCarbs,
+        fatGrams: adjustedFat
       });
 
-      // Comprehensive Meals (enhanced version with cooking instructions)
       comprehensiveMeals.push({
         templateId: meal.templateId || '',
         name: meal.baseRecipe?.name || meal.name || '', // Use baseRecipe.name if available
         mealType: meal.mealType || '',
-        totalCalories: meal.totalCalories || 0,
-        proteinGrams: meal.macros?.protein || 0,
-        carbsGrams: meal.macros?.carbs || 0,
-        fatGrams: meal.macros?.fat || 0,
+        totalCalories: adjustedCalories,
+        proteinGrams: adjustedProtein,
+        carbsGrams: adjustedCarbs,
+        fatGrams: adjustedFat,
         cookingInstructions: meal.baseRecipe?.instructions || ['Follow package instructions'],
         ingredients: meal.baseRecipe?.ingredients || [],
         prepTime: meal.prepTime || '15 min',
@@ -372,83 +447,78 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
     });
   }
 
-  // Parse Phase Progression
-  if (jsonData.phaseProgression?.phases && Array.isArray(jsonData.phaseProgression.phases)) {
-    jsonData.phaseProgression.phases.forEach((phase: any) => {
-      phaseProgression.push({
-        phaseNumber: phase.phaseNumber || 0,
-        name: phase.name || '',
-        durationWeeks: phase.durationWeeks || 0,
-        focus: phase.focus || ''
-      });
+  // Parse Weekly Outlines
+  if (jsonData.weeklyOutlines && Array.isArray(jsonData.weeklyOutlines)) {
+    // Flatten phaseMealTemplates to get all meal templates
+    const allMealTemplates = jsonData.phaseMealTemplates ? 
+      jsonData.phaseMealTemplates.flat().filter(meal => meal && meal.name) : 
+      jsonData.mealTemplates || [];
+    
+    // Use the weekly outlines system
+    jsonData.weeklyOutlines.forEach((week: any) => {
+      const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      const weeklyScheduleData: WeeklyScheduleRow = {
+        weekNumber: week.weekNumber,
+        phaseName: week.phase,
+        focus: week.objectives?.join(', ') || '',
+        days: days.map((day, index) => {
+          const dayNumber = index + 1;
+          const isWorkoutDay = week.trainingSchedule?.resistanceDays?.includes(day) || dayNumber <= 6;
+          
+          // Generate workouts for this day using weekly outline context
+          const workouts = isWorkoutDay ? generateDayWorkouts(dayNumber, jsonData.phaseSessionTemplates || jsonData.sessionTemplates, week.phase, week.weekNumber) : [];
+          
+          // Generate meals for this day using weekly outline macro targets
+          const meals = generateDayMeals(allMealTemplates, isWorkoutDay, week.weekNumber, jsonData.mealFrequency, week.dailyTargets);
+          
+          // Calculate daily macros
+          const dailyMacros = meals.reduce((totals, meal) => ({
+            totalCalories: totals.totalCalories + meal.calories,
+            protein: totals.protein + meal.macros.protein,
+            carbs: totals.carbs + meal.macros.carbs,
+            fat: totals.fat + meal.macros.fat
+          }), { totalCalories: 0, protein: 0, carbs: 0, fat: 0 });
 
-      // If AI did not provide explicit weekly schedules above, synthesize as fallback
-      if (weeklySchedule.length > 0) {
-        return; // already filled from AI-provided schedule
-      }
+          return {
+            day,
+            dayNumber,
+            workouts,
+            meals,
+            dailyMacros,
+            restDay: !isWorkoutDay
+          };
+        }),
+        weeklyTotals: {
+          totalCalories: week.dailyTargets?.calories * 7 || 0,
+          totalProtein: week.dailyTargets?.protein * 7 || 0,
+          totalCarbs: week.dailyTargets?.carbs * 7 || 0,
+          totalFat: week.dailyTargets?.fat * 7 || 0,
+          totalWorkouts: week.trainingSchedule?.resistanceDays?.length || 0,
+          totalWorkoutTime: (week.trainingSchedule?.resistanceDays?.length || 0) * 60
+        }
+      };
 
-      for (let weekNum = 1; weekNum <= (phase.durationWeeks || 1); weekNum++) {
-        const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-        const weeklyScheduleData: WeeklyScheduleRow = {
-          weekNumber: weekNum,
-          phaseName: phase.name || '',
-          focus: phase.focus || '',
-          days: days.map((day, index) => {
-            const dayNumber = index + 1;
-            const isWorkoutDay = dayNumber <= 6; // 6 workout days per week based on the data
-            
-            // Generate workouts for this day
-            const workouts = isWorkoutDay ? generateDayWorkouts(dayNumber, jsonData.sessionTemplates, phase.name, weekNum) : [];
-            // Debug: workouts mapping
-            // console.log(`Week ${weekNum}, Day ${dayNumber}, Workouts:`, workouts);
-            
-            // Generate meals for this day using AI-generated meal templates
-            const meals = generateDayMeals(jsonData.mealTemplates, isWorkoutDay, weekNum);
-            
-            // Calculate daily macros
-            const dailyMacros = meals.reduce((totals, meal) => ({
-              totalCalories: totals.totalCalories + meal.calories,
-              protein: totals.protein + meal.macros.protein,
-              carbs: totals.carbs + meal.macros.carbs,
-              fat: totals.fat + meal.macros.fat
-            }), { totalCalories: 0, protein: 0, carbs: 0, fat: 0 });
+      weeklySchedule.push(weeklyScheduleData);
 
-            return {
-              day,
-              dayNumber,
-              workouts,
-              meals,
-              dailyMacros,
-              restDay: !isWorkoutDay
-            };
-          }),
-          weeklyTotals: {
-            totalCalories: 0,
-            totalProtein: 0,
-            totalCarbs: 0,
-            totalFat: 0,
-            totalWorkouts: 6, // Based on the data showing 6 days/week
-            totalWorkoutTime: 360 // 6 days * 60 minutes
-          }
-        };
-
-        // Calculate weekly totals
-        weeklyScheduleData.weeklyTotals = weeklyScheduleData.days.reduce((totals, day) => ({
-          totalCalories: totals.totalCalories + day.dailyMacros.totalCalories,
-          totalProtein: totals.totalProtein + day.dailyMacros.protein,
-          totalCarbs: totals.totalCarbs + day.dailyMacros.carbs,
-          totalFat: totals.totalFat + day.dailyMacros.fat,
-          totalWorkouts: totals.totalWorkouts + (day.workouts.length > 0 ? 1 : 0),
-          totalWorkoutTime: totals.totalWorkoutTime + day.workouts.reduce((time, workout) => time + workout.duration, 0)
-        }), weeklyScheduleData.weeklyTotals);
-
-        weeklySchedule.push(weeklyScheduleData);
-
-        // Generate weekly shopping data
-        const weeklyShoppingData = generateWeeklyShopping(weekNum, phase.name, jsonData.mealTemplates, jsonData.shoppingList);
-        weeklyShopping.push(weeklyShoppingData);
-      }
+      // Generate weekly shopping data
+      const weeklyShoppingData = generateWeeklyShopping(week.weekNumber, week.phase, allMealTemplates, jsonData.shoppingList);
+      weeklyShopping.push(weeklyShoppingData);
     });
+
+    // Extract phase information from weekly outlines
+    const phases = new Map();
+    jsonData.weeklyOutlines.forEach((week: any) => {
+      if (!phases.has(week.phase)) {
+        phases.set(week.phase, {
+          phaseNumber: phases.size + 1,
+          name: week.phase,
+          durationWeeks: 0,
+          focus: week.objectives?.join(', ') || ''
+        });
+      }
+      phases.get(week.phase).durationWeeks++;
+    });
+    phaseProgression.push(...Array.from(phases.values()));
   }
 
   return {
@@ -473,18 +543,34 @@ function generateDayWorkouts(dayNumber: number, sessionTemplates: any[], phaseNa
   
   // Map day numbers to workout types based on the data structure
   const workoutMapping = [
-    { type: 'push_day_1', name: 'Chest and Triceps' },
-    { type: 'pull_day_1', name: 'Back and Biceps' },
-    { type: 'legs_day_1', name: 'Legs' },
-    { type: 'push_day_2', name: 'Chest and Triceps' },
-    { type: 'pull_day_2', name: 'Back and Biceps' },
-    { type: 'legs_day_2', name: 'Legs' }
+    { type: 'push_day_1', name: 'Chest and Triceps', keywords: ['chest', 'triceps', 'push'] },
+    { type: 'pull_day_1', name: 'Back and Biceps', keywords: ['back', 'biceps', 'pull'] },
+    { type: 'legs_day_1', name: 'Legs', keywords: ['legs', 'leg', 'squat', 'deadlift'] },
+    { type: 'push_day_2', name: 'Chest and Triceps', keywords: ['chest', 'triceps', 'push'] },
+    { type: 'pull_day_2', name: 'Back and Biceps', keywords: ['back', 'biceps', 'pull'] },
+    { type: 'legs_day_2', name: 'Legs', keywords: ['legs', 'leg', 'squat', 'deadlift'] }
   ];
   
   const dayWorkout = workoutMapping[dayNumber - 1];
   if (!dayWorkout) return [];
   
-  const session = sessionTemplates.find(s => s.templateId === dayWorkout.type);
+  // First try to find exact match
+  let session = sessionTemplates.find(s => s.templateId === dayWorkout.type);
+  
+  // If no exact match, try to find by name or keywords
+  if (!session) {
+    session = sessionTemplates.find(s => 
+      s.name?.toLowerCase().includes(dayWorkout.name.toLowerCase()) ||
+      dayWorkout.keywords.some(keyword => s.name?.toLowerCase().includes(keyword))
+    );
+  }
+  
+  // If still no match, use the first available session (with rotation for variety)
+  if (!session) {
+    const sessionIndex = (dayNumber - 1) % sessionTemplates.length;
+    session = sessionTemplates[sessionIndex];
+  }
+  
   if (!session) return [];
   
   // Apply phase-based modifications to workout intensity
@@ -523,21 +609,126 @@ function generateDayWorkouts(dayNumber: number, sessionTemplates: any[], phaseNa
 }
 
 // Helper function to generate meals for a day using AI-generated meal templates
-function generateDayMeals(mealTemplates: any[], isTrainingDay: boolean, weekNumber?: number): any[] {
+function generateDayMeals(mealTemplates: any[], isTrainingDay: boolean, weekNumber?: number, mealFrequency?: number, weeklyTargets?: any): any[] {
   if (!mealTemplates || mealTemplates.length === 0) return [];
   
-  const mealTypes = ['Breakfast', 'Snack', 'Lunch', 'Snack', 'Dinner', 'Snack'];
-  const timings = ['7:00 AM', '10:00 AM', '1:00 PM', '4:00 PM', '7:00 PM', '9:00 PM'];
+  const frequency = mealFrequency || 4;
   
-  return mealTypes.map((mealType, index) => {
-    const meal = mealTemplates.find(m => m.mealType === mealType) || mealTemplates[0];
+  // Define meal structure based on frequency preference
+  let mealStructure: Array<{type: string, timing: string}>;
+  
+  if (frequency === 3) {
+    mealStructure = [
+      { type: 'Breakfast', timing: '7:00 AM' },
+      { type: 'Lunch', timing: '1:00 PM' },
+      { type: 'Dinner', timing: '7:00 PM' }
+    ];
+  } else if (frequency === 4) {
+    mealStructure = [
+      { type: 'Breakfast', timing: '7:00 AM' },
+      { type: 'Lunch', timing: '1:00 PM' },
+      { type: 'Dinner', timing: '7:00 PM' },
+      { type: 'Evening Snack', timing: '9:00 PM' }
+    ];
+  } else if (frequency === 5) {
+    mealStructure = [
+      { type: 'Breakfast', timing: '7:00 AM' },
+      { type: 'Mid-Morning Snack', timing: '10:00 AM' },
+      { type: 'Lunch', timing: '1:00 PM' },
+      { type: 'Dinner', timing: '7:00 PM' },
+      { type: 'Evening Snack', timing: '9:00 PM' }
+    ];
+  } else { // 6 or more meals
+    mealStructure = [
+      { type: 'Breakfast', timing: '7:00 AM' },
+      { type: 'Mid-Morning Snack', timing: '10:00 AM' },
+      { type: 'Lunch', timing: '1:00 PM' },
+      { type: 'Mid-Afternoon Snack', timing: '4:00 PM' },
+      { type: 'Dinner', timing: '7:00 PM' },
+      { type: 'Evening Snack', timing: '9:00 PM' }
+    ];
+  }
+  
+  // Adjust for training days ONLY if we have room in the meal frequency
+  if (isTrainingDay && frequency >= 5) {
+    // Only add pre/post workout snacks if user wants 5+ meals
+    mealStructure.splice(2, 0, { type: 'Pre-Workout Snack', timing: '11:30 AM' });
+    mealStructure.splice(4, 0, { type: 'Post-Workout Snack', timing: '3:30 PM' });
+  } else if (isTrainingDay && frequency === 4) {
+    // For 4 meals, replace one regular meal with pre-workout timing
+    const preWorkoutIndex = mealStructure.findIndex(m => m.type === 'Mid-Morning Snack');
+    if (preWorkoutIndex !== -1) {
+      mealStructure[preWorkoutIndex] = { type: 'Pre-Workout Snack', timing: '11:30 AM' };
+    }
+  }
+  // For 3 meals, keep it simple - no additional snacks, just time the meals around training
+  
+  return mealStructure.map((mealSlot, index) => {
+    // Find a meal that matches the meal type, with variety based on week number
+    let availableMeals = mealTemplates.filter(m => m.mealType === mealSlot.type);
+    
+    // If no exact match, try to find similar meal types
+    if (availableMeals.length === 0) {
+      if (mealSlot.type.includes('Snack')) {
+        availableMeals = mealTemplates.filter(m => m.mealType.includes('Snack'));
+      } else if (mealSlot.type === 'Breakfast') {
+        availableMeals = mealTemplates.filter(m => m.mealType === 'Breakfast');
+      } else if (mealSlot.type === 'Lunch') {
+        availableMeals = mealTemplates.filter(m => m.mealType === 'Lunch');
+      } else if (mealSlot.type === 'Dinner') {
+        availableMeals = mealTemplates.filter(m => m.mealType === 'Dinner');
+      }
+    }
+    
+    // If still no matches, use any available meal
+    if (availableMeals.length === 0) {
+      availableMeals = mealTemplates;
+    }
+    
+    // Select meal with variety based on week and day
+    const mealIndex = (weekNumber || 1 + index) % availableMeals.length;
+    const meal = availableMeals[mealIndex];
+    
+    // Create realistic meal calorie distribution instead of equal distribution
+    let adjustedCalories = meal.totalCalories;
+    let adjustedMacros = meal.macros;
+    
+    if (weeklyTargets && weeklyTargets.calories) {
+      // Define realistic meal calorie distribution percentages
+      const mealCalorieDistribution: { [key: string]: number } = {
+        'Breakfast': 0.25,        // 25% - Most important meal
+        'Mid-Morning Snack': 0.10, // 10% - Small snack
+        'Lunch': 0.30,            // 30% - Second largest meal
+        'Mid-Afternoon Snack': 0.10, // 10% - Small snack
+        'Dinner': 0.20,           // 20% - Moderate dinner
+        'Evening Snack': 0.05,    // 5% - Small evening snack
+        'Pre-Workout Snack': 0.15, // 15% - Energy for workout
+        'Post-Workout Snack': 0.15  // 15% - Recovery snack
+      };
+      
+      // Get the percentage for this meal type, default to equal distribution if not found
+      const mealPercentage = mealCalorieDistribution[mealSlot.type] || (1 / frequency);
+      const targetCaloriesForThisMeal = Math.round(weeklyTargets.calories * mealPercentage);
+      
+      // Only adjust if the target is reasonable (not too extreme)
+      const adjustmentFactor = targetCaloriesForThisMeal / meal.totalCalories;
+      if (adjustmentFactor > 0.5 && adjustmentFactor < 2.0) { // Allow more flexibility
+        adjustedCalories = targetCaloriesForThisMeal;
+        adjustedMacros = {
+          protein: Math.round((meal.macros?.protein || 0) * adjustmentFactor),
+          carbs: Math.round((meal.macros?.carbs || 0) * adjustmentFactor),
+          fat: Math.round((meal.macros?.fat || 0) * adjustmentFactor)
+        };
+      }
+    }
+    
     return {
       mealId: meal.templateId,
       mealName: meal.name,
-      mealType: meal.mealType,
-      timing: timings[index],
-      calories: meal.totalCalories,
-      macros: {
+      mealType: mealSlot.type, // Use the intended meal type, not the template's meal type
+      timing: mealSlot.timing,
+      calories: adjustedCalories,
+      macros: adjustedMacros || {
         protein: meal.macros?.protein || 0,
         carbs: meal.macros?.carbs || 0,
         fat: meal.macros?.fat || 0
@@ -566,6 +757,18 @@ function getOptimalTiming(mealType: string, isTrainingDay: boolean): string {
 
 // Helper function to generate weekly shopping data
 function generateWeeklyShopping(weekNumber: number, phaseName: string, mealTemplates: any[], shoppingList: any): WeeklyShoppingRow {
+  // Safety check for mealTemplates
+  if (!mealTemplates || !Array.isArray(mealTemplates)) {
+    console.warn('⚠️ No meal templates available for weekly shopping generation');
+    return {
+      weekNumber,
+      phaseName,
+      uniqueMeals: [],
+      totalEstimatedCost: 0,
+      shoppingNotes: ['No meal templates available for this week']
+    };
+  }
+
   // Get phase-specific meals for the week
   const uniqueMeals: Array<{
     mealName: string;
