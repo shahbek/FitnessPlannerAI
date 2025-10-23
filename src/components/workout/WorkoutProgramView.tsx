@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Shimmer } from '@/components/ai-elements/shimmer';
 import { parseWorkoutData, ParsedWorkoutData } from '@/utils/workoutDataParser';
 
 // Import all table components
@@ -39,13 +40,85 @@ export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramVie
     }
   }, [workoutData]);
 
-  if (!parsedData) {
+  // Check if the plan is still generating
+  const isGenerating = workoutData?.isGenerating;
+
+  if (!parsedData || isGenerating) {
     return (
-      <Card>
-        <CardContent className="p-6 text-center">
-          <p className="text-muted-foreground">Loading workout program...</p>
-        </CardContent>
-      </Card>
+      <div className="space-y-6">
+        {/* Header with shimmer */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-2xl">
+                  {isGenerating ? (
+                    <Shimmer>Generating your personalized fitness plan...</Shimmer>
+                  ) : (
+                    planTitle || 'Workout Program'
+                  )}
+                </CardTitle>
+                <p className="text-muted-foreground mt-2">
+                  {isGenerating ? (
+                    <Shimmer>Creating comprehensive program with exercises, nutrition, and progression</Shimmer>
+                  ) : (
+                    'Complete fitness program with exercises, nutrition, and progression'
+                  )}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Badge variant="outline">
+                  <Shimmer>Loading exercises...</Shimmer>
+                </Badge>
+                <Badge variant="outline">
+                  <Shimmer>Loading sessions...</Shimmer>
+                </Badge>
+                <Badge variant="outline">
+                  <Shimmer>Loading meals...</Shimmer>
+                </Badge>
+              </div>
+            </div>
+          </CardHeader>
+        </Card>
+
+        {/* Tabbed Content with shimmer */}
+        <Tabs defaultValue="comprehensive-meals" className="w-full">
+          <TabsList className="grid w-full grid-cols-4">
+            <TabsTrigger value="comprehensive-meals">
+              <Shimmer>Complete Meals</Shimmer>
+            </TabsTrigger>
+            <TabsTrigger value="weekly-schedule">
+              <Shimmer>Weekly Schedule</Shimmer>
+            </TabsTrigger>
+            <TabsTrigger value="shopping">
+              <Shimmer>Weekly Shopping</Shimmer>
+            </TabsTrigger>
+            <TabsTrigger value="phases">
+              <Shimmer>Phase Progression</Shimmer>
+            </TabsTrigger>
+          </TabsList>
+          
+          <TabsContent value="comprehensive-meals" className="mt-6">
+            <Card>
+              <CardContent className="p-6">
+                <div className="space-y-4">
+                  <Shimmer>Generating comprehensive meal plans...</Shimmer>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {[1, 2, 3].map((i) => (
+                      <Card key={i} className="p-4">
+                        <div className="space-y-2">
+                          <Shimmer>Meal {i}</Shimmer>
+                          <Shimmer>Loading nutritional information...</Shimmer>
+                        </div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
     );
   }
 
