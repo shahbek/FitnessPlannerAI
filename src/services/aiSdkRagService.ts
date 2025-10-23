@@ -669,14 +669,27 @@ Organize by categories and include quantities, estimated costs based on Canadian
   }
 
 
-  async generatePhaseAwarePlan(userProfile: any): Promise<any> {
+  async generatePhaseAwarePlan(userProfile: any, progressCallback?: (phase: string, progress: number, currentStep: string, reasoning: string[], streamingContent?: any[]) => void): Promise<any> {
     console.log('🔍 Starting Phase-Aware AI SDK RAG-based plan generation...');
     console.log('👤 User Profile:', JSON.stringify(userProfile, null, 2));
 
     // Step 1: Feasibility Assessment with Deterministic Validation
     console.log('📊 Assessing goal feasibility with evidence-based limits...');
+    if (progressCallback) {
+      progressCallback('feasibility', 15, 'Assessing goal feasibility with evidence-based limits...', [
+        'Analyzing user goals against scientific evidence',
+        'Checking timeline feasibility',
+        'Validating safety parameters'
+      ]);
+    }
     const feasibility = await this.generateFeasibilityAssessment(userProfile);
     console.log('✅ Feasibility Assessment Complete:', JSON.stringify(feasibility, null, 2));
+    
+    // Stream the feasibility object
+    if (progressCallback) {
+      console.log('🔄 Streaming feasibility object:', feasibility);
+      progressCallback('feasibility', 15, 'Feasibility Assessment Complete', [], [feasibility]);
+    }
 
     // Validate and adjust timeline based on evidence limits
     if (!feasibility.isFeasible) {
@@ -693,40 +706,142 @@ Organize by categories and include quantities, estimated costs based on Canadian
 
     // Step 2: Baseline calculations with full transparency
     console.log('🧮 Computing evidence-based metrics with citations...');
+    if (progressCallback) {
+      progressCallback('metrics', 25, 'Computing evidence-based metrics with citations...', [
+        'Calculating BMR using Katch-McArdle equation',
+        'Determining TDEE based on activity level',
+        'Setting protein targets for muscle preservation',
+        'Calculating fat requirements for hormone production'
+      ]);
+    }
     const metrics = await this.computePlanningMetrics(userProfile);
     console.log('✅ Metrics computed with sources:', JSON.stringify(metrics, null, 2));
+    
+    // Stream the metrics object
+    if (progressCallback) {
+      console.log('🔄 Streaming metrics object:', metrics);
+      progressCallback('metrics', 25, 'Metrics computed with sources', [], [metrics]);
+    }
 
     // Step 2.5: Generate Detailed Weekly Outlines
     console.log('📅 Creating detailed weekly outlines with specific targets...');
+    if (progressCallback) {
+      progressCallback('outlines', 35, 'Creating detailed weekly outlines with specific targets...', [
+        'Designing progressive weekly targets',
+        'Planning caloric adjustments',
+        'Setting training volume progressions',
+        'Creating milestone checkpoints'
+      ]);
+    }
     const weeklyOutlines = await this.generateDetailedWeeklyOutlines(userProfile, metrics);
     console.log('✅ Weekly Outlines Complete:', JSON.stringify(weeklyOutlines, null, 2));
+    
+    // Stream the weekly outlines object
+    if (progressCallback) {
+      console.log('🔄 Streaming weekly outlines object:', weeklyOutlines);
+      progressCallback('outlines', 35, 'Weekly Outlines Complete', [], [weeklyOutlines]);
+    }
 
     // Step 3: Generate Phase-Specific Strategic Framework
     console.log('🎯 Generating phase-aware strategic framework...');
+    if (progressCallback) {
+      progressCallback('framework', 45, 'Generating phase-aware strategic framework...', [
+        'Designing training periodization strategy',
+        'Creating nutrition approach framework',
+        'Planning recovery and deload phases',
+        'Setting progression parameters'
+      ]);
+    }
     const phaseAwareFramework = await this.generatePhaseAwareFramework(userProfile, metrics);
     console.log('✅ Phase-Aware Framework Complete:', JSON.stringify(phaseAwareFramework, null, 2));
+    
+    // Stream the framework object
+    if (progressCallback) {
+      progressCallback('framework', 45, 'Phase-Aware Framework Complete', [], [phaseAwareFramework]);
+    }
 
     // Step 4: Generate Phase-Specific Exercise Libraries
     console.log('💪 Building phase-specific exercise libraries...');
+    if (progressCallback) {
+      progressCallback('exercises', 55, 'Building phase-specific exercise libraries...', [
+        'Selecting compound movements for each phase',
+        'Choosing isolation exercises for targeting',
+        'Creating exercise progressions',
+        'Setting up form cues and safety notes'
+      ]);
+    }
     const phaseExerciseLibraries = await this.generatePhaseExerciseLibraries(userProfile, phaseAwareFramework, metrics);
     console.log('✅ Phase Exercise Libraries Complete');
+    
+    // Stream the exercise libraries object
+    if (progressCallback) {
+      progressCallback('exercises', 55, 'Phase Exercise Libraries Complete', [], [phaseExerciseLibraries]);
+    }
 
     // Step 5: Generate Phase-Specific Session Templates
     console.log('📅 Creating phase-specific session templates...');
+    if (progressCallback) {
+      progressCallback('sessions', 65, 'Creating phase-specific session templates...', [
+        'Designing workout splits for each phase',
+        'Planning exercise order and rest periods',
+        'Creating warm-up and cool-down routines',
+        'Setting intensity and volume parameters'
+      ]);
+    }
     const phaseSessionTemplates = await this.generatePhaseSessionTemplates(userProfile, phaseExerciseLibraries, phaseAwareFramework, metrics, weeklyOutlines);
     console.log('✅ Phase Session Templates Complete');
+    
+    // Stream the session templates object
+    if (progressCallback) {
+      progressCallback('sessions', 65, 'Phase Session Templates Complete', [], [phaseSessionTemplates]);
+    }
 
     // Step 6: Generate Phase-Specific Meal Templates with Macro Cycling
     console.log('🍽️ Designing phase-specific meal templates with macro cycling...');
+    if (progressCallback) {
+      progressCallback('meals', 75, 'Designing phase-specific meal templates with macro cycling...', [
+        'Creating meal templates for each phase',
+        'Planning macro cycling strategies',
+        'Designing meal timing protocols',
+        'Setting up portion control guidelines'
+      ]);
+    }
     const phaseMealTemplates = await this.generatePhaseMealTemplates(userProfile, phaseAwareFramework, metrics, weeklyOutlines);
     console.log('✅ Phase Meal Templates Complete');
+    
+    // Stream the meal templates object
+    if (progressCallback) {
+      progressCallback('meals', 75, 'Phase Meal Templates Complete', [], [phaseMealTemplates]);
+    }
 
     // Step 7: Generate Comprehensive Shopping List
     console.log('🛒 Compiling comprehensive shopping list...');
+    if (progressCallback) {
+      progressCallback('shopping', 85, 'Compiling comprehensive shopping list...', [
+        'Analyzing all meal templates',
+        'Calculating ingredient quantities',
+        'Organizing by food categories',
+        'Creating weekly shopping lists'
+      ]);
+    }
     const allMealTemplates = phaseMealTemplates.flat().filter(meal => meal && meal.name); // Filter out any undefined meals
     const shoppingList = await this.generateShoppingList(allMealTemplates);
     console.log('✅ Shopping List Complete');
+    
+    // Stream the shopping list object
+    if (progressCallback) {
+      progressCallback('shopping', 85, 'Shopping List Complete', [], [shoppingList]);
+    }
 
+    // Final step: Compiling complete plan
+    if (progressCallback) {
+      progressCallback('finalizing', 95, 'Compiling complete fitness plan...', [
+        'Assembling all components',
+        'Validating plan coherence',
+        'Generating final recommendations',
+        'Creating comprehensive documentation'
+      ]);
+    }
 
     const evidenceCitations = this.collectAllCitations(metrics, phaseAwareFramework);
     
