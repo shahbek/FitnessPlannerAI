@@ -13,7 +13,7 @@ export class OptimalPlanService {
     this.aiService = new AISdkRagService(apiKey, endpoint, modelName);
   }
 
-  async generateOptimalPlan(userProfile: UserProfile): Promise<CompletePlan> {
+  async generateOptimalPlan(userProfile: UserProfile, progressCallback?: (phase: string, progress: number, currentStep: string, reasoning: string[], streamingContent?: any[]) => void): Promise<CompletePlan> {
     console.log('🚀 Starting Optimal Plan Generation with MVC Architecture...');
     console.log('👤 User Profile:', JSON.stringify(userProfile, null, 2));
 
@@ -21,8 +21,8 @@ export class OptimalPlanService {
       // Create phase controller
       const phaseController = new PhaseController(userProfile, this.aiService);
       
-      // Execute optimal phase sequence
-      const completePlan = await phaseController.executeOptimalSequence();
+      // Execute optimal phase sequence with progress callback
+      const completePlan = await phaseController.executeOptimalSequence(progressCallback);
       
       console.log('🎉 Optimal Plan Generation Complete!');
       console.log('📊 Final Plan Summary:', {
