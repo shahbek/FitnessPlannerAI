@@ -1,32 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   SidebarProvider,
   SidebarInset,
-  SidebarTrigger,
 } from '@/components/ui/sidebar';
 import { FitnessSidebar } from './FitnessSidebar';
 import { ChainOfThoughtSidebar } from './ChainOfThoughtSidebar';
 import { MultistepProfileForm } from '@/components/forms/MultistepProfileForm';
-import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/Card';
-import { Alert, AlertDescription } from '@/components/ui/Alert';
 import { Progress } from '@/components/ui/Progress';
 import { useAISdkRag } from '@/hooks/useAISdkRag';
-import { useAIStream } from '@/hooks/useAIStream';
 import { DEFAULT_FORM_STATE } from '@/constants';
-import { useEffect } from 'react';
 import { testWorkoutData } from '@/data/testWorkoutData';
 
 import { WorkoutProgramView } from '@/components/workout/WorkoutProgramView';
 import { 
-  Brain, 
-  CheckCircle, 
   Target, 
   Dumbbell, 
   Heart, 
-  Calendar,
-  Lightbulb,
-  X
+  Calendar
 } from 'lucide-react';
 
 interface FitnessLayoutProps {
@@ -37,7 +28,6 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
   const [showNewWorkoutForm, setShowNewWorkoutForm] = useState(false);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<number | undefined>();
   const [showChainOfThought, setShowChainOfThought] = useState(false);
-  const [streamingContent, setStreamingContent] = useState('');
   const [form, setForm] = useState(DEFAULT_FORM_STATE);
   const [workoutHistory, setWorkoutHistory] = useState<Array<{id: number; title: string; createdAt: string; data?: any}>>([
     {
@@ -54,15 +44,8 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
     error: ragError,
     progress: ragProgress,
     generatePlan: generateRagPlan,
-    clearError: clearRagError,
   } = useAISdkRag();
 
-  const {
-    streamTextResponse,
-    isStreaming: aiStreaming,
-    error: aiError,
-    clearError: clearAIError,
-  } = useAIStream();
 
   const handleNewWorkout = () => {
     setShowNewWorkoutForm(true);
@@ -134,27 +117,56 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
     
     try {
       setShowChainOfThought(true);
-      setStreamingContent('');
       
-      // Start streaming a preview while the main RAG plan generates
-      const previewPromise = streamTextResponse(
-        {
-          apiKey: dataToUse.apiKey,
-          endpoint: dataToUse.endpoint,
-          model: dataToUse.model,
-        },
-        `Generate a brief preview of a fitness plan for a ${dataToUse.age} year old ${dataToUse.sex} who wants to ${dataToUse.primaryGoal}. Include key recommendations for training and nutrition.`,
-        'You are a fitness expert providing brief, actionable advice.',
-        (chunk) => {
-          setStreamingContent(prev => prev + chunk);
+      // Optimistically create a new plan object and add to history immediately
+      const optimisticPlan = {
+        id: Date.now(),
+        title: `${dataToUse.primaryGoal} Program - Generating...`,
+        createdAt: new Date().toISOString(),
+        data: {
+          // Placeholder data structure
+          strategicFramework: {
+            trainingApproach: {
+              split: 'Generating...',
+              frequencyPerWeek: 0,
+              sessionDurationMinutes: 0,
+              periodization: 'Generating...',
+              volumePerMuscleWeekly: {}
+            },
+            nutritionApproach: {
+              caloricStrategy: {
+                deficitMagnitude: 'Generating...',
+                dailyDeficitCalories: 0
+              },
+              macroTargets: {
+                proteinTotalGrams: 0
+              },
+              mealFrequency: 0,
+              timing: {
+                preWorkout: 'Generating...',
+                postWorkout: 'Generating...',
+                bedtime: 'Generating...'
+              }
+            }
+          },
+          feasibility: {
+            confidenceScore: 0.0,
+            isFeasible: false
+          },
+          exerciseLibrary: [],
+          sessionTemplates: [],
+          mealTemplates: [],
+          weeklyOutlines: [],
+          isGenerating: true
         }
-      );
-
-      // Generate the full plan using AI SDK RAG
-      const planPromise = generateRagPlan(dataToUse);
+      };
       
-      // Wait for both to complete
-      await Promise.all([previewPromise, planPromise]);
+      // Add optimistic plan to history and select it immediately
+      setWorkoutHistory(prev => [optimisticPlan, ...prev]);
+      setSelectedWorkoutId(optimisticPlan.id);
+      
+      // Generate the full plan using AI SDK RAG with real-time progress
+      await generateRagPlan(dataToUse);
       
       console.log('✅ Plan generation completed, useEffect will handle history addition');
       
@@ -163,51 +175,44 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
     }
   };
 
-  const handleStartOver = () => {
-    setStreamingContent('');
-    setShowChainOfThought(false);
-    clearRagError();
-    clearAIError();
-  };
+  const currentLoading = ragLoading;
 
-  const currentError = ragError || aiError;
-  const currentLoading = ragLoading || aiStreaming;
-
-  // Add workout to history when plan is successfully generated
+  // Update workout history when plan is successfully generated
   useEffect(() => {
     if (ragPlan && !ragLoading && !ragError) {
-      console.log('🎯 Plan generated successfully, adding to history:', ragPlan);
+      console.log('🎯 Plan generated successfully, updating history:', ragPlan);
       
       // Log the complete JSON response for debugging
       console.log('📊 Complete Plan JSON Response:', JSON.stringify(ragPlan, null, 2));
       
-      const newWorkout = {
-        id: Date.now(), // Simple ID generation
+      const updatedWorkout = {
+        id: selectedWorkoutId || Date.now(),
         title: `${ragPlan.strategicFramework?.trainingApproach?.split || 'Fitness'} Program`,
         createdAt: new Date().toISOString(),
         data: ragPlan // Store the full plan data
       };
       
       setWorkoutHistory(prev => {
-        // Check if this workout already exists to avoid duplicates
-        const exists = prev.some(workout => 
-          workout.title === newWorkout.title && 
-          Math.abs(new Date(workout.createdAt).getTime() - newWorkout.id) < 10000 // Within 10 seconds
-        );
+        // Find and replace the optimistic plan with the real one
+        const updatedHistory = prev.map(workout => {
+          if (workout.id === selectedWorkoutId && workout.data?.isGenerating) {
+            console.log('✅ Replacing optimistic plan with real data');
+            return updatedWorkout;
+          }
+          return workout;
+        });
         
-        if (exists) {
-          console.log('⚠️ Workout already exists in history, skipping');
-          return prev;
+        // If no optimistic plan found, add as new workout
+        const hasOptimisticPlan = prev.some(workout => workout.id === selectedWorkoutId && workout.data?.isGenerating);
+        if (!hasOptimisticPlan) {
+          console.log('✅ Adding new workout to history:', updatedWorkout);
+          return [updatedWorkout, ...prev];
         }
         
-        console.log('✅ Adding new workout to history:', newWorkout);
-        return [newWorkout, ...prev];
+        return updatedHistory;
       });
-      
-      // Automatically select the new workout
-      setSelectedWorkoutId(newWorkout.id);
     }
-  }, [ragPlan, ragLoading, ragError]);
+  }, [ragPlan, ragLoading, ragError, selectedWorkoutId]);
 
   return (
     <SidebarProvider defaultOpen={true}>
@@ -228,22 +233,14 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
           <div className="flex-1 overflow-auto">
             <div className="p-6">
 
-              {/* Loading State */}
+              {/* Loading State - Removed duplicate text, only show in chain of thought */}
               {currentLoading && (
                 <Card className="mb-6 p-6">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary"></div>
-                    <span className="font-medium">{ragProgress?.currentStep}</span>
+                    <span className="font-medium">Generating your personalized fitness plan...</span>
                   </div>
                   <Progress value={ragProgress?.progress || 0} className="mb-4" />
-                  <div className="space-y-1 text-sm text-muted-foreground">
-                    {ragProgress?.reasoning?.map((reason, index) => (
-                      <div key={`reasoning-${index}-${reason.substring(0, 20)}`} className="flex items-center gap-2">
-                        <CheckCircle className="h-3 w-3" />
-                        {reason}
-                      </div>
-                    ))}
-                  </div>
                 </Card>
               )}
 
@@ -435,13 +432,12 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
             </div>
           </div>
 
-          {/* Chain of Thoughts Sidebar */}
+          {/* Chain of Thoughts Sidebar - Updated */}
           <ChainOfThoughtSidebar
             isOpen={showChainOfThought}
             onClose={() => setShowChainOfThought(false)}
             currentLoading={currentLoading}
             ragProgress={ragProgress}
-            streamingContent={streamingContent}
           />
         </div>
       </SidebarInset>
