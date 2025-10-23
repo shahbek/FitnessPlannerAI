@@ -1,24 +1,21 @@
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/Card';
 import { Progress } from '@/components/ui/Progress';
 import { ChainOfThought, ChainOfThoughtHeader, ChainOfThoughtContent, ChainOfThoughtStep } from '@/components/ai-elements/chain-of-thought';
-import { Response } from '@/components/ai-elements/response';
-import { BookOpen, Brain, X } from 'lucide-react';
+import { CodeBlock } from '@/components/ai-elements/code-block';
+import { Brain, X } from 'lucide-react';
 
 interface ChainOfThoughtSidebarProps {
   isOpen: boolean;
   onClose: () => void;
   currentLoading: boolean;
-  ragProgress: any; // Use any to match the hook's return type
-  streamingContent: string;
+  ragProgress: any;
 }
 
 export function ChainOfThoughtSidebar({ 
   isOpen, 
   onClose, 
   currentLoading, 
-  ragProgress, 
-  streamingContent 
+  ragProgress
 }: ChainOfThoughtSidebarProps) {
   if (!isOpen) return null;
 
@@ -42,26 +39,11 @@ export function ChainOfThoughtSidebar({
 
       <div className="flex-1 overflow-auto p-4">
         <div className="space-y-4">
-          {/* AI Preview */}
-          {streamingContent && (
-            <Card className="p-4">
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <BookOpen className="h-4 w-4 text-blue-600" />
-                  <span className="font-medium">AI Preview</span>
-                </div>
-                <Response>
-                  {streamingContent}
-                </Response>
-              </div>
-            </Card>
-          )}
-
           {/* Loading State */}
           {currentLoading && (
             <ChainOfThought defaultOpen={true}>
               <ChainOfThoughtHeader>
-                Generating Plan
+                Generating comprehensive fitness plan...
               </ChainOfThoughtHeader>
               <ChainOfThoughtContent>
                 <div className="space-y-4">
@@ -78,9 +60,21 @@ export function ChainOfThoughtSidebar({
                     />
                   ))}
                   
-                  <div className="text-sm text-muted-foreground">
-                    AI is analyzing your profile and generating a personalized fitness plan...
-                  </div>
+                  {/* Live AI Object Streaming */}
+                  {ragProgress?.streamingContent && ragProgress.streamingContent.length > 0 && (
+                    <div className="space-y-4">
+                      {console.log('🎯 Rendering streaming content:', ragProgress.streamingContent)}
+                      {ragProgress.streamingContent.map((content: any, index: number) => (
+                        <CodeBlock
+                          key={`streaming-${index}-${Date.now()}`}
+                          code={typeof content === 'string' ? content : JSON.stringify(content, null, 2)}
+                          language={typeof content === 'string' ? 'text' : 'json'}
+                          showLineNumbers={false}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  
                 </div>
               </ChainOfThoughtContent>
             </ChainOfThought>
