@@ -357,39 +357,7 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
       let adjustedCarbs = meal.macros?.carbs || 0;
       let adjustedFat = meal.macros?.fat || 0;
 
-      // Apply weekly target adjustments if available (same logic as Weekly Schedule)
-      if (jsonData.weeklyOutlines && jsonData.weeklyOutlines.length > 0) {
-        const firstWeek = jsonData.weeklyOutlines[0];
-        if (firstWeek.dailyTargets && firstWeek.dailyTargets.calories) {
-          const weeklyTargets = firstWeek.dailyTargets;
-          const mealFrequency = jsonData.mealFrequency || 4;
-          
-          // Define realistic meal calorie distribution percentages (same as Weekly Schedule)
-          const mealCalorieDistribution: { [key: string]: number } = {
-            'Breakfast': 0.25,        // 25% - Most important meal
-            'Mid-Morning Snack': 0.10, // 10% - Small snack
-            'Lunch': 0.30,            // 30% - Second largest meal
-            'Mid-Afternoon Snack': 0.10, // 10% - Small snack
-            'Dinner': 0.20,           // 20% - Moderate dinner
-            'Evening Snack': 0.05,    // 5% - Small evening snack
-            'Pre-Workout Snack': 0.15, // 15% - Energy for workout
-            'Post-Workout Snack': 0.15  // 15% - Recovery snack
-          };
-          
-          // Get the percentage for this meal type, default to equal distribution if not found
-          const mealPercentage = mealCalorieDistribution[meal.mealType] || (1 / mealFrequency);
-          const targetCaloriesForThisMeal = Math.round(weeklyTargets.calories * mealPercentage);
-          
-          // Only adjust if the target is reasonable (not too extreme)
-          const adjustmentFactor = targetCaloriesForThisMeal / (meal.totalCalories || 1);
-          if (adjustmentFactor > 0.5 && adjustmentFactor < 2.0) { // Allow more flexibility
-            adjustedCalories = targetCaloriesForThisMeal;
-            adjustedProtein = Math.round((meal.macros?.protein || 0) * adjustmentFactor);
-            adjustedCarbs = Math.round((meal.macros?.carbs || 0) * adjustmentFactor);
-            adjustedFat = Math.round((meal.macros?.fat || 0) * adjustmentFactor);
-          }
-        }
-      }
+      // Keep real ingredient-based calories without artificial adjustments
 
       // Meal Templates (use same adjusted values for consistency)
       mealTemplates.push({
@@ -468,8 +436,8 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
           // Generate workouts for this day using weekly outline context
           const workouts = isWorkoutDay ? generateDayWorkouts(dayNumber, jsonData.phaseSessionTemplates || jsonData.sessionTemplates, week.phase, week.weekNumber) : [];
           
-          // Generate meals for this day using weekly outline macro targets
-          const meals = generateDayMeals(allMealTemplates, isWorkoutDay, week.weekNumber, jsonData.mealFrequency, week.dailyTargets);
+          // Generate meals for this day using AI-generated meal templates
+          const meals = generateDayMeals(allMealTemplates, isWorkoutDay, week.weekNumber, jsonData.mealFrequency);
           
           // Calculate daily macros
           const dailyMacros = meals.reduce((totals, meal) => ({
@@ -609,7 +577,7 @@ function generateDayWorkouts(dayNumber: number, sessionTemplates: any[], phaseNa
 }
 
 // Helper function to generate meals for a day using AI-generated meal templates
-function generateDayMeals(mealTemplates: any[], isTrainingDay: boolean, weekNumber?: number, mealFrequency?: number, weeklyTargets?: any): any[] {
+function generateDayMeals(mealTemplates: any[], isTrainingDay: boolean, weekNumber?: number, mealFrequency?: number): any[] {
   if (!mealTemplates || mealTemplates.length === 0) return [];
   
   const frequency = mealFrequency || 4;
@@ -689,45 +657,15 @@ function generateDayMeals(mealTemplates: any[], isTrainingDay: boolean, weekNumb
     const mealIndex = (weekNumber || 1 + index) % availableMeals.length;
     const meal = availableMeals[mealIndex];
     
-    // Create realistic meal calorie distribution instead of equal distribution
-    let adjustedCalories = meal.baseRecipe?.ingredients?.map((ingredient: any) => ingredient.calories).reduce((acc: number, curr: number) => acc + curr, 0) || meal.totalCalories || 0;
+    // Keep real ingredient-based calories without artificial adjustments
     let adjustedMacros = meal.macros;
-    
-    if (weeklyTargets && weeklyTargets.calories) {
-      // Define realistic meal calorie distribution percentages
-      const mealCalorieDistribution: { [key: string]: number } = {
-        'Breakfast': 0.25,        // 25% - Most important meal
-        'Mid-Morning Snack': 0.10, // 10% - Small snack
-        'Lunch': 0.30,            // 30% - Second largest meal
-        'Mid-Afternoon Snack': 0.10, // 10% - Small snack
-        'Dinner': 0.20,           // 20% - Moderate dinner
-        'Evening Snack': 0.05,    // 5% - Small evening snack
-        'Pre-Workout Snack': 0.15, // 15% - Energy for workout
-        'Post-Workout Snack': 0.15  // 15% - Recovery snack
-      };
-      
-      // Get the percentage for this meal type, default to equal distribution if not found
-      const mealPercentage = mealCalorieDistribution[mealSlot.type] || (1 / frequency);
-      const targetCaloriesForThisMeal = Math.round(weeklyTargets.calories * mealPercentage);
-      
-      // Only adjust if the target is reasonable (not too extreme)
-      const adjustmentFactor = targetCaloriesForThisMeal / meal.totalCalories;
-      if (adjustmentFactor > 0.5 && adjustmentFactor < 2.0) { // Allow more flexibility
-        adjustedCalories = targetCaloriesForThisMeal;
-        adjustedMacros = {
-          protein: Math.round((meal.macros?.protein || 0) * adjustmentFactor),
-          carbs: Math.round((meal.macros?.carbs || 0) * adjustmentFactor),
-          fat: Math.round((meal.macros?.fat || 0) * adjustmentFactor)
-        };
-      }
-    }
     
     return {
       mealId: meal.templateId,
       mealName: meal.name,
       mealType: mealSlot.type, // Use the intended meal type, not the template's meal type
       timing: mealSlot.timing,
-      calories: adjustedCalories,
+      calories: meal.baseRecipe?.ingredients?.map((ingredient: any) => ingredient.calories).reduce((acc: number, curr: number) => acc + curr, 0) || meal.totalCalories || 0,
       macros: adjustedMacros || {
         protein: meal.macros?.protein || 0,
         carbs: meal.macros?.carbs || 0,
