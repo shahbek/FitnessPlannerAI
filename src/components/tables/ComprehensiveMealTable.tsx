@@ -98,10 +98,12 @@ export function ComprehensiveMealTable({ data }: ComprehensiveMealTableProps) {
     }
   };
 
+
   return (
     <div className="space-y-4">
       {sortedData.map((meal) => {
-        
+        const totalCalories = meal?.ingredients?.map((ingredient) => ingredient.calories).reduce((acc, curr) => acc + curr, 0) || 0;
+
         return (
         <Card key={meal.templateId} className="overflow-hidden">
           <Collapsible>
@@ -132,7 +134,7 @@ export function ComprehensiveMealTable({ data }: ComprehensiveMealTableProps) {
                   
                   <div className="flex items-center gap-4">
                     <div className="text-right">
-                      <div className="text-lg font-bold">{meal.totalCalories} cal</div>
+                      <div className="text-lg font-bold">{totalCalories} cal</div>
                       <div className="text-xs text-muted-foreground">
                         P: {meal.proteinGrams}g | C: {meal.carbsGrams}g | F: {meal.fatGrams}g
                       </div>

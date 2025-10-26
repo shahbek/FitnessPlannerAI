@@ -341,7 +341,7 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
   
   // Handle new phaseMealTemplates structure (array of arrays)
   if (jsonData.phaseMealTemplates && Array.isArray(jsonData.phaseMealTemplates)) {
-    allMealTemplates = jsonData.phaseMealTemplates.flat().filter(meal => meal && meal.name);
+    allMealTemplates = jsonData.phaseMealTemplates.flat().filter((meal: any) => meal && meal.name);
   }
   // Fallback to old mealTemplates structure
   else if (jsonData.mealTemplates && Array.isArray(jsonData.mealTemplates)) {
@@ -352,7 +352,7 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
   if (allMealTemplates.length > 0) {
     allMealTemplates.forEach((meal: any) => {
       // Apply the same calorie adjustments as Weekly Schedule for consistency
-      let adjustedCalories = meal.totalCalories || 0;
+      let adjustedCalories = meal.baseRecipe?.ingredients?.map((ingredient: any) => ingredient.calories).reduce((acc: number, curr: number) => acc + curr, 0) || meal.totalCalories || 0;
       let adjustedProtein = meal.macros?.protein || 0;
       let adjustedCarbs = meal.macros?.carbs || 0;
       let adjustedFat = meal.macros?.fat || 0;
@@ -451,7 +451,7 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
   if (jsonData.weeklyOutlines && Array.isArray(jsonData.weeklyOutlines)) {
     // Flatten phaseMealTemplates to get all meal templates
     const allMealTemplates = jsonData.phaseMealTemplates ? 
-      jsonData.phaseMealTemplates.flat().filter(meal => meal && meal.name) : 
+      jsonData.phaseMealTemplates.flat().filter((meal: any) => meal && meal.name) : 
       jsonData.mealTemplates || [];
     
     // Use the weekly outlines system
@@ -690,7 +690,7 @@ function generateDayMeals(mealTemplates: any[], isTrainingDay: boolean, weekNumb
     const meal = availableMeals[mealIndex];
     
     // Create realistic meal calorie distribution instead of equal distribution
-    let adjustedCalories = meal.totalCalories;
+    let adjustedCalories = meal.baseRecipe?.ingredients?.map((ingredient: any) => ingredient.calories).reduce((acc: number, curr: number) => acc + curr, 0) || meal.totalCalories || 0;
     let adjustedMacros = meal.macros;
     
     if (weeklyTargets && weeklyTargets.calories) {
@@ -737,21 +737,6 @@ function generateDayMeals(mealTemplates: any[], isTrainingDay: boolean, weekNumb
   });
 }
 
-// Helper function to get optimal meal timing based on AI knowledge
-function getOptimalTiming(mealType: string, isTrainingDay: boolean): string {
-  const timings = {
-    'Breakfast': '7:00 AM',
-    'Mid-Morning Snack': '10:00 AM',
-    'Pre-Workout Snack': isTrainingDay ? '11:30 AM' : '10:30 AM',
-    'Lunch': '1:00 PM',
-    'Post-Workout Snack': isTrainingDay ? '3:30 PM' : '2:30 PM',
-    'Mid-Afternoon Snack': '4:00 PM',
-    'Dinner': '7:00 PM',
-    'Evening Snack': '9:00 PM'
-  };
-  
-  return timings[mealType as keyof typeof timings] || '12:00 PM';
-}
 
 
 
@@ -763,9 +748,9 @@ function generateWeeklyShopping(weekNumber: number, phaseName: string, mealTempl
     return {
       weekNumber,
       phaseName,
-      uniqueMeals: [],
-      totalEstimatedCost: 0,
-      shoppingNotes: ['No meal templates available for this week']
+      categories: [],
+      weekTotal: 0,
+      meals: []
     };
   }
 
@@ -875,6 +860,10 @@ function generateWeeklyShopping(weekNumber: number, phaseName: string, mealTempl
     phaseName,
     categories,
     weekTotal,
-    meals: uniqueMeals
+    meals: uniqueMeals.map(meal => ({
+      mealName: meal.mealName,
+      mealType: meal.mealType,
+      ingredients: meal.ingredients
+    }))
   };
 }

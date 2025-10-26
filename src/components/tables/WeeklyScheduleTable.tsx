@@ -249,6 +249,7 @@ export function WeeklyScheduleTable({ data }: WeeklyScheduleTableProps) {
                           <div className="space-y-3">
                             {day.meals.map((meal) => {
                               const actualMealName = meal.mealName || 'Meal';
+                              
                               return (
                                 <Card key={meal.mealId} className="p-4">
                                   <div className="flex items-center justify-between mb-2">
