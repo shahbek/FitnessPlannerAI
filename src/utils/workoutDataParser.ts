@@ -662,7 +662,7 @@ function generateDayMeals(mealTemplates: any[], isTrainingDay: boolean, weekNumb
     
     return {
       mealId: meal.templateId,
-      mealName: meal.name,
+      mealName: meal.baseRecipe?.name || meal.name,
       mealType: mealSlot.type, // Use the intended meal type, not the template's meal type
       timing: mealSlot.timing,
       calories: meal.baseRecipe?.ingredients?.map((ingredient: any) => ingredient.calories).reduce((acc: number, curr: number) => acc + curr, 0) || meal.totalCalories || 0,
