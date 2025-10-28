@@ -182,6 +182,35 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
   const weeklySchedule: WeeklyScheduleRow[] = [];
   const weeklyShopping: WeeklyShoppingRow[] = [];
 
+  // Extract daily meal combinations early for use throughout the function
+  let dailyMealCombinations: any[] = [];
+  if (jsonData.dailyMealCombinations && Array.isArray(jsonData.dailyMealCombinations)) {
+    dailyMealCombinations = jsonData.dailyMealCombinations;
+    console.log('📊 Using dailyMealCombinations:', dailyMealCombinations.length, 'combinations');
+  } else if (jsonData.phaseMealTemplates && Array.isArray(jsonData.phaseMealTemplates)) {
+    // Flatten the array of arrays structure
+    dailyMealCombinations = jsonData.phaseMealTemplates.flat();
+    console.log('📊 Using phaseMealTemplates (flattened):', dailyMealCombinations.length, 'combinations');
+  } else if (jsonData.weeklyMealTemplates && Array.isArray(jsonData.weeklyMealTemplates)) {
+    // Convert weekly meal templates to daily combinations
+    jsonData.weeklyMealTemplates.forEach((template: any) => {
+      for (let dayNumber = 1; dayNumber <= 7; dayNumber++) {
+        dailyMealCombinations.push({
+          weekNumber: template.weekNumber,
+          dayNumber: dayNumber,
+          totalCalories: template.totalCalories,
+          totalProtein: template.totalProtein,
+          totalCarbs: template.totalCarbs,
+          totalFat: template.totalFat,
+          meals: template.meals
+        });
+      }
+    });
+    console.log('📊 Using weeklyMealTemplates (converted to daily):', dailyMealCombinations.length, 'combinations');
+  } else {
+    console.log('⚠️ No daily meal combinations found in data');
+  }
+
   // Prefer AI-provided weekly schedules if available
   if (Array.isArray(jsonData.weeklySchedule) && jsonData.weeklySchedule.length > 0) {
     jsonData.weeklySchedule.forEach((week: any) => {
@@ -348,7 +377,74 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
     allMealTemplates = jsonData.mealTemplates;
   }
 
-  // Process all meal templates
+  // Process daily meal combinations (NEW APPROACH)
+  if (dailyMealCombinations.length > 0) {
+    console.log('🍽️ Processing', dailyMealCombinations.length, 'daily meal combinations');
+    
+    // Use a Set to track unique meals and avoid duplicates
+    const uniqueMeals = new Set<string>();
+    
+    dailyMealCombinations.forEach((combination: any) => {
+      combination.meals.forEach((meal: any) => {
+        // Create a unique key based on week + meal type (not day)
+        const uniqueKey = `${combination.weekNumber}_${meal.mealType}`;
+        
+        // Skip if we've already processed this meal for this week
+        if (uniqueMeals.has(uniqueKey)) {
+          return;
+        }
+        
+        uniqueMeals.add(uniqueKey);
+        
+        // Calculate calories from ingredients to verify accuracy
+        const ingredientCalories = meal.recipe?.ingredients?.reduce((sum: number, ing: any) => sum + (ing.calories || 0), 0) || 0;
+        
+        console.log(`📋 Comprehensive: ${meal.recipe.name}: AI calories=${meal.calories}, Ingredient sum=${ingredientCalories}`);
+        
+        // Add to comprehensive meals for display
+        comprehensiveMeals.push({
+          templateId: uniqueKey,
+          name: meal.recipe.name,
+          mealType: meal.mealType,
+          totalCalories: meal.calories,
+          proteinGrams: meal.protein,
+          carbsGrams: meal.carbs,
+          fatGrams: meal.fat,
+          cookingInstructions: meal.recipe.instructions || ['Follow package instructions'],
+          ingredients: meal.recipe.ingredients || [],
+          prepTime: '15 min',
+          cookTime: '30 min'
+        });
+
+        // Add to meal templates for consistency
+        mealTemplates.push({
+          templateId: uniqueKey,
+          name: meal.recipe.name,
+          mealType: meal.mealType,
+          totalCalories: meal.calories,
+          proteinGrams: meal.protein,
+          carbsGrams: meal.carbs,
+          fatGrams: meal.fat
+        });
+
+        // Add to recipe ingredients
+        if (meal.recipe.ingredients && Array.isArray(meal.recipe.ingredients)) {
+          meal.recipe.ingredients.forEach((ingredient: any) => {
+            recipeIngredients.push({
+              templateId: uniqueKey,
+              ingredientName: ingredient.name || '',
+              amount: ingredient.amount || '',
+              calories: ingredient.calories || 0
+            });
+          });
+        }
+      });
+    });
+    
+    console.log(`✅ Processed ${uniqueMeals.size} unique meals from ${dailyMealCombinations.length} daily combinations`);
+  }
+
+  // Process all meal templates (LEGACY APPROACH - fallback)
   if (allMealTemplates.length > 0) {
     allMealTemplates.forEach((meal: any) => {
       // Apply the same calorie adjustments as Weekly Schedule for consistency
@@ -436,8 +532,10 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
           // Generate workouts for this day using weekly outline context
           const workouts = isWorkoutDay ? generateDayWorkouts(dayNumber, jsonData.phaseSessionTemplates || jsonData.sessionTemplates, week.phase, week.weekNumber) : [];
           
-          // Generate meals for this day using AI-generated meal templates
-          const meals = generateDayMeals(allMealTemplates, isWorkoutDay, week.weekNumber, jsonData.mealFrequency);
+          // Generate meals for this day using daily meal combinations (with fallback)
+          const meals = dailyMealCombinations.length > 0
+            ? generateDayMealsFromCombinations(dailyMealCombinations, week.weekNumber, dayNumber)
+            : generateDayMeals(allMealTemplates, isWorkoutDay, week.weekNumber, jsonData.mealFrequency);
           
           // Calculate daily macros
           const dailyMacros = meals.reduce((totals, meal) => ({
@@ -467,11 +565,62 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
       };
 
       weeklySchedule.push(weeklyScheduleData);
-
-      // Generate weekly shopping data
-      const weeklyShoppingData = generateWeeklyShopping(week.weekNumber, week.phase, allMealTemplates, jsonData.shoppingList);
-      weeklyShopping.push(weeklyShoppingData);
     });
+
+    // Parse weekly shopping lists (new format from ShoppingListGenerationService)
+    if (jsonData.shoppingList?.weeklyShoppingLists && Array.isArray(jsonData.shoppingList.weeklyShoppingLists)) {
+      console.log('📋 Using new shopping list format from ShoppingListGenerationService');
+      jsonData.shoppingList.weeklyShoppingLists.forEach((weekList: any) => {
+        const categories: Array<{
+          category: string;
+          items: Array<{
+            name: string;
+            quantity: string;
+            estimatedCost: number;
+            priority: string;
+            meals: string[];
+          }>;
+          categoryTotal: number;
+        }> = [];
+
+        // Transform categories from new format to parser format
+        weekList.categories?.forEach((category: any) => {
+          const categoryItems = category.items?.map((item: any) => ({
+            name: item.name || '',
+            quantity: item.quantity || '',
+            estimatedCost: item.estimatedCost || 0,
+            priority: item.priority || 'medium',
+            meals: [] // New format doesn't track which meals, can be added later
+          })) || [];
+
+          // Calculate category total from items
+          const categoryTotal = categoryItems.reduce((sum: number, item: any) => sum + item.estimatedCost, 0);
+
+          if (categoryItems.length > 0) {
+            categories.push({
+              category: category.category || 'Other',
+              items: categoryItems,
+              categoryTotal: Math.round(categoryTotal * 100) / 100
+            });
+          }
+        });
+
+        weeklyShopping.push({
+          weekNumber: weekList.weekNumber,
+          phaseName: weekList.phase || '',
+          categories,
+          weekTotal: weekList.weekTotal || 0,
+          meals: [] // New format doesn't include meal list
+        });
+      });
+    } else if (jsonData.shoppingList) {
+      // Fallback: Use old format (generateWeeklyShopping function)
+      console.log('📋 Using legacy shopping list format');
+      jsonData.weeklyOutlines.forEach((week: any) => {
+        const weeklyShoppingData = generateWeeklyShopping(week.weekNumber, week.phase, allMealTemplates, jsonData.shoppingList);
+        weeklyShopping.push(weeklyShoppingData);
+      });
+    }
 
     // Extract phase information from weekly outlines
     const phases = new Map();
@@ -488,6 +637,15 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
     });
     phaseProgression.push(...Array.from(phases.values()));
   }
+
+  console.log('📊 Parser Results:', {
+    exerciseLibrary: exerciseLibrary.length,
+    sessionTemplates: sessionTemplates.length,
+    mealTemplates: mealTemplates.length,
+    comprehensiveMeals: comprehensiveMeals.length,
+    weeklySchedule: weeklySchedule.length,
+    dailyMealCombinations: dailyMealCombinations.length
+  });
 
   return {
     exerciseLibrary,
@@ -576,7 +734,46 @@ function generateDayWorkouts(dayNumber: number, sessionTemplates: any[], phaseNa
   }];
 }
 
-// Helper function to generate meals for a day using AI-generated meal templates
+// Helper function to generate meals from daily meal combinations
+function generateDayMealsFromCombinations(dailyMealCombinations: any[], weekNumber: number, dayNumber: number): any[] {
+  if (!dailyMealCombinations || dailyMealCombinations.length === 0) {
+    console.warn('⚠️ No daily meal combinations available');
+    return [];
+  }
+  
+  // Find the combination for this specific week and day
+  const combination = dailyMealCombinations.find(
+    combo => combo.weekNumber === weekNumber && combo.dayNumber === dayNumber
+  );
+  
+  if (!combination) {
+    console.warn(`⚠️ No meal combination found for week ${weekNumber}, day ${dayNumber}`);
+    return [];
+  }
+  
+  // Return the meals from this combination
+  return combination.meals.map((meal: any) => {
+    // Calculate calories from ingredients to verify accuracy
+    const ingredientCalories = meal.recipe?.ingredients?.reduce((sum: number, ing: any) => sum + (ing.calories || 0), 0) || 0;
+    
+    console.log(`🍽️ ${meal.recipe.name}: AI calories=${meal.calories}, Ingredient sum=${ingredientCalories}`);
+    
+    return {
+      mealId: `${combination.weekNumber}_${combination.dayNumber}_${meal.mealType}`,
+      mealName: meal.recipe.name,
+      mealType: meal.mealType,
+      timing: meal.timing,
+      calories: meal.calories, // Exact calories from AI
+      macros: {
+        protein: meal.protein,
+        carbs: meal.carbs,
+        fat: meal.fat
+      }
+    };
+  });
+}
+
+// Helper function to generate meals for a day using AI-generated meal templates (LEGACY - kept for fallback)
 function generateDayMeals(mealTemplates: any[], isTrainingDay: boolean, weekNumber?: number, mealFrequency?: number): any[] {
   if (!mealTemplates || mealTemplates.length === 0) return [];
   
