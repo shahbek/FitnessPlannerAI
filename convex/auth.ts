@@ -32,14 +32,6 @@ export const createAuth = (
         // For development, we'll just log it
       },
     },
-    // Configure social auth providers
-    socialProviders: {
-      google: {
-        clientId: process.env.GOOGLE_CLIENT_ID!,
-        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-        enabled: !!process.env.GOOGLE_CLIENT_ID,
-      },
-    },
     plugins: [
       // The Convex plugin is required for Convex compatibility
       convex(),

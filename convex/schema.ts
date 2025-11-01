@@ -1,4 +1,3 @@
-import { authTables } from "@convex-dev/auth/server";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
@@ -6,12 +5,16 @@ import { v } from "convex/values";
 // You can delete this file (schema.ts) and the
 // app will continue to work.
 // The schema provides more precise TypeScript types.
+// 
+// Note: Better Auth tables (user, session, account, verification) are
+// automatically managed by the Better Auth component and don't need
+// to be defined here.
 export default defineSchema({
-  ...authTables,
-  
   // User profiles
   userProfiles: defineTable({
-    userId: v.id("users"),
+    // Using v.string() temporarily for migration from old auth to Better Auth
+    // This allows both old "users" IDs and new "user" IDs to coexist
+    userId: v.string(),
     // Basic Info
     age: v.optional(v.number()),
     gender: v.optional(v.string()),
@@ -39,43 +42,43 @@ export default defineSchema({
   
   // Workout Plans
   workoutPlans: defineTable({
-    userId: v.id("users"),
+    userId: v.string(), // Flexible for migration
     name: v.string(),
     description: v.optional(v.string()),
     
-    // Plan Structure
-    phases: v.array(v.object({
-      phaseNumber: v.number(),
-      name: v.string(),
-      duration: v.number(),
-      focus: v.string(),
-      weeks: v.array(v.object({
-        weekNumber: v.number(),
-        sessions: v.array(v.object({
-          sessionNumber: v.number(),
-          type: v.string(),
-          exercises: v.array(v.object({
-            name: v.string(),
-            muscleGroup: v.string(),
-            sets: v.number(),
-            reps: v.string(),
-            rest: v.string(),
-            notes: v.optional(v.string()),
-          })),
-        })),
-      })),
-    })),
+    // Store complete AI-generated plan data for UI parser
+    fullPlanData: v.optional(v.any()),
+    
+    // Plan Structure (simplified for backward compatibility)
+    phases: v.any(),
+    
+    // ✅ Metadata fields for better querying (extracted from fullPlanData)
+    totalWeeks: v.optional(v.number()),
+    primaryGoal: v.optional(v.string()),
+    exerciseCount: v.optional(v.number()),
+    mealCount: v.optional(v.number()),
+    
+    // Weekly target macros for fast access
+    weeklyTargetMacros: v.optional(v.array(v.object({
+      week: v.number(),
+      calories: v.number(),
+      protein: v.number(),
+      carbs: v.number(),
+      fat: v.number(),
+    }))),
     
     // Metadata
     isActive: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_user", ["userId"])
-    .index("by_user_active", ["userId", "isActive"]),
+    .index("by_user_active", ["userId", "isActive"])
+    .index("by_goal", ["primaryGoal"])
+    .index("by_total_weeks", ["totalWeeks"]),
   
   // Meal Plans
   mealPlans: defineTable({
-    userId: v.id("users"),
+    userId: v.string(), // Flexible for migration
     workoutPlanId: v.optional(v.id("workoutPlans")),
     name: v.string(),
     
@@ -117,7 +120,7 @@ export default defineSchema({
   
   // Shopping Lists
   shoppingLists: defineTable({
-    userId: v.id("users"),
+    userId: v.string(), // Flexible for migration
     mealPlanId: v.id("mealPlans"),
     weekNumber: v.number(),
     
@@ -136,7 +139,7 @@ export default defineSchema({
   
   // Progress Tracking
   workoutSessions: defineTable({
-    userId: v.id("users"),
+    userId: v.string(), // Flexible for migration
     workoutPlanId: v.id("workoutPlans"),
     sessionDate: v.number(),
     
@@ -156,5 +159,27 @@ export default defineSchema({
   }).index("by_user", ["userId"])
     .index("by_workout_plan", ["workoutPlanId"])
     .index("by_date", ["userId", "sessionDate"]),
+  
+  // ✅ Token System - User Accounts
+  userAccounts: defineTable({
+    userId: v.string(),
+    tokens: v.number(), // Available tokens
+    totalTokensPurchased: v.number(), // Lifetime tokens purchased
+    planType: v.optional(v.string()), // e.g., "free", "basic", "premium"
+    
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+  
+  // ✅ Token Usage Tracking
+  tokenUsage: defineTable({
+    userId: v.string(),
+    operationType: v.string(), // e.g., "plan_generation", "meal_generation"
+    tokensUsed: v.number(),
+    details: v.optional(v.any()), // Additional info like plan ID, generation steps, etc.
+    
+    createdAt: v.number(),
+  }).index("by_user", ["userId"])
+    .index("by_user_date", ["userId", "createdAt"]),
 });
 
