@@ -43,13 +43,12 @@ export const initializeAccount = mutation({
       return existing._id;
     }
 
-    // Create new account with default tokens
-    const defaultTokens = 1000;
+    // Create new account with 0 tokens (no free plan)
     return await ctx.db.insert("userAccounts", {
       userId,
-      tokens: defaultTokens,
-      totalTokensPurchased: defaultTokens,
-      planType: "free",
+      tokens: 0,
+      totalTokensPurchased: 0,
+      planType: "none",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -85,6 +84,9 @@ export const recordTokenUsage = mutation({
   args: {
     operationType: v.string(),
     tokensUsed: v.number(),
+    status: v.optional(v.string()), // "success", "failed", "pending"
+    planId: v.optional(v.id("workoutPlans")),
+    operationSteps: v.optional(v.array(v.string())),
     details: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
@@ -100,14 +102,13 @@ export const recordTokenUsage = mutation({
       .withIndex("by_user", (q) => q.eq("userId", userId))
       .first();
 
-    // Create account if it doesn't exist
+    // Create account if it doesn't exist (no free tokens)
     if (!account) {
-      const defaultTokens = 1000;
       const accountId = await ctx.db.insert("userAccounts", {
         userId,
-        tokens: defaultTokens,
-        totalTokensPurchased: defaultTokens,
-        planType: "free",
+        tokens: 0,
+        totalTokensPurchased: 0,
+        planType: "none",
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -117,29 +118,37 @@ export const recordTokenUsage = mutation({
       }
     }
 
-    // Check if user has enough tokens
-    if (account.tokens < args.tokensUsed) {
-      throw new Error(`Insufficient tokens. You have ${account.tokens} tokens, but need ${args.tokensUsed}.`);
+    const finalStatus = args.status || "success";
+    const tokensToDeduct = finalStatus === "success" ? args.tokensUsed : 0;
+
+    // Check if user has enough tokens (only if status is success)
+    if (finalStatus === "success" && account.tokens < tokensToDeduct) {
+      throw new Error(`Insufficient tokens. You have ${account.tokens} tokens, but need ${tokensToDeduct}.`);
     }
 
-    // Deduct tokens
-    await ctx.db.patch(account._id, {
-      tokens: account.tokens - args.tokensUsed,
-      updatedAt: Date.now(),
-    });
+    // Deduct tokens only if successful
+    if (finalStatus === "success" && tokensToDeduct > 0) {
+      await ctx.db.patch(account._id, {
+        tokens: account.tokens - tokensToDeduct,
+        updatedAt: Date.now(),
+      });
+    }
 
-    // Record usage
+    // Record usage with new fields
     await ctx.db.insert("tokenUsage", {
       userId,
       operationType: args.operationType,
-      tokensUsed: args.tokensUsed,
+      tokensUsed: -Math.abs(args.tokensUsed), // Negative for usage
+      status: finalStatus,
+      planId: args.planId,
+      operationSteps: args.operationSteps,
       details: args.details,
       createdAt: Date.now(),
     });
 
     return {
-      remainingTokens: account.tokens - args.tokensUsed,
-      tokensUsed: args.tokensUsed,
+      remainingTokens: finalStatus === "success" ? account.tokens - tokensToDeduct : account.tokens,
+      tokensUsed: tokensToDeduct,
     };
   },
 });
@@ -166,7 +175,9 @@ export const addTokens = mutation({
         userId,
         tokens: args.amount,
         totalTokensPurchased: args.amount,
-        planType: "free",
+        planType: "none",
+        lastPurchaseDate: Date.now(),
+        lastPurchaseAmount: args.amount,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -178,9 +189,81 @@ export const addTokens = mutation({
       await ctx.db.patch(account._id, {
         tokens: account.tokens + args.amount,
         totalTokensPurchased: account.totalTokensPurchased + args.amount,
+        lastPurchaseDate: Date.now(),
+        lastPurchaseAmount: args.amount,
         updatedAt: Date.now(),
       });
     }
+
+    return { success: true };
+  },
+});
+
+// Add tokens from payment (called by webhook)
+export const addTokensFromPayment = mutation({
+  args: {
+    userId: v.string(),
+    tokens: v.number(),
+    paymentId: v.string(),
+    amount: v.number(),
+  },
+  handler: async (ctx, args) => {
+    let account = await ctx.db
+      .query("userAccounts")
+      .withIndex("by_user", (q) => q.eq("userId", args.userId))
+      .first();
+
+    if (!account) {
+      const accountId = await ctx.db.insert("userAccounts", {
+        userId: args.userId,
+        tokens: args.tokens,
+        totalTokensPurchased: args.tokens,
+        planType: "none",
+        lastPurchaseDate: Date.now(),
+        lastPurchaseAmount: args.amount,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      account = await ctx.db.get(accountId);
+      if (!account) {
+        throw new Error("Failed to create account");
+      }
+    } else {
+      await ctx.db.patch(account._id, {
+        tokens: account.tokens + args.tokens,
+        totalTokensPurchased: account.totalTokensPurchased + args.tokens,
+        lastPurchaseDate: Date.now(),
+        lastPurchaseAmount: args.amount,
+        updatedAt: Date.now(),
+      });
+    }
+
+    return { success: true };
+  },
+});
+
+// Record token purchase in usage history
+export const recordTokenPurchase = mutation({
+  args: {
+    userId: v.string(),
+    tokens: v.number(),
+    paymentId: v.string(),
+    packageId: v.string(),
+    amount: v.number(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.insert("tokenUsage", {
+      userId: args.userId,
+      operationType: "token_purchase",
+      tokensUsed: args.tokens, // Positive for purchases
+      status: "success",
+      paymentId: args.paymentId,
+      details: {
+        packageId: args.packageId,
+        amount: args.amount,
+      },
+      createdAt: Date.now(),
+    });
 
     return { success: true };
   },
