@@ -166,6 +166,8 @@ export default defineSchema({
     tokens: v.number(), // Available tokens
     totalTokensPurchased: v.number(), // Lifetime tokens purchased
     planType: v.optional(v.string()), // e.g., "free", "basic", "premium"
+    lastPurchaseDate: v.optional(v.number()), // Date of last token purchase
+    lastPurchaseAmount: v.optional(v.number()), // Amount of last token purchase
     
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -174,12 +176,17 @@ export default defineSchema({
   // ✅ Token Usage Tracking
   tokenUsage: defineTable({
     userId: v.string(),
-    operationType: v.string(), // e.g., "plan_generation", "meal_generation"
-    tokensUsed: v.number(),
+    operationType: v.string(), // e.g., "plan_generation", "meal_generation", "token_purchase"
+    tokensUsed: v.number(), // Positive for purchases, negative for usage
+    status: v.string(), // "success", "failed", "pending"
+    planId: v.optional(v.id("workoutPlans")), // Link to generated plan (if applicable)
+    operationSteps: v.optional(v.array(v.string())), // Breakdown of steps for plan generation
+    paymentId: v.optional(v.string()), // Stripe payment intent ID for token purchases
     details: v.optional(v.any()), // Additional info like plan ID, generation steps, etc.
     
     createdAt: v.number(),
   }).index("by_user", ["userId"])
-    .index("by_user_date", ["userId", "createdAt"]),
+    .index("by_user_date", ["userId", "createdAt"])
+    .index("by_status", ["status"]),
 });
 
