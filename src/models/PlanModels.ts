@@ -31,6 +31,11 @@ export interface MetabolicMetrics {
     formula: string;
     source: string;
   };
+  bmi?: {
+    value: number;
+    formula: string;
+    source: string;
+  };
   macros: {
     calories: number;
     protein: number;
@@ -206,6 +211,7 @@ export interface CompletePlan {
   phaseExerciseLibraries: Exercise[][];
   phaseSessionTemplates: SessionTemplate[][];
   phaseMealTemplates: MealTemplate[][];
+  dailyMealCombinations?: any[]; // Optional: for parser compatibility (converted from phaseMealTemplates)
   shoppingList: ShoppingList;
   metrics: MetabolicMetrics;
   evidenceCitations: string[];
