@@ -24,9 +24,12 @@ import {
   CheckCircle2,
   ShoppingCart,
   Clock,
-  BarChart3
+  BarChart3,
+  Dumbbell,
+  Heart
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
+import { PurchaseTokensButton } from '@/components/payments/PurchaseTokensButton';
 
 type SettingsView = 'account' | 'tokens';
 
@@ -46,6 +49,34 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
   const [imageUrl, setImageUrl] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
+  // Handle Stripe return URL parameters
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get('session_id');
+    const success = params.get('success');
+    const canceled = params.get('canceled');
+
+    if (success === 'true' && sessionId) {
+      toast({
+        title: "Payment successful!",
+        description: "Your tokens have been added to your account. Please refresh to see your updated balance.",
+        variant: "success",
+      });
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname);
+      // Refresh user account data
+      // The webhook should have already credited tokens, but refresh to show updated balance
+    } else if (canceled === 'true') {
+      toast({
+        title: "Payment cancelled",
+        description: "Your payment was cancelled. No tokens were charged.",
+        variant: "default",
+      });
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [toast]);
+
   // Calculate usage statistics from tokenUsage (moved to top level for Rules of Hooks)
   const usageStats = useMemo(() => {
     if (!tokenUsage || tokenUsage.length === 0) {
@@ -63,20 +94,23 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
     const oneWeek = 7 * oneDay;
     const oneMonth = 30 * oneDay;
 
-    const today = tokenUsage
+    // Filter and calculate only USAGE (negative tokens), not purchases
+    const usageOnly = tokenUsage.filter(u => u.tokensUsed < 0);
+    
+    const today = Math.abs(usageOnly
       .filter(u => now - u.createdAt < oneDay)
-      .reduce((sum, u) => sum + u.tokensUsed, 0);
+      .reduce((sum, u) => sum + Math.abs(u.tokensUsed), 0));
     
-    const thisWeek = tokenUsage
+    const thisWeek = Math.abs(usageOnly
       .filter(u => now - u.createdAt < oneWeek)
-      .reduce((sum, u) => sum + u.tokensUsed, 0);
+      .reduce((sum, u) => sum + Math.abs(u.tokensUsed), 0));
     
-    const thisMonth = tokenUsage
+    const thisMonth = Math.abs(usageOnly
       .filter(u => now - u.createdAt < oneMonth)
-      .reduce((sum, u) => sum + u.tokensUsed, 0);
+      .reduce((sum, u) => sum + Math.abs(u.tokensUsed), 0));
     
-    const total = tokenUsage.reduce((sum, u) => sum + u.tokensUsed, 0);
-    const daysWithUsage = Math.max(1, Math.ceil((now - Math.min(...tokenUsage.map(u => u.createdAt))) / oneDay));
+    const total = Math.abs(usageOnly.reduce((sum, u) => sum + Math.abs(u.tokensUsed), 0));
+    const daysWithUsage = Math.max(1, Math.ceil((now - Math.min(...usageOnly.map(u => u.createdAt))) / oneDay));
     const averagePerDay = total / daysWithUsage;
 
     return { today, thisWeek, thisMonth, total, averagePerDay };
@@ -218,30 +252,58 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
   }
 
   if (currentView === 'tokens') {
-    // Dummy data for demonstration
-    const dummyTokenBalance = userAccount?.tokens ?? 1000;
-    const dummyTotalPurchased = userAccount?.totalTokensPurchased ?? 1000;
-    const dummyPlanType = userAccount?.planType ?? 'free';
+    // Get actual account data (no free plan)
+    const dummyTokenBalance = userAccount?.tokens ?? 0;
+    const dummyTotalPurchased = userAccount?.totalTokensPurchased ?? 0;
+    const dummyPlanType = userAccount?.planType ?? 'none';
 
     // Check if balance is low (less than 100 tokens or less than 10% of initial)
     const isLowBalance = dummyTokenBalance < 100 || dummyTokenBalance < (dummyTotalPurchased * 0.1);
     const balancePercentage = dummyTotalPurchased > 0 ? (dummyTokenBalance / dummyTotalPurchased) * 100 : 100;
 
-    // Token packages (dummy data for UI)
+    // Token packages - 90% profit margin pricing
     const tokenPackages = [
-      { id: 'starter', name: 'Starter', tokens: 1000, price: 9.99, popular: false },
-      { id: 'professional', name: 'Professional', tokens: 5000, price: 39.99, popular: true },
-      { id: 'enterprise', name: 'Enterprise', tokens: 15000, price: 99.99, popular: false },
-      { id: 'unlimited', name: 'Unlimited', tokens: 50000, price: 299.99, popular: false },
+      { 
+        id: 'starter', 
+        name: 'Starter', 
+        tokens: 700, 
+        price: 10.00, 
+        popular: false,
+        plans: 7,
+        description: 'Perfect for trying out the service'
+      },
+      { 
+        id: 'professional', 
+        name: 'Professional', 
+        tokens: 2000, 
+        price: 25.00, 
+        popular: true,
+        plans: 20,
+        bonus: '20% bonus',
+        description: 'Best value for regular users'
+      },
+      { 
+        id: 'enterprise', 
+        name: 'Enterprise', 
+        tokens: 4500, 
+        price: 50.00, 
+        popular: false,
+        plans: 45,
+        bonus: '29% bonus',
+        description: 'Maximum value for power users'
+      },
     ];
 
-    // Operation costs (dummy data)
+    // Operation costs per plan generation step
     const operationCosts = [
-      { operation: 'Plan Generation', tokens: 500, description: 'Complete fitness plan generation' },
-      { operation: 'Meal Plan Generation', tokens: 300, description: 'Nutritional meal plan creation' },
-      { operation: 'Workout Analysis', tokens: 200, description: 'Detailed workout analysis' },
-      { operation: 'Progress Update', tokens: 100, description: 'Update and adjust plan' },
-      { operation: 'Quick Consultation', tokens: 50, description: 'AI fitness consultation' },
+      { operation: 'Complete Plan Generation', tokens: 100, description: 'Full plan (all 7 steps: feasibility + framework + exercises + sessions + meals + shopping)', isComplete: true },
+      { operation: 'Feasibility Assessment', tokens: 10, description: 'Step 1: Goal validation and safety assessment', isComplete: false },
+      { operation: 'Strategic Framework', tokens: 15, description: 'Step 2: Training & nutrition approach', isComplete: false },
+      { operation: 'Weekly Outlines', tokens: 10, description: 'Step 3: Weekly progression plans', isComplete: false },
+      { operation: 'Exercise Library', tokens: 15, description: 'Step 4: Phase-specific exercises', isComplete: false },
+      { operation: 'Session Templates', tokens: 15, description: 'Step 5: Workout session structures', isComplete: false },
+      { operation: 'Meal Templates', tokens: 20, description: 'Step 6: Groq reasoning (most expensive)', isComplete: false },
+      { operation: 'Shopping Lists', tokens: 15, description: 'Step 7: Groq cost estimation', isComplete: false },
     ];
 
     // Format operation type for display
@@ -327,7 +389,7 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
                 {getPlanBadge(dummyPlanType)}
               </div>
               <p className="text-xs text-muted-foreground mt-3">
-                {dummyPlanType === 'free' ? 'Upgrade for more benefits' : 'Active subscription'}
+                {dummyPlanType === 'none' ? 'Purchase tokens to get started' : 'Active subscription'}
               </p>
             </CardHeader>
           </Card>
@@ -417,37 +479,149 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
                   Recent Activity
                 </CardTitle>
                 <CardDescription>
-                  Your latest token usage transactions
+                  Your latest token transactions and operations
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {tokenUsage && tokenUsage.length > 0 ? (
-                  <div className="space-y-3">
-                    {tokenUsage.slice(0, 5).map((usage) => (
-                      <div
-                        key={usage._id}
-                        className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-primary/10 rounded-lg">
-                            <Activity className="h-4 w-4 text-primary" />
+                  <div className="space-y-4">
+                    {(() => {
+                      // Group activities by date
+                      const now = Date.now();
+                      const oneDay = 24 * 60 * 60 * 1000;
+                      const oneWeek = 7 * oneDay;
+                      
+                      const grouped: Record<string, typeof tokenUsage> = {
+                        today: [],
+                        yesterday: [],
+                        thisWeek: [],
+                        older: [],
+                      };
+                      
+                      tokenUsage.slice(0, 10).forEach((usage) => {
+                        const date = usage.createdAt;
+                        const diff = now - date;
+                        
+                        if (diff < oneDay) {
+                          grouped.today.push(usage);
+                        } else if (diff < oneDay * 2) {
+                          grouped.yesterday.push(usage);
+                        } else if (diff < oneWeek) {
+                          grouped.thisWeek.push(usage);
+                        } else {
+                          grouped.older.push(usage);
+                        }
+                      });
+                      
+                      const renderActivityItem = (usage: typeof tokenUsage[0]) => {
+                        const isPurchase = usage.operationType === "token_purchase" || usage.tokensUsed > 0;
+                        const tokensDisplay = Math.abs(usage.tokensUsed);
+                        const status = (usage as any).status || "success";
+                        
+                        // Get icon and color based on operation type
+                        const getActivityIcon = () => {
+                          if (isPurchase) {
+                            return <TrendingUp className="h-4 w-4 text-green-600" />;
+                          }
+                          switch (usage.operationType) {
+                            case "plan_generation":
+                              return <Dumbbell className="h-4 w-4 text-blue-600" />;
+                            case "meal_generation":
+                              return <Heart className="h-4 w-4 text-orange-600" />;
+                            case "shopping_list":
+                              return <ShoppingCart className="h-4 w-4 text-purple-600" />;
+                            default:
+                              return <Activity className="h-4 w-4 text-primary" />;
+                          }
+                        };
+                        
+                        const getStatusBadge = () => {
+                          switch (status.toLowerCase()) {
+                            case "success":
+                              return <Badge className="bg-green-500 text-white text-xs">Success</Badge>;
+                            case "failed":
+                              return <Badge variant="destructive" className="text-xs">Failed</Badge>;
+                            case "pending":
+                              return <Badge variant="secondary" className="text-xs">Pending</Badge>;
+                            default:
+                              return null;
+                          }
+                        };
+                        
+                        return (
+                          <div
+                            key={usage._id}
+                            className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                          >
+                            <div className="flex items-center gap-3 flex-1">
+                              <div className="p-2 bg-muted rounded-lg">
+                                {getActivityIcon()}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-medium">{formatOperationType(usage.operationType)}</p>
+                                  {getStatusBadge()}
+                                </div>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <Calendar className="h-3 w-3 text-muted-foreground" />
+                                  <p className="text-sm text-muted-foreground">
+                                    {new Date(usage.createdAt).toLocaleString()}
+                                  </p>
+                                </div>
+                                {(usage as any).planId && (
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Plan ID: {(usage as any).planId}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className={`font-semibold ${isPurchase ? 'text-green-600' : 'text-destructive'}`}>
+                                {isPurchase ? '+' : '-'}{tokensDisplay.toLocaleString()}
+                              </p>
+                              <p className="text-xs text-muted-foreground">tokens</p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="font-medium">{formatOperationType(usage.operationType)}</p>
-                            <p className="text-sm text-muted-foreground flex items-center gap-1">
-                              <Calendar className="h-3 w-3" />
-                              {new Date(usage.createdAt).toLocaleString()}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-semibold text-destructive">
-                            -{usage.tokensUsed.toLocaleString()}
-                          </p>
-                          <p className="text-xs text-muted-foreground">tokens</p>
-                        </div>
-                      </div>
-                    ))}
+                        );
+                      };
+                      
+                      return (
+                        <>
+                          {grouped.today.length > 0 && (
+                            <div>
+                              <h4 className="text-sm font-semibold text-muted-foreground mb-2">Today</h4>
+                              <div className="space-y-2">
+                                {grouped.today.map(renderActivityItem)}
+                              </div>
+                            </div>
+                          )}
+                          {grouped.yesterday.length > 0 && (
+                            <div>
+                              <h4 className="text-sm font-semibold text-muted-foreground mb-2">Yesterday</h4>
+                              <div className="space-y-2">
+                                {grouped.yesterday.map(renderActivityItem)}
+                              </div>
+                            </div>
+                          )}
+                          {grouped.thisWeek.length > 0 && (
+                            <div>
+                              <h4 className="text-sm font-semibold text-muted-foreground mb-2">This Week</h4>
+                              <div className="space-y-2">
+                                {grouped.thisWeek.map(renderActivityItem)}
+                              </div>
+                            </div>
+                          )}
+                          {grouped.older.length > 0 && (
+                            <div>
+                              <h4 className="text-sm font-semibold text-muted-foreground mb-2">Older</h4>
+                              <div className="space-y-2">
+                                {grouped.older.map(renderActivityItem)}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 ) : (
                   <div className="text-center py-12">
@@ -494,26 +668,35 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
                         <CardTitle className="text-xl">{pkg.name}</CardTitle>
                         <div className="mt-4">
                           <div className="flex items-baseline gap-1">
-                            <span className="text-3xl font-bold">${pkg.price}</span>
+                            <span className="text-3xl font-bold">${pkg.price.toFixed(2)}</span>
                           </div>
                           <p className="text-sm text-muted-foreground mt-1">
                             {pkg.tokens.toLocaleString()} tokens
                           </p>
-                          <p className="text-xs text-muted-foreground mt-1">
+                          <p className="text-xs font-medium text-primary mt-1">
+                            ~{pkg.plans} plan{pkg.plans !== 1 ? 's' : ''}
+                          </p>
+                          {pkg.bonus && (
+                            <Badge variant="secondary" className="mt-1 text-xs">
+                              {pkg.bonus}
+                            </Badge>
+                          )}
+                          <p className="text-xs text-muted-foreground mt-2">
                             ${(pkg.price / pkg.tokens).toFixed(4)} per token
                           </p>
                         </div>
                       </CardHeader>
                       <CardContent>
-                        <Button 
-                          className="w-full" 
+                        <PurchaseTokensButton
+                          packageId={pkg.id as "starter" | "professional" | "enterprise"}
+                          packageName={pkg.name}
+                          tokens={pkg.tokens}
+                          price={pkg.price}
                           variant={pkg.popular ? 'default' : 'outline'}
-                          disabled
-                        >
-                          Purchase
-                        </Button>
+                          className="w-full"
+                        />
                         <p className="text-xs text-muted-foreground text-center mt-2">
-                          Payment integration coming soon
+                          Secure payment via Stripe
                         </p>
                       </CardContent>
                     </Card>
@@ -537,45 +720,115 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
               </CardHeader>
               <CardContent>
                 {tokenUsage && tokenUsage.length > 0 ? (
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Operation</TableHead>
-                          <TableHead>Date & Time</TableHead>
-                          <TableHead className="text-right">Tokens Used</TableHead>
-                          <TableHead className="text-right">Remaining</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {tokenUsage.map((usage, index) => {
-                          // Calculate remaining tokens (approximate, would be from details in real implementation)
-                          const remainingAfter = dummyTokenBalance + tokenUsage.slice(0, index + 1).reduce((sum, u) => sum + u.tokensUsed, 0);
-                          
-                          return (
-                            <TableRow key={usage._id}>
-                              <TableCell className="font-medium">
-                                {formatOperationType(usage.operationType)}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center gap-2">
-                                  <Calendar className="h-4 w-4 text-muted-foreground" />
-                                  <span className="text-sm">
-                                    {new Date(usage.createdAt).toLocaleString()}
-                                  </span>
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-right font-semibold text-destructive">
-                                -{usage.tokensUsed.toLocaleString()}
-                              </TableCell>
-                              <TableCell className="text-right text-muted-foreground">
-                                {remainingAfter.toLocaleString()}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
+                  <div className="space-y-4">
+                    {/* Filters */}
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <Label className="text-sm">Filter by:</Label>
+                      <select
+                        className="px-3 py-1.5 text-sm border rounded-md bg-background"
+                        onChange={(e) => {
+                          // Filter logic would go here
+                          console.log("Filter by:", e.target.value);
+                        }}
+                      >
+                        <option value="all">All Operations</option>
+                        <option value="plan_generation">Plan Generation</option>
+                        <option value="token_purchase">Token Purchase</option>
+                        <option value="meal_generation">Meal Generation</option>
+                      </select>
+                      <select
+                        className="px-3 py-1.5 text-sm border rounded-md bg-background"
+                        onChange={(e) => {
+                          // Status filter
+                          console.log("Status filter:", e.target.value);
+                        }}
+                      >
+                        <option value="all">All Status</option>
+                        <option value="success">Success</option>
+                        <option value="failed">Failed</option>
+                        <option value="pending">Pending</option>
+                      </select>
+                    </div>
+
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Operation</TableHead>
+                            <TableHead>Details</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Date & Time</TableHead>
+                            <TableHead className="text-right">Tokens</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {tokenUsage.map((usage) => {
+                            const isPurchase = usage.operationType === "token_purchase" || usage.tokensUsed > 0;
+                            const tokensDisplay = Math.abs(usage.tokensUsed);
+                            const status = (usage as any).status || "success";
+                            
+                            // Get status badge
+                            const getStatusBadge = (status: string) => {
+                              switch (status.toLowerCase()) {
+                                case "success":
+                                  return <Badge className="bg-green-500 text-white">Success</Badge>;
+                                case "failed":
+                                  return <Badge variant="destructive">Failed</Badge>;
+                                case "pending":
+                                  return <Badge variant="secondary">Pending</Badge>;
+                                default:
+                                  return <Badge variant="secondary">{status}</Badge>;
+                              }
+                            };
+
+                            // Format operation steps
+                            const operationSteps = (usage as any).operationSteps || [];
+                            const detailsText = operationSteps.length > 0
+                              ? `${operationSteps.length} step${operationSteps.length !== 1 ? 's' : ''}: ${operationSteps.slice(0, 2).join(', ')}${operationSteps.length > 2 ? '...' : ''}`
+                              : usage.operationType === "token_purchase"
+                              ? `Package: ${(usage.details as any)?.packageId || 'Unknown'}`
+                              : "—";
+
+                            return (
+                              <TableRow key={usage._id}>
+                                <TableCell className="font-medium">
+                                  <div className="flex items-center gap-2">
+                                    {isPurchase ? (
+                                      <TrendingUp className="h-4 w-4 text-green-600" />
+                                    ) : (
+                                      <Activity className="h-4 w-4 text-blue-600" />
+                                    )}
+                                    {formatOperationType(usage.operationType)}
+                                  </div>
+                                  {(usage as any).planId && (
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                      Plan ID: {(usage as any).planId}
+                                    </p>
+                                  )}
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground">
+                                  {detailsText}
+                                </TableCell>
+                                <TableCell>
+                                  {getStatusBadge(status)}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-sm">
+                                      {new Date(usage.createdAt).toLocaleString()}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell className={`text-right font-semibold ${isPurchase ? 'text-green-600' : 'text-destructive'}`}>
+                                  {isPurchase ? '+' : '-'}{tokensDisplay.toLocaleString()}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                    </div>
                   </div>
                 ) : (
                   <div className="text-center py-12">
@@ -602,11 +855,21 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
               <CardContent>
                 <div className="space-y-4">
                   {operationCosts.map((cost, index) => (
-                    <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
+                    <div 
+                      key={index} 
+                      className={`flex items-center justify-between p-4 border rounded-lg ${
+                        cost.isComplete ? 'bg-primary/5 border-primary/20' : ''
+                      }`}
+                    >
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
                           <h4 className="font-semibold">{cost.operation}</h4>
-                          <Badge variant="secondary">{cost.tokens} tokens</Badge>
+                          <Badge variant={cost.isComplete ? "default" : "secondary"}>
+                            {cost.tokens} tokens
+                          </Badge>
+                          {cost.isComplete && (
+                            <Badge variant="outline" className="text-xs">Complete Plan</Badge>
+                          )}
                         </div>
                         <p className="text-sm text-muted-foreground mt-1">{cost.description}</p>
                       </div>
@@ -629,7 +892,8 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
                     <li>Tokens are only consumed when you generate new plans or content</li>
                     <li>Viewing existing plans does not consume tokens</li>
                     <li>Tokens never expire - use them at your own pace</li>
-                    <li>More complex plans may require additional tokens</li>
+                    <li>Each complete plan generation costs 100 tokens (includes all 7 steps)</li>
+                    <li>If generation fails, tokens are refunded after review</li>
                   </ul>
                 </div>
               </CardContent>
