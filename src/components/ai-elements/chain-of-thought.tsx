@@ -13,7 +13,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { ComponentProps } from "react";
-import { createContext, memo, useContext, useMemo } from "react";
+import React, { createContext, memo, useContext, useMemo } from "react";
 
 type ChainOfThoughtContextValue = {
   isOpen: boolean;
@@ -75,10 +75,12 @@ export const ChainOfThought = memo(
 
 export type ChainOfThoughtHeaderProps = ComponentProps<
   typeof CollapsibleTrigger
->;
+> & {
+  icon?: LucideIcon | React.ReactNode;
+};
 
 export const ChainOfThoughtHeader = memo(
-  ({ className, children, ...props }: ChainOfThoughtHeaderProps) => {
+  ({ className, children, icon, ...props }: ChainOfThoughtHeaderProps) => {
     const { isOpen, setIsOpen } = useChainOfThought();
 
     return (
@@ -90,7 +92,11 @@ export const ChainOfThoughtHeader = memo(
           )}
           {...props}
         >
-          <BrainIcon className="size-4" />
+          {icon ? (
+            typeof icon === 'function' ? React.createElement(icon, { className: "size-4" }) : icon
+          ) : (
+            <BrainIcon className="size-4" />
+          )}
           <span className="flex-1 text-left">
             {children ?? "Chain of Thought"}
           </span>
@@ -107,8 +113,8 @@ export const ChainOfThoughtHeader = memo(
 );
 
 export type ChainOfThoughtStepProps = ComponentProps<"div"> & {
-  icon?: LucideIcon;
-  label: string;
+  icon?: LucideIcon | string; // Allow emoji string
+  label: string | React.ReactNode;
   description?: string;
   status?: "complete" | "active" | "pending";
 };
@@ -129,6 +135,9 @@ export const ChainOfThoughtStep = memo(
       pending: "text-muted-foreground/50",
     };
 
+    // Check if icon is an emoji (string) or LucideIcon (function/component)
+    const isEmoji = typeof Icon === 'string';
+
     return (
       <div
         className={cn(
@@ -140,7 +149,11 @@ export const ChainOfThoughtStep = memo(
         {...props}
       >
         <div className="relative mt-0.5">
-          <Icon className="size-4" />
+          {isEmoji ? (
+            <span className="text-lg">{Icon}</span>
+          ) : (
+            <Icon className="size-4" />
+          )}
           <div className="-mx-px absolute top-7 bottom-0 left-1/2 w-px bg-border" />
         </div>
         <div className="flex-1 space-y-2">
