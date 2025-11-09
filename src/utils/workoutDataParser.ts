@@ -188,9 +188,35 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
     dailyMealCombinations = jsonData.dailyMealCombinations;
     console.log('📊 Using dailyMealCombinations:', dailyMealCombinations.length, 'combinations');
   } else if (jsonData.phaseMealTemplates && Array.isArray(jsonData.phaseMealTemplates)) {
-    // Flatten the array of arrays structure
-    dailyMealCombinations = jsonData.phaseMealTemplates.flat();
-    console.log('📊 Using phaseMealTemplates (flattened):', dailyMealCombinations.length, 'combinations');
+    // Convert phaseMealTemplates (array of arrays) to dailyMealCombinations format
+    // phaseMealTemplates is MealTemplate[][] where each inner array is a day's meals
+    jsonData.phaseMealTemplates.forEach((dayMeals: any[], dayIndex: number) => {
+      if (Array.isArray(dayMeals) && dayMeals.length > 0) {
+        // Get week number from weeklyOutlines or default to 1
+        const weekNumber = jsonData.weeklyOutlines?.[0]?.weekNumber || 1;
+        
+        // Convert MealTemplate[] to the meals format expected by parser
+        const meals = dayMeals.map((meal: any) => ({
+          mealType: meal.mealType || 'Meal',
+          calories: meal.totalCalories || 0,
+          protein: meal.macros?.protein || 0,
+          carbs: meal.macros?.carbs || 0,
+          fat: meal.macros?.fat || 0,
+          recipe: {
+            name: meal.name || meal.baseRecipe?.name || 'Meal',
+            ingredients: meal.baseRecipe?.ingredients || [],
+            instructions: meal.baseRecipe?.instructions || [],
+          },
+        }));
+        
+        dailyMealCombinations.push({
+          weekNumber: weekNumber,
+          dayNumber: dayIndex + 1,
+          meals: meals,
+        });
+      }
+    });
+    console.log('📊 Converted phaseMealTemplates to dailyMealCombinations:', dailyMealCombinations.length, 'combinations');
   } else if (jsonData.weeklyMealTemplates && Array.isArray(jsonData.weeklyMealTemplates)) {
     // Convert weekly meal templates to daily combinations
     jsonData.weeklyMealTemplates.forEach((template: any) => {
@@ -285,9 +311,10 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
   // Parse Exercise Library - Support both old and new structures
   let allExercises: any[] = [];
   
-  // Handle new phaseExerciseLibraries structure
+  // Handle new phaseExerciseLibraries structure (array of arrays - one per phase)
   if (jsonData.phaseExerciseLibraries && Array.isArray(jsonData.phaseExerciseLibraries)) {
-    allExercises = jsonData.phaseExerciseLibraries;
+    // Flatten array of arrays to get all exercises
+    allExercises = jsonData.phaseExerciseLibraries.flat();
   }
   // Fallback to old exerciseLibrary structure
   else if (jsonData.exerciseLibrary && Array.isArray(jsonData.exerciseLibrary)) {
@@ -329,9 +356,10 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
   // Parse Session Templates - Support both old and new structures
   let allSessionTemplates: any[] = [];
   
-  // Handle new phaseSessionTemplates structure
+  // Handle new phaseSessionTemplates structure (array of arrays - one per phase)
   if (jsonData.phaseSessionTemplates && Array.isArray(jsonData.phaseSessionTemplates)) {
-    allSessionTemplates = jsonData.phaseSessionTemplates;
+    // Flatten array of arrays to get all session templates
+    allSessionTemplates = jsonData.phaseSessionTemplates.flat();
   }
   // Fallback to old sessionTemplates structure
   else if (jsonData.sessionTemplates && Array.isArray(jsonData.sessionTemplates)) {
@@ -385,6 +413,11 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
     const uniqueMeals = new Set<string>();
     
     dailyMealCombinations.forEach((combination: any) => {
+      // Safety check: ensure combination has meals array
+      if (!combination || !Array.isArray(combination.meals)) {
+        console.warn('⚠️ Invalid meal combination structure:', combination);
+        return;
+      }
       combination.meals.forEach((meal: any) => {
         // Create a unique key based on week + meal type (not day)
         const uniqueKey = `${combination.weekNumber}_${meal.mealType}`;
@@ -530,7 +563,16 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
           const isWorkoutDay = week.trainingSchedule?.resistanceDays?.includes(day) || dayNumber <= 6;
           
           // Generate workouts for this day using weekly outline context
-          const workouts = isWorkoutDay ? generateDayWorkouts(dayNumber, jsonData.phaseSessionTemplates || jsonData.sessionTemplates, week.phase, week.weekNumber) : [];
+          // Pass exercise library to resolve exercise names from IDs
+          // Pass training schedule to determine if this is a workout day
+          const workouts = isWorkoutDay ? generateDayWorkouts(
+            dayNumber, 
+            jsonData.phaseSessionTemplates || jsonData.sessionTemplates, 
+            week.phase, 
+            week.weekNumber,
+            jsonData.phaseExerciseLibraries || jsonData.exerciseLibrary || [],
+            week.trainingSchedule
+          ) : [];
           
           // Generate meals for this day using daily meal combinations (with fallback)
           const meals = dailyMealCombinations.length > 0
@@ -664,38 +706,62 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
 }
 
 // Helper function to generate workouts for a specific day
-function generateDayWorkouts(dayNumber: number, sessionTemplates: any[], phaseName?: string, weekNumber?: number): any[] {
+// Uses AI-generated session templates intelligently (NO HARDCODED MAPPINGS)
+function generateDayWorkouts(
+  dayNumber: number, 
+  sessionTemplates: any[], 
+  phaseName?: string, 
+  weekNumber?: number,
+  exerciseLibrary: any[] = [],
+  trainingSchedule?: any
+): any[] {
   if (!sessionTemplates || sessionTemplates.length === 0) return [];
   
-  // Map day numbers to workout types based on the data structure
-  const workoutMapping = [
-    { type: 'push_day_1', name: 'Chest and Triceps', keywords: ['chest', 'triceps', 'push'] },
-    { type: 'pull_day_1', name: 'Back and Biceps', keywords: ['back', 'biceps', 'pull'] },
-    { type: 'legs_day_1', name: 'Legs', keywords: ['legs', 'leg', 'squat', 'deadlift'] },
-    { type: 'push_day_2', name: 'Chest and Triceps', keywords: ['chest', 'triceps', 'push'] },
-    { type: 'pull_day_2', name: 'Back and Biceps', keywords: ['back', 'biceps', 'pull'] },
-    { type: 'legs_day_2', name: 'Legs', keywords: ['legs', 'leg', 'squat', 'deadlift'] }
-  ];
+  // Create exercise lookup map for fast access
+  const exerciseMap = new Map<string, any>();
+  exerciseLibrary.forEach((exercise: any) => {
+    if (exercise.exerciseId) {
+      exerciseMap.set(exercise.exerciseId, exercise);
+    }
+  });
   
-  const dayWorkout = workoutMapping[dayNumber - 1];
-  if (!dayWorkout) return [];
+  // Map day number to day name
+  const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const dayName = dayNames[dayNumber - 1];
   
-  // First try to find exact match
-  let session = sessionTemplates.find(s => s.templateId === dayWorkout.type);
+  // Determine if this is a resistance training day based on training schedule
+  const isResistanceDay = trainingSchedule?.resistanceDays?.includes(dayName) ?? (dayNumber <= 6);
   
-  // If no exact match, try to find by name or keywords
-  if (!session) {
-    session = sessionTemplates.find(s => 
-      s.name?.toLowerCase().includes(dayWorkout.name.toLowerCase()) ||
-      dayWorkout.keywords.some(keyword => s.name?.toLowerCase().includes(keyword))
+  if (!isResistanceDay) return [];
+  
+  // Intelligently select session template based on:
+  // 1. Phase name (Foundation, Progression, Peak)
+  // 2. Week number (for variety/progression)
+  // 3. Day number (for split distribution)
+  // 4. Available session templates (AI-generated)
+  
+  // Filter sessions by phase if phase name matches
+  let availableSessions = sessionTemplates;
+  
+  if (phaseName) {
+    const phaseLower = phaseName.toLowerCase();
+    // Try to match by phase in templateId or name
+    const phaseMatched = sessionTemplates.filter(s => 
+      s.templateId?.toLowerCase().includes(phaseLower) ||
+      s.name?.toLowerCase().includes(phaseLower)
     );
+    
+    // If we found phase-matched sessions, use those; otherwise use all
+    if (phaseMatched.length > 0) {
+      availableSessions = phaseMatched;
+    }
   }
   
-  // If still no match, use the first available session (with rotation for variety)
-  if (!session) {
-    const sessionIndex = (dayNumber - 1) % sessionTemplates.length;
-    session = sessionTemplates[sessionIndex];
-  }
+  // If we have multiple sessions, distribute them across the week for variety
+  // Use week number and day number to create variety (prevents repetition)
+  // This ensures different weeks get different session rotations
+  const sessionIndex = ((weekNumber || 1) * 7 + dayNumber - 1) % availableSessions.length;
+  const session = availableSessions[sessionIndex];
   
   if (!session) return [];
   
@@ -720,17 +786,27 @@ function generateDayWorkouts(dayNumber: number, sessionTemplates: any[], phaseNa
   const intensityMultiplier = getPhaseIntensityMultiplier(phaseName);
   const adjustedDuration = Math.round((session.totalDurationMinutes || 60) * intensityMultiplier);
   
+  // Map exercises with proper names from exercise library
+  const exercises = (session.structure || []).map((exercise: any) => {
+    const exerciseId = exercise.exerciseId || '';
+    const exerciseInfo = exerciseMap.get(exerciseId);
+    
+    return {
+      exerciseId: exerciseId,
+      name: exerciseInfo?.name || exerciseId, // Use name from library, fallback to ID
+      sets: exercise.sets || 0,
+      reps: exercise.reps || '',
+      restSeconds: exercise.restSeconds || 0,
+      notes: exercise.notes || ''
+    };
+  });
+  
   return [{
     sessionId: `${session.templateId}_week${weekNumber || 1}`,
-    sessionName: session.name,
+    sessionName: session.name || 'Workout',
     duration: adjustedDuration,
     targetMuscles: session.targetMuscles || [],
-    exercises: (session.structure || []).slice(0, 5).map((exercise: any) => ({
-      exerciseId: exercise.exerciseId || exercise.name,
-      name: exercise.exerciseId || exercise.name,
-      sets: exercise.sets || 0,
-      reps: exercise.reps || ''
-    }))
+    exercises: exercises
   }];
 }
 
