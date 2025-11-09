@@ -21,6 +21,7 @@ export interface UserProfile {
   workoutSplit: 'full_body' | 'upper_lower' | 'push_pull_legs' | 'body_part' | 'custom';
   trainingDaysPerWeek: number;
   equipment: 'gym_membership' | 'home_gym' | 'bodyweight' | 'minimal_equipment';
+  schedule?: string; // User's available training times (e.g., "Monday-Friday: 6-7 AM")
   
   // API Configuration
   apiKey?: string;
