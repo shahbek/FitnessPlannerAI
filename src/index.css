@@ -1,4 +1,12 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
+/* Custom Fonts */
+@font-face {
+  font-family: 'PP Editorial New';
+  src: url('/assets/fonts/PPEditorialNew-Light.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
 
 @tailwind base;
 @tailwind components;
@@ -7,17 +15,17 @@
 @layer base {
   :root {
     /* Custom color scheme */
-    --background: 60 9% 92%; /* #ebebe1 */
+    --background: 60 9% 96%; /* lighter beige for softer look */
     --foreground: 0 0% 0%; /* black */
-    --card: 60 9% 92%; /* #ebebe1 */
+    --card: 60 9% 96%; /* lighter beige */
     --card-foreground: 0 0% 0%; /* black */
-    --popover: 60 9% 92%; /* #ebebe1 */
+    --popover: 60 9% 96%; /* lighter beige */
     --popover-foreground: 0 0% 0%; /* black */
     --primary: 10 96% 48%; /* #f43e01 */
     --primary-foreground: 0 0% 100%; /* white */
-    --secondary: 60 9% 85%; /* slightly darker than background */
+    --secondary: 60 9% 90%; /* slightly darker than background */
     --secondary-foreground: 0 0% 0%; /* black */
-    --muted: 60 9% 85%; /* slightly darker than background */
+    --muted: 60 9% 90%; /* slightly darker than background */
     --muted-foreground: 0 0% 40%; /* darker gray */
     --accent: 10 96% 48%; /* #f43e01 */
     --accent-foreground: 0 0% 100%; /* white */
@@ -68,22 +76,17 @@
   }
 
   * {
-    border-color: hsl(var(--border));
+    @apply border-border;
   }
 
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    @apply bg-background text-foreground;
   }
 }
 
-
-
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
+@layer utilities {
+  .overscroll-none {
+    overscroll-behavior: none;
+    -webkit-overflow-scrolling: touch;
   }
 }
