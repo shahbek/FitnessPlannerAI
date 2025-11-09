@@ -82,6 +82,36 @@ export class DynamicCalculator {
   }
 
   /**
+   * Body Mass Index (kg/m^2)
+   */
+  async calculateBMI(userProfile: any): Promise<CalculationResult> {
+    const heightM = (userProfile.heightCm || 0) / 100;
+    const weightKg = userProfile.weightKg || 0;
+    const value = heightM > 0 ? weightKg / (heightM * heightM) : 0;
+
+    const recommendations: string[] = [];
+    if (value > 0) {
+      if (value < 18.5) recommendations.push('Consider a gradual weight gain approach with resistance training.');
+      else if (value < 25) recommendations.push('Maintain with balanced nutrition and progressive training.');
+      else if (value < 30) recommendations.push('Combine moderate caloric deficit with strength training to preserve muscle.');
+      else recommendations.push('Prioritize sustainable fat loss with adequate protein and recovery.');
+    }
+
+    return {
+      value: Number(value.toFixed(1)),
+      confidence: 0.98,
+      formula: 'BMI = weight_kg / (height_m^2)',
+      variables: {
+        weight_kg: weightKg,
+        height_m: Number(heightM.toFixed(2)),
+      },
+      source: 'WHO BMI classification',
+      warnings: [],
+      recommendations,
+    };
+  }
+
+  /**
    * Total daily energy expenditure based on activity factors.
    */
   async calculateTDEE(
