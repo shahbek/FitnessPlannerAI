@@ -9,7 +9,9 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuAction,
+  SidebarMenuSub,
+  SidebarMenuSubItem,
+  SidebarMenuSubButton,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -17,15 +19,31 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
+import { cn } from '@/lib/utils';
 import { 
   Plus, 
-  History, 
-  Brain,
   MoreHorizontal,
-  Trash2
+  Trash2,
+  LogOut,
+  User,
+  Settings,
+  ChevronRight,
+  Coins,
+  Dumbbell
 } from 'lucide-react';
+import logoIcon from '@/assets/logo.svg';
+import { signOut } from '@/lib/auth-client';
+import { useQuery } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
+import { useState } from 'react';
 
 // Interface for workout history items
 interface WorkoutHistoryItem {
@@ -33,40 +51,67 @@ interface WorkoutHistoryItem {
   title: string;
   createdAt: string;
   data?: any;
+  convexId?: any;
 }
 
-// Placeholder user profile data
-const userProfile = {
-  name: "John Doe",
-  email: "john@example.com",
-  avatar: null,
-  initials: "JD"
-};
+type NavigationView = 'home' | 'settings' | 'settings-account' | 'settings-tokens';
 
 interface FitnessSidebarProps {
   onNewWorkout: () => void;
   onSelectWorkout: (id: number) => void;
   onDeleteWorkout: (id: number) => void;
+  onNavigate?: (view: NavigationView) => void;
+  currentView?: NavigationView;
   selectedWorkoutId?: number;
   workoutHistory: WorkoutHistoryItem[];
 }
 
-export function FitnessSidebar({ onNewWorkout, onSelectWorkout, onDeleteWorkout, selectedWorkoutId, workoutHistory }: FitnessSidebarProps) {
+export function FitnessSidebar({ 
+  onNewWorkout, 
+  onSelectWorkout, 
+  onDeleteWorkout, 
+  onNavigate,
+  currentView = 'home',
+  selectedWorkoutId, 
+  workoutHistory 
+}: FitnessSidebarProps) {
+  const user = useQuery(api.users.getCurrentUser);
+  const [settingsOpen, setSettingsOpen] = useState(
+    currentView?.startsWith('settings') ?? false
+  );
+  
+  const handleSignOut = async () => {
+    await signOut();
+  };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric' 
-    });
+  const handleNavigate = (view: NavigationView) => {
+    if (view.startsWith('settings')) {
+      setSettingsOpen(true);
+    }
+    onNavigate?.(view);
+    // Also clear workout selection when navigating away
+    // Don't call onSelectWorkout with 0 - that might cause issues
+    if (view !== 'home' && selectedWorkoutId) {
+      // Clear selection by setting to undefined, not 0
+      // onSelectWorkout will be handled by parent
+    }
+  };
+
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
   };
 
   return (
     <Sidebar collapsible="offcanvas">
       <SidebarHeader className="border-b border-sidebar-border">
         <div className="flex items-center gap-2 p-2">
-          <Brain className="h-6 w-6 text-primary" />
-          <span className="font-bold text-lg font-sans">AI Fitness</span>
+          <img src={logoIcon} alt="Supercomp Logo" className="h-8 w-8" />
+          <span className="font-bold text-lg font-editorial">Supercomp</span>
         </div>
         
         {/* New Workout Button */}
@@ -83,60 +128,125 @@ export function FitnessSidebar({ onNewWorkout, onSelectWorkout, onDeleteWorkout,
       </SidebarHeader>
 
       <SidebarContent>
+        {/* ✅ Settings Section with Sub-menu */}
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <Collapsible
+                  open={settingsOpen}
+                  onOpenChange={setSettingsOpen}
+                >
+                  <CollapsibleTrigger asChild>
+                    <SidebarMenuButton
+                      onClick={() => handleNavigate('settings')}
+                      isActive={currentView?.startsWith('settings')}
+                    >
+                      <Settings className="h-4 w-4" />
+                      <span>Settings</span>
+                      <ChevronRight
+                        className={cn(
+                          "ml-auto transition-transform",
+                          settingsOpen && "rotate-90"
+                        )}
+                      />
+                    </SidebarMenuButton>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <SidebarMenuSub>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton
+                          onClick={() => handleNavigate('settings-account')}
+                          isActive={currentView === 'settings-account'}
+                        >
+                          <User className="h-4 w-4" />
+                          <span>Account</span>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                      <SidebarMenuSubItem>
+                        <SidebarMenuSubButton
+                          onClick={() => handleNavigate('settings-tokens')}
+                          isActive={currentView === 'settings-tokens'}
+                        >
+                          <Coins className="h-4 w-4" />
+                          <span>Tokens</span>
+                        </SidebarMenuSubButton>
+                      </SidebarMenuSubItem>
+                    </SidebarMenuSub>
+                  </CollapsibleContent>
+                </Collapsible>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
         {/* History Section */}
         <SidebarGroup>
-          <SidebarGroupLabel className="text-sidebar-foreground/70 font-medium">
-            <History className="h-4 w-4 mr-2" />
-            History
+          <SidebarGroupLabel className="text-sidebar-foreground/70 font-medium text-[1.15rem] font-editorial">
+            Your Plans
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {workoutHistory.map((workout) => (
-                <SidebarMenuItem key={workout.id}>
-                  <SidebarMenuButton
-                    onClick={() => onSelectWorkout(workout.id)}
-                    isActive={selectedWorkoutId === workout.id}
-                    className="flex items-center gap-2 p-2 hover:bg-sidebar-accent"
-                  >
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <div className="flex flex-col min-w-0 flex-1">
-                        <span className="text-sm font-medium truncate">
+              {workoutHistory.map((workout) => {
+                return (
+                  <SidebarMenuItem key={workout.convexId ? `convex-${workout.convexId}` : `workout-${workout.id}`}>
+                    <SidebarMenuButton
+                      onClick={() => onSelectWorkout(workout.id)}
+                      isActive={selectedWorkoutId === workout.id}
+                      className="group relative"
+                    >
+                      <div className="flex items-center justify-between w-full min-w-0">
+                        <span className="text-sm font-medium truncate flex-1">
                           {workout.title}
                         </span>
-                        <span className="text-xs text-muted-foreground">
-                          {formatDate(workout.createdAt)}
-                        </span>
+                        
+                        {/* Actions Menu */}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger 
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-sidebar-accent h-7 w-7 p-0 opacity-0 group-hover:opacity-100 flex-shrink-0 ml-2"
+                          >
+                            <MoreHorizontal className="h-4 w-4" />
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteWorkout(workout.id);
+                              }}
+                              className="text-destructive focus:text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
-                    </div>
-                  </SidebarMenuButton>
-                  
-                  <SidebarMenuAction showOnHover asChild>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-accent hover:text-accent-foreground h-6 w-6 p-0">
-                        <MoreHorizontal className="h-3 w-3" />
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onDeleteWorkout(workout.id);
-                          }}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4 mr-2" />
-                          Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </SidebarMenuAction>
-                </SidebarMenuItem>
-              ))}
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
               
               {workoutHistory.length === 0 && (
-                <div className="px-2 py-4 text-center">
-                  <p className="text-sm text-muted-foreground">
+                <div className="px-4 py-12 text-center">
+                  <div className="mx-auto w-16 h-16 rounded-full bg-sidebar-accent flex items-center justify-center mb-4 opacity-50">
+                    <Dumbbell className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm font-medium text-sidebar-foreground mb-1">
                     No workout programs yet
                   </p>
+                  <p className="text-xs text-muted-foreground mb-4">
+                    Create your first plan to get started
+                  </p>
+                  <Button 
+                    onClick={onNewWorkout}
+                    size="sm"
+                    variant="outline"
+                    className="gap-2"
+                  >
+                    <Plus className="h-3 w-3" />
+                    New Plan
+                  </Button>
                 </div>
               )}
             </SidebarMenu>
@@ -149,22 +259,37 @@ export function FitnessSidebar({ onNewWorkout, onSelectWorkout, onDeleteWorkout,
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton className="flex items-center gap-2 p-2">
-                  <Avatar className="h-6 w-6">
-                    <AvatarImage src={userProfile.avatar || undefined} />
-                    <AvatarFallback className="text-xs font-mono">
-                      {userProfile.initials}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex flex-col min-w-0 flex-1">
-                    <span className="text-sm font-medium truncate">
-                      {userProfile.name}
-                    </span>
-                    <span className="text-xs text-muted-foreground truncate">
-                      {userProfile.email}
-                    </span>
-                  </div>
-                </SidebarMenuButton>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <SidebarMenuButton className="flex items-center gap-2 p-2 hover:bg-sidebar-accent cursor-pointer">
+                      <Avatar className="h-6 w-6">
+                        <AvatarImage src={user?.image || undefined} />
+                        <AvatarFallback className="text-xs font-mono">
+                          {user?.name ? getInitials(user.name) : 'U'}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex flex-col min-w-0 flex-1">
+                        <span className="text-sm font-medium truncate">
+                          {user?.name || 'User'}
+                        </span>
+                        <span className="text-xs text-muted-foreground truncate">
+                          {user?.email || 'user@example.com'}
+                        </span>
+                      </div>
+                    </SidebarMenuButton>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-48">
+                    <DropdownMenuItem disabled>
+                      <User className="h-4 w-4 mr-2" />
+                      Profile
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleSignOut} className="text-destructive focus:text-destructive cursor-pointer">
+                      <LogOut className="h-4 w-4 mr-2" />
+                      Sign Out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
