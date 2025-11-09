@@ -12,13 +12,21 @@ export default defineConfig({
   },
   server: {
     port: 3000,
-    open: true
+    open: true,
+    proxy: {
+      '/api/auth': {
+        target: 'https://valuable-parrot-115.convex.site',
+        changeOrigin: true,
+        secure: true,
+      }
+    }
   },
   build: {
     outDir: 'dist',
     sourcemap: true
   },
   optimizeDeps: {
-    include: ['jspdf', 'jspdf-autotable']
+    include: ['jspdf', 'jspdf-autotable', '@react-three/fiber', '@react-three/drei', 'three'],
+    exclude: []
   }
 })
