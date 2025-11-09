@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,6 +39,7 @@ interface FormData {
   
   // Nutrition
   preferences: string;
+  mealFrequency?: number;
 }
 
 interface CompleteFormData extends FormData {
@@ -110,11 +111,11 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
   const isStepValid = (step: number): boolean => {
     switch (step) {
       case 1:
-        return formData.age > 0 && formData.sex && formData.heightCm > 0 && formData.weightKg > 0;
+        return !!(formData.age > 0 && formData.sex && formData.heightCm > 0 && formData.weightKg > 0);
       case 2:
-        return formData.primaryGoal && formData.timelineWeeks > 0 && formData.trainingDaysPerWeek > 0 && formData.workoutLevel;
+        return !!(formData.primaryGoal && formData.timelineWeeks > 0 && formData.timelineWeeks <= 24 && formData.trainingDaysPerWeek > 0 && formData.workoutLevel);
       case 3:
-        return formData.workoutSplit && formData.equipment && formData.schedule.trim() !== '';
+        return !!(formData.workoutSplit && formData.equipment && formData.schedule.trim() !== '');
       case 4:
         return true; // Nutrition preferences are optional
       default:
@@ -206,11 +207,19 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                 <Input
                   id="timelineWeeks"
                   type="number"
+                  min={1}
+                  max={24}
                   value={formData.timelineWeeks}
-                  onChange={(e) => updateFormData('timelineWeeks', parseInt(e.target.value) || 0)}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value) || 0;
+                    // Enforce 24 week maximum
+                    const clampedValue = Math.min(Math.max(value, 1), 24);
+                    updateFormData('timelineWeeks', clampedValue);
+                  }}
                   placeholder="16"
                   className="font-mono"
                 />
+                <p className="text-xs text-muted-foreground mt-1">Maximum 24 weeks</p>
               </div>
               
               <div>
@@ -375,7 +384,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-2xl font-bold font-sans">Create New Workout Program</h2>
+              <h2 className="text-2xl font-bold font-editorial">Create New Workout Program</h2>
               <p className="text-muted-foreground">Step {currentStep} of {steps.length}</p>
             </div>
             <Button variant="ghost" onClick={onCancel} className="text-muted-foreground">
@@ -394,7 +403,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
 
           {/* Step Indicator */}
           <div className="flex items-center justify-between mb-8">
-            {steps.map((step, index) => {
+            {steps.map((step) => {
               const isActive = currentStep === step.id;
               const isCompleted = currentStep > step.id;
               const Icon = step.icon;
