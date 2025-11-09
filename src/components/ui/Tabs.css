@@ -1,0 +1,215 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,100..1000&display=swap');
+
+.switcher {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: auto;
+  min-width: 244px;
+  max-width: 100%;
+  height: 70px;
+  box-sizing: border-box;
+  padding: 8px 12px 10px;
+  margin: 0 auto;
+  border: none;
+  border-radius: 99em;
+  font-size: 20px;
+  font-family: "DM Sans", sans-serif;
+  font-optical-sizing: auto;
+  background-color: color-mix(in srgb, var(--c-glass, #bbbbbc) 3%, transparent);
+  /* backdrop-filter will be set via inline style to use dynamic filter ID */
+  box-shadow: 
+    inset 0 0 0 1px color-mix(in srgb, var(--c-light, #fff) calc(var(--glass-reflex-light, 1) * 10%), transparent),
+    inset 1.8px 3px 0px -2px color-mix(in srgb, var(--c-light, #fff) calc(var(--glass-reflex-light, 1) * 90%), transparent), 
+    inset -2px -2px 0px -2px color-mix(in srgb, var(--c-light, #fff) calc(var(--glass-reflex-light, 1) * 80%), transparent), 
+    inset -3px -8px 1px -6px color-mix(in srgb, var(--c-light, #fff) calc(var(--glass-reflex-light, 1) * 60%), transparent), 
+    inset -0.3px -1px 4px 0px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 12%), transparent), 
+    inset -1.5px 2.5px 0px -2px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 20%), transparent), 
+    inset 0px 3px 4px -2px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 20%), transparent), 
+    inset 2px -6.5px 1px -4px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 10%), transparent), 
+    0px 1px 5px 0px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 10%), transparent), 
+    0px 6px 16px 0px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 8%), transparent);
+  transition: 
+    background-color 400ms 
+      cubic-bezier(1, 0.0, 0.4, 1),
+    box-shadow 400ms
+      cubic-bezier(1, 0.0, 0.4, 1);
+}
+
+.switcher::before {
+  content: '';
+  position: absolute;
+  inset: 10px;
+  border-radius: inherit;
+  background:
+    radial-gradient(60% 60% at 20% 20%, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.0) 70%),
+    radial-gradient(50% 45% at 75% 30%, rgba(135, 206, 250, 0.12) 0%, rgba(135, 206, 250, 0.0) 65%),
+    radial-gradient(80% 60% at 50% 80%, rgba(255, 182, 193, 0.08) 0%, rgba(255, 182, 193, 0.0) 60%);
+  mix-blend-mode: screen;
+  filter: var(--liquid-filter, none) blur(6px);
+  opacity: 0.35;
+  animation: liquidGlassFlow 16s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: -2;
+}
+
+.switcher__legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  border: 0;
+  padding: 0;
+  white-space: nowrap;
+  clip-path: inset(100%);
+  clip: rect(0 0 0 0);
+  overflow: hidden;
+}
+
+.switcher__input {
+  clip: rect(0 0 0 0);
+  clip-path: inset(100%);
+  height: 1px;
+  width: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+}
+
+.switcher__icon {
+  display: block;
+  width: 100%;
+  transition: scale 200ms cubic-bezier(0.5, 0, 0, 1);
+}
+
+/* SVG filter container - no longer needed as SVG is positioned fixed */
+
+.switcher__option {
+  --c: var(--c-content, #224);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 0 16px;
+  min-width: 68px;
+  width: auto;
+  flex: 1;
+  height: 100%;
+  box-sizing: border-box;
+  border-radius: 99em;
+  opacity: 1;
+  transition: all 160ms;
+  cursor: pointer;
+  flex-direction: column;
+  gap: 0px;
+}
+
+.switcher__option:hover {
+  --c: var(--c-action, #0052f5);
+  cursor: pointer;
+}
+
+.switcher__option:hover .switcher__icon {
+  scale: 1.2;
+}
+
+.switcher__option:has(input:checked) {
+  --c: var(--c-content, #224);
+  cursor: auto;
+}
+
+.switcher__option:has(input:checked) .switcher__icon {
+  scale: 1;
+}
+
+.switcher::after {
+  content: '';
+  position: absolute;
+  left: var(--indicator-left, 0px);
+  top: var(--indicator-top, 8px);
+  display: block;
+  width: var(--indicator-width, 84px);
+  height: var(--indicator-height, calc(100% - 16px));
+  border-radius: 99em;
+  background-color: color-mix(in srgb, var(--c-glass, #bbbbbc) 12%, transparent);
+  z-index: -1;
+  box-shadow: 
+    inset 0 0 0 1px color-mix(in srgb, var(--c-light, #fff) calc(var(--glass-reflex-light, 1) * 10%), transparent),
+    inset 2px 1px 0px -1px color-mix(in srgb, var(--c-light, #fff) calc(var(--glass-reflex-light, 1) * 90%), transparent), 
+    inset -1.5px -1px 0px -1px color-mix(in srgb, var(--c-light, #fff) calc(var(--glass-reflex-light, 1) * 80%), transparent), 
+    inset -2px -6px 1px -5px color-mix(in srgb, var(--c-light, #fff) calc(var(--glass-reflex-light, 1) * 60%), transparent), 
+    inset -1px 2px 3px -1px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 20%), transparent), 
+    inset 0px -4px 1px -2px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 10%), transparent), 
+    0px 3px 6px 0px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 8%), transparent);
+  transition: 
+    background-color 400ms 
+      cubic-bezier(1, 0.0, 0.4, 1),
+    box-shadow 400ms
+      cubic-bezier(1, 0.0, 0.4, 1),
+    left 400ms 
+      cubic-bezier(1, 0.0, 0.4, 1),
+    top 400ms 
+      cubic-bezier(1, 0.0, 0.4, 1),
+    width 400ms 
+      cubic-bezier(1, 0.0, 0.4, 1),
+    height 400ms 
+      cubic-bezier(1, 0.0, 0.4, 1);
+  animation: scaleToggleGeneric 440ms ease;
+}
+
+@keyframes liquidGlassFlow {
+  0% {
+    transform: scale(1);
+    background-position: 0% 0%, 100% 20%, 50% 80%;
+  }
+  50% {
+    transform: scale(1.02);
+    background-position: 40% 30%, 80% 70%, 30% 20%;
+  }
+  100% {
+    transform: scale(1);
+    background-position: 80% 60%, 20% 40%, 70% 10%;
+  }
+}
+
+@keyframes scaleToggleGeneric {
+  0% { scale: 1 1; }
+  50% { scale: 1.15 1; }
+  100% { scale: 1 1; }
+}
+
+.switcher__inner {
+  display: contents;
+}
+
+.switcher__trigger {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* Ensure the icon wrapper works correctly */
+.switcher__option .switcher__icon {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.switcher__option .switcher__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.switcher__option .switcher__icon:not(:has(svg)) {
+  font-size: 14px;
+  color: var(--c-content, #224);
+}
