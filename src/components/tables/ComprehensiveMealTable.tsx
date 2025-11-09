@@ -1,13 +1,4 @@
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { ChevronDown, ChefHat, Clock, Utensils } from 'lucide-react';
 import { useState } from 'react';
@@ -60,139 +51,136 @@ export function ComprehensiveMealTable({ data }: ComprehensiveMealTableProps) {
     setExpandedMeals(newExpanded);
   };
 
-  const getMealTypeColor = (mealType: string) => {
-    switch (mealType.toLowerCase()) {
-      case 'breakfast':
-        return 'bg-orange-100 text-orange-800 border-orange-200';
-      case 'lunch':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'dinner':
-        return 'bg-purple-100 text-purple-800 border-purple-200';
-      case 'snack':
-        return 'bg-green-100 text-green-800 border-green-200';
-      case 'pre-workout':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'post-workout':
-        return 'bg-red-100 text-red-800 border-red-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
-  const getMealTypeIcon = (mealType: string) => {
-    switch (mealType.toLowerCase()) {
-      case 'breakfast':
-        return '🌅';
-      case 'lunch':
-        return '☀️';
-      case 'dinner':
-        return '🌙';
-      case 'snack':
-        return '🍎';
-      case 'pre-workout':
-        return '⚡';
-      case 'post-workout':
-        return '💪';
-      default:
-        return '🍽️';
-    }
+  // Unified color scheme - subtle monochrome
+  const getMealTypeStyle = () => {
+    return 'text-foreground border border-border bg-transparent';
   };
 
 
   return (
-    <div className="space-y-4">
-      {sortedData.map((meal) => {
+    <div className="space-y-6">
+      {sortedData.map((meal, mealIndex) => {
         const totalCalories = meal?.ingredients?.map((ingredient) => ingredient.calories).reduce((acc, curr) => acc + curr, 0) || 0;
+        const isEven = mealIndex % 2 === 0;
 
         return (
-        <Card key={meal.templateId} className="overflow-hidden">
-          <Collapsible>
-            <CollapsibleTrigger 
-              className="w-full"
-              onClick={() => toggleMealExpansion(meal.templateId)}
-            >
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">{getMealTypeIcon(meal.mealType)}</span>
-                    <div>
-                      <CardTitle className="text-lg">{meal.name}</CardTitle>
-                      <div className="flex items-center gap-2 mt-1">
-                        <Badge className={getMealTypeColor(meal.mealType)}>
-                          {meal.mealType}
-                        </Badge>
-                        <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                          <Clock className="h-3 w-3" />
-                          {meal.prepTime && meal.cookTime 
-                            ? `${meal.prepTime} prep + ${meal.cookTime} cook`
-                            : meal.prepTime || meal.cookTime || 'Quick meal'
-                          }
+          <div 
+            key={meal.templateId} 
+            className={`rounded-lg border border-border/60 transition-all hover:shadow-md hover:border-border ${
+              isEven 
+                ? 'bg-background shadow-sm' 
+                : 'bg-muted/40 shadow-sm'
+            }`}
+          >
+            <Collapsible>
+              <CollapsibleTrigger 
+                className="w-full hover:bg-muted/50 transition-colors rounded-t-lg"
+                onClick={() => toggleMealExpansion(meal.templateId)}
+              >
+                <div className="px-6 py-5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 text-left">
+                        <h3 className="text-lg font-medium mb-1 text-left">{meal.name}</h3>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <Badge variant="outline" className={getMealTypeStyle()}>
+                            {meal.mealType}
+                          </Badge>
+                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Clock className="h-3 w-3" />
+                            {meal.prepTime && meal.cookTime 
+                              ? `${meal.prepTime} prep + ${meal.cookTime} cook`
+                              : meal.prepTime || meal.cookTime || 'Quick meal'
+                            }
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <div className="text-lg font-bold">{totalCalories} cal</div>
-                      <div className="text-xs text-muted-foreground">
-                        P: {meal.proteinGrams}g | C: {meal.carbsGrams}g | F: {meal.fatGrams}g
+                    
+                    <div className="flex items-center gap-6 ml-4">
+                      <div className="text-right">
+                        <div className="text-xl font-semibold font-mono">{Math.round(totalCalories)}</div>
+                        <div className="text-xs text-muted-foreground">cal</div>
                       </div>
+                      <div className="text-sm text-muted-foreground border-l border-border/50 pl-4">
+                        <div className="font-mono text-xs">
+                          P: {Math.round(meal.proteinGrams)}g
+                        </div>
+                        <div className="font-mono text-xs">
+                          C: {Math.round(meal.carbsGrams)}g
+                        </div>
+                        <div className="font-mono text-xs">
+                          F: {Math.round(meal.fatGrams)}g
+                        </div>
+                      </div>
+                      <ChevronDown 
+                        className={`h-4 w-4 text-muted-foreground transition-transform flex-shrink-0 ${
+                          expandedMeals.has(meal.templateId) ? 'rotate-180' : ''
+                        }`} 
+                      />
                     </div>
-                    <ChevronDown 
-                      className={`h-4 w-4 transition-transform ${
-                        expandedMeals.has(meal.templateId) ? 'rotate-180' : ''
-                      }`} 
-                    />
                   </div>
                 </div>
-              </CardHeader>
-            </CollapsibleTrigger>
-            
-            <CollapsibleContent>
-              <CardContent className="pt-0">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Ingredients */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <Utensils className="h-4 w-4 text-primary" />
-                      <h4 className="font-semibold">Ingredients</h4>
-                    </div>
-                    <div className="space-y-2">
-                      {meal.ingredients.map((ingredient, index) => (
-                        <div key={index} className="flex justify-between items-center text-sm">
-                          <span className="flex-1">{ingredient.name}</span>
-                          <span className="font-mono text-muted-foreground">{ingredient.amount}</span>
-                          <span className="font-mono text-muted-foreground w-12 text-right">
-                            {ingredient.calories} cal
-                          </span>
+              </CollapsibleTrigger>
+              
+              <CollapsibleContent>
+                <div className="px-6 py-6 border-t border-border/50">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Ingredients */}
+                    <div className="bg-background/80 rounded-lg p-5 border border-border/40 shadow-sm">
+                      <div className="flex items-center gap-2 mb-5 pb-2 border-b border-border/30">
+                        <div className="p-1.5 bg-primary/10 rounded-md">
+                          <Utensils className="h-4 w-4 text-primary" />
                         </div>
-                      ))}
+                        <h4 className="text-sm font-medium uppercase tracking-wide text-foreground">Ingredients</h4>
+                      </div>
+                      <div className="space-y-3">
+                        {meal.ingredients.map((ingredient, index) => (
+                          <div 
+                            key={index} 
+                            className={`flex justify-between items-center text-sm py-2 ${
+                              index < meal.ingredients.length - 1 ? 'border-b border-border/50' : ''
+                            }`}
+                          >
+                            <span className="flex-1">{ingredient.name}</span>
+                            <span className="font-mono text-sm text-muted-foreground ml-4">{ingredient.amount}</span>
+                            <span className="font-mono text-sm text-muted-foreground ml-4 w-16 text-right">
+                              {Math.round(ingredient.calories)} cal
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Cooking Instructions */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-3">
-                      <ChefHat className="h-4 w-4 text-primary" />
-                      <h4 className="font-semibold">Cooking Instructions</h4>
+                    {/* Cooking Instructions */}
+                    <div className="bg-background/80 rounded-lg p-5 border border-border/40 shadow-sm">
+                      <div className="flex items-center gap-2 mb-5 pb-2 border-b border-border/30">
+                        <div className="p-1.5 bg-primary/10 rounded-md">
+                          <ChefHat className="h-4 w-4 text-primary" />
+                        </div>
+                        <h4 className="text-sm font-medium uppercase tracking-wide text-foreground">Instructions</h4>
+                      </div>
+                      <ol className="space-y-3">
+                        {meal.cookingInstructions.map((instruction, index) => (
+                          <li 
+                            key={index} 
+                            className={`flex gap-3 text-sm ${
+                              index < meal.cookingInstructions.length - 1 ? 'border-b border-border/50 pb-3' : ''
+                            }`}
+                          >
+                            <span className="font-semibold text-primary min-w-[24px] font-mono">
+                              {index + 1}.
+                            </span>
+                            <span className="flex-1">{instruction}</span>
+                          </li>
+                        ))}
+                      </ol>
                     </div>
-                    <ol className="space-y-2">
-                      {meal.cookingInstructions.map((instruction, index) => (
-                        <li key={index} className="flex gap-2 text-sm">
-                          <span className="font-semibold text-primary min-w-[20px]">
-                            {index + 1}.
-                          </span>
-                          <span>{instruction}</span>
-                        </li>
-                      ))}
-                    </ol>
                   </div>
                 </div>
-              </CardContent>
-            </CollapsibleContent>
-          </Collapsible>
-        </Card>
+              </CollapsibleContent>
+            </Collapsible>
+          </div>
         );
       })}
     </div>
