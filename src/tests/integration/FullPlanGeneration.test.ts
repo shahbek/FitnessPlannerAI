@@ -111,11 +111,13 @@ async function runTests() {
     specialNotes: 'Test generation',
   };
 
+  const weeklyOutlines: WeeklyOutline[] = [weeklyOutline];
+
   // Test 1: Full Plan Generation with Batch Meal Generator
   await test('Generate complete plan with batch meal generation (optimal approach)', async () => {
     console.log('\n🔍 [TEST] Starting plan generation test...');
     console.log(`   📝 User Profile:`, JSON.stringify(userProfile, null, 2));
-    console.log(`   📝 Weekly Outline:`, JSON.stringify(weeklyOutline, null, 2));
+    console.log(`   📝 Weekly Outlines:`, JSON.stringify(weeklyOutlines, null, 2));
     
     // Create generator using BatchMealGenerator (optimal architecture)
     // Pass USDA key explicitly since env.ts may not work correctly in test environment
@@ -157,15 +159,15 @@ async function runTests() {
     try {
       console.log('🚀 [TEST] Calling generator.generatePlan()...');
       plan = await generator.generatePlan(
-      userProfile,
-      weeklyOutline,
-      {
+        userProfile,
+        weeklyOutlines,
+        {
         useUSDAAPI: true,
         useCoT: false, // Force deterministic (rule-based splits, no AI)
         enableCorrections: true,
         onStateUpdate,
-      }
-    );
+        }
+      );
       console.log('✅ [TEST] Plan generation completed successfully');
       console.log(`   📦 [TEST] Plan structure:`, {
         hasPhaseMealTemplates: !!plan.phaseMealTemplates,
@@ -270,7 +272,7 @@ async function runTests() {
     try {
       plan = await generator.generatePlan(
         userProfile,
-        weeklyOutline,
+        weeklyOutlines,
         {
           useUSDAAPI: true,
           useCoT: true, // Use AI if available
@@ -311,7 +313,7 @@ async function runTests() {
     }
     const generator = new IntegratedPlanGenerator(USDA_API_KEY);
     // Use deterministic methods for reliable testing
-    const plan = await generator.generatePlan(userProfile, weeklyOutline, {
+    const plan = await generator.generatePlan(userProfile, weeklyOutlines, {
       useCoT: false, // Use rule-based for reliability
     });
 
@@ -333,7 +335,7 @@ async function runTests() {
         };
       }, { calories: 0, protein: 0, carbs: 0, fats: 0 });
 
-      const target = weeklyOutline.dailyTargets;
+      const target = weeklyOutlines[0].dailyTargets;
       const calDiff = Math.abs(dayTotal.calories - target.calories);
       const calTolerance = target.calories * 0.1; // 10% tolerance
 
@@ -371,7 +373,7 @@ async function runTests() {
     };
 
     try {
-      await generator.generatePlan(userProfile, invalidOutline as any);
+      await generator.generatePlan(userProfile, [invalidOutline as any]);
       // If it succeeds, that's fine - validation might catch it later
       console.log(`   Generator handled invalid input gracefully`);
     } catch (error) {
@@ -402,4 +404,3 @@ runTests().catch(error => {
   console.error('Test runner error:', error);
   process.exit(1);
 });
-
