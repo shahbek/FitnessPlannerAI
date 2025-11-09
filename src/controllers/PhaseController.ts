@@ -17,6 +17,12 @@ export class PhaseController {
   async executeOptimalSequence(progressCallback?: (phase: string, progress: number, currentStep: string, reasoning: string[], streamingContent?: any[]) => void): Promise<CompletePlan> {
     console.log('🚀 Starting Optimal Phase Sequence...');
     
+    // ✅ VALIDATION: Enforce 24 week maximum
+    const MAX_WEEKS = 24;
+    if (this.userProfile.timelineWeeks > MAX_WEEKS) {
+      throw new Error(`Maximum plan duration is ${MAX_WEEKS} weeks. Please adjust your timeline. Current: ${this.userProfile.timelineWeeks} weeks.`);
+    }
+    
     // Calculate basic metrics for progress updates
     const lbm = this.userProfile.lbm;
     const bmr = 370 + (21.6 * lbm);
