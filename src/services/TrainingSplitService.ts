@@ -1,13 +1,14 @@
 /**
  * Training Split Service
- * 
- * Determines optimal training split based on user goals and preferences
- * Supports both LLM-based and rule-based approaches
+ *
+ * Determines optimal training split based on user goals and weekly guidance.
+ * Fully AI-driven with minimal post-processing.
  */
 
 import { z } from 'zod';
 import { ChainOfThoughtService } from './ChainOfThoughtService';
 import { UserProfile } from '../models/UserProfile';
+import { WeeklyOutline } from '../models/PlanModels';
 
 /**
  * Training Split Schema
@@ -19,7 +20,7 @@ export const TrainingSplitSchema = z.object({
     z.object({
       dayNumber: z.number(),
       dayName: z.string(),
-      focus: z.array(z.string()), // Muscle groups or training type
+      focus: z.array(z.string()),
       isRestDay: z.boolean(),
       isCardioDay: z.boolean(),
     })
@@ -29,71 +30,9 @@ export const TrainingSplitSchema = z.object({
 
 export type TrainingSplit = z.infer<typeof TrainingSplitSchema>;
 
-/**
- * Common Training Split Templates
- */
-export const TRAINING_SPLIT_TEMPLATES: Record<string, TrainingSplit> = {
-  'upper-lower-4': {
-    splitName: 'Upper/Lower 4-Day',
-    daysPerWeek: 4,
-    days: [
-      { dayNumber: 1, dayName: 'Monday', focus: ['chest', 'back', 'shoulders', 'arms'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 2, dayName: 'Tuesday', focus: ['quads', 'hamstrings', 'glutes', 'calves'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 3, dayName: 'Wednesday', focus: [], isRestDay: true, isCardioDay: false },
-      { dayNumber: 4, dayName: 'Thursday', focus: ['chest', 'back', 'shoulders', 'arms'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 5, dayName: 'Friday', focus: ['quads', 'hamstrings', 'glutes', 'calves'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 6, dayName: 'Saturday', focus: [], isRestDay: true, isCardioDay: false },
-      { dayNumber: 7, dayName: 'Sunday', focus: [], isRestDay: true, isCardioDay: false },
-    ],
-    reasoning: 'Classic upper/lower split with 4 training days',
-  },
-  'push-pull-legs-6': {
-    splitName: 'Push/Pull/Legs 6-Day',
-    daysPerWeek: 6,
-    days: [
-      { dayNumber: 1, dayName: 'Monday', focus: ['chest', 'shoulders', 'triceps'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 2, dayName: 'Tuesday', focus: ['back', 'biceps'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 3, dayName: 'Wednesday', focus: ['quads', 'hamstrings', 'glutes', 'calves'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 4, dayName: 'Thursday', focus: ['chest', 'shoulders', 'triceps'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 5, dayName: 'Friday', focus: ['back', 'biceps'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 6, dayName: 'Saturday', focus: ['quads', 'hamstrings', 'glutes', 'calves'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 7, dayName: 'Sunday', focus: [], isRestDay: true, isCardioDay: false },
-    ],
-    reasoning: 'Push/pull/legs split with 6 training days, rotating twice per week',
-  },
-  'full-body-3': {
-    splitName: 'Full Body 3-Day',
-    daysPerWeek: 3,
-    days: [
-      { dayNumber: 1, dayName: 'Monday', focus: ['full body'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 2, dayName: 'Tuesday', focus: [], isRestDay: true, isCardioDay: false },
-      { dayNumber: 3, dayName: 'Wednesday', focus: ['full body'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 4, dayName: 'Thursday', focus: [], isRestDay: true, isCardioDay: false },
-      { dayNumber: 5, dayName: 'Friday', focus: ['full body'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 6, dayName: 'Saturday', focus: [], isRestDay: true, isCardioDay: false },
-      { dayNumber: 7, dayName: 'Sunday', focus: [], isRestDay: true, isCardioDay: false },
-    ],
-    reasoning: 'Full body training 3 days per week with rest days in between',
-  },
-  'bro-split-5': {
-    splitName: 'Bro Split 5-Day',
-    daysPerWeek: 5,
-    days: [
-      { dayNumber: 1, dayName: 'Monday', focus: ['chest'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 2, dayName: 'Tuesday', focus: ['back'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 3, dayName: 'Wednesday', focus: ['shoulders'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 4, dayName: 'Thursday', focus: ['arms'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 5, dayName: 'Friday', focus: ['legs'], isRestDay: false, isCardioDay: false },
-      { dayNumber: 6, dayName: 'Saturday', focus: [], isRestDay: true, isCardioDay: false },
-      { dayNumber: 7, dayName: 'Sunday', focus: [], isRestDay: true, isCardioDay: false },
-    ],
-    reasoning: 'One muscle group per day, 5 days per week',
-  },
-};
+const MAX_SPLIT_ATTEMPTS = 3;
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-/**
- * Training Split Service
- */
 export class TrainingSplitService {
   private cotService?: ChainOfThoughtService;
 
@@ -101,190 +40,252 @@ export class TrainingSplitService {
     this.cotService = cotService;
   }
 
-  /**
-   * Determine training split for user
-   */
   async determineSplit(
     userProfile: UserProfile,
-    useLLM: boolean = true
+    weeklyOutlines?: WeeklyOutline[]
   ): Promise<TrainingSplit> {
-    if (useLLM && this.cotService) {
-      return this.determineSplitWithLLM(userProfile);
-    } else {
-      return this.determineSplitRuleBased(userProfile);
+    if (!this.cotService || !this.cotService.isAIAvailable()) {
+      throw new Error('AI service is required to determine the training split. Configure an AI API key.');
     }
+
+    let issues: string[] = [];
+
+    for (let attempt = 1; attempt <= MAX_SPLIT_ATTEMPTS; attempt++) {
+      const split = await this.generateSplitAttempt(userProfile, weeklyOutlines, issues);
+      const validationIssues = this.validateSplit(split, userProfile);
+
+      if (validationIssues.length === 0) {
+        return split;
+      }
+
+      console.warn(`⚠️  Training split validation failed (attempt ${attempt}):`, validationIssues);
+      issues = validationIssues;
+    }
+
+    // If all attempts fail, create a simple fallback
+    console.error('❌ Failed to generate valid split after all attempts. Using fallback.');
+    return this.createFallbackSplit(userProfile);
   }
 
-  /**
-   * Determine split using LLM with CoT
-   */
-  private async determineSplitWithLLM(
-    userProfile: UserProfile
+  private async generateSplitAttempt(
+    userProfile: UserProfile,
+    weeklyOutlines: WeeklyOutline[] | undefined,
+    previousIssues: string[]
   ): Promise<TrainingSplit> {
-    if (!this.cotService) {
-      throw new Error('CoT service not available');
-    }
+    const prompt = this.buildSplitPrompt(userProfile, weeklyOutlines, previousIssues);
 
-    const prompt = this.buildSplitPrompt(userProfile);
-
-    const { result } = await this.cotService.generateWithCoT(
+    const { result } = await this.cotService!.generateWithCoT(
       prompt,
       TrainingSplitSchema,
-      {
-        enableVerification: true,
-      }
+      { enableVerification: true }
     );
-
-    // Validate the split
-    this.validateSplit(result, userProfile);
 
     return result;
   }
 
-  /**
-   * Build prompt for split determination
-   */
-  private buildSplitPrompt(userProfile: UserProfile): string {
-    return `Determine the optimal training split for this user.
+  private buildSplitPrompt(
+    userProfile: UserProfile,
+    weeklyOutlines?: WeeklyOutline[],
+    previousIssues?: string[]
+  ): string {
+    const splitPreference = userProfile.workoutSplit
+      ? this.getSplitDisplayName(userProfile.workoutSplit)
+      : 'coach recommended';
 
-User Profile:
-- Training days per week: ${userProfile.trainingDaysPerWeek}
-- Experience level: ${userProfile.workoutLevel}
+    const weeklyGuidance = weeklyOutlines && weeklyOutlines.length > 0
+      ? weeklyOutlines
+          .map(
+            (outline) =>
+              `Week ${outline.weekNumber} (${outline.phase}): ${outline.objectives?.join(', ') || 'Maintain progression'}`
+          )
+          .join('\n')
+      : 'No specific weekly objectives provided.';
+
+    const issueSection =
+      previousIssues && previousIssues.length > 0
+        ? `\n⚠️ CRITICAL - Previous attempt had these validation errors. You MUST fix ALL of them:\n${previousIssues
+            .map((issue, i) => `${i + 1}. ${issue}`)
+            .join('\n')}\n`
+        : '';
+
+    return `Generate a training split for this user. Return ONLY the structured split data.
+
+USER PROFILE:
+- Training frequency: ${userProfile.trainingDaysPerWeek} days per week
+- Experience: ${userProfile.workoutLevel}
 - Goal: ${userProfile.goal}
 - Equipment: ${userProfile.equipment}
-- Schedule availability: ${userProfile.schedule || 'Flexible'}
+- Preferred split: ${splitPreference}
+- Schedule: ${userProfile.schedule || 'Flexible'}
 
-Think step by step:
-1. Consider the user's training frequency (${userProfile.trainingDaysPerWeek} days/week)
-2. Determine appropriate split based on experience level (${userProfile.workoutLevel})
-3. Consider recovery needs (at least 1-2 rest days per week)
-4. Ensure proper muscle group distribution throughout the week
-5. Account for goal (${userProfile.goal})
+WEEKLY PLAN CONTEXT:
+${weeklyGuidance}
+${issueSection}
 
-Generate a training split that:
-- Matches the ${userProfile.trainingDaysPerWeek} days/week requirement
-- Includes appropriate rest days
-- Distributes muscle groups effectively
-- Supports the user's goals
+STRICT REQUIREMENTS (you MUST satisfy ALL of these):
+1. Generate EXACTLY 7 days (Monday through Sunday) in order
+2. Each day must have dayNumber (1-7) and dayName (Monday-Sunday)
+3. EXACTLY ${userProfile.trainingDaysPerWeek} training days (isRestDay: false)
+4. AT LEAST 1 rest day (isRestDay: true)
+5. Rest days must have empty focus array: []
+6. Training days must have focus array with muscle groups/workout type
+7. The split MUST match the user's preference: ${splitPreference}
+   - If "Full Body Split": ALL training days should focus on full body workouts
+   - If "Upper Lower Split": Alternate between upper and lower body
+   - If "Push Pull Legs Split": Rotate through push, pull, and legs
+   - If "Body Part Split": Each day targets specific muscle groups
+8. Do NOT add extra rest days beyond what's needed
 
-Return a structured training split.`;
+EXAMPLES OF CORRECT FOCUS VALUES:
+- Full Body Split: ["Full Body"]
+- Upper Lower: ["Upper Body"] or ["Lower Body"]
+- Push Pull Legs: ["Push"], ["Pull"], or ["Legs"]
+- Body Part Split: ["Chest", "Triceps"], ["Back", "Biceps"], ["Legs"], ["Shoulders"]
+
+Think through your split design step-by-step, then return the complete 7-day split.`;
   }
 
-  /**
-   * Determine split using rule-based templates
-   */
-  private determineSplitRuleBased(userProfile: UserProfile): TrainingSplit {
-    const daysPerWeek = userProfile.trainingDaysPerWeek || 4;
+  private validateSplit(split: TrainingSplit, userProfile: UserProfile): string[] {
+    const issues: string[] = [];
 
-    // Select appropriate template based on days per week
-    let templateKey: string;
-    switch (daysPerWeek) {
-      case 3:
-        templateKey = 'full-body-3';
-        break;
-      case 4:
-        templateKey = 'upper-lower-4';
-        break;
-      case 5:
-        templateKey = 'bro-split-5';
-        break;
-      case 6:
-        templateKey = 'push-pull-legs-6';
-        break;
-      default:
-        // Default to upper/lower 4-day
-        templateKey = 'upper-lower-4';
+    // Structural validation only
+    if (!split.days || split.days.length !== 7) {
+      issues.push(`Split must have exactly 7 days. Found ${split.days?.length || 0}.`);
+      return issues; // Critical error, no point checking further
     }
 
-    const template = TRAINING_SPLIT_TEMPLATES[templateKey];
-
-    // Adjust based on user preferences
-    if (userProfile.goal?.toLowerCase().includes('strength')) {
-      // For strength, prefer upper/lower or full body
-      if (daysPerWeek <= 4) {
-        return TRAINING_SPLIT_TEMPLATES['upper-lower-4'];
-      }
+    // Check day structure
+    const dayNames = split.days.map(d => d.dayName);
+    const expectedDays = DAY_NAMES;
+    const missingDays = expectedDays.filter(day => 
+      !dayNames.some(name => name.toLowerCase() === day.toLowerCase())
+    );
+    if (missingDays.length > 0) {
+      issues.push(`Missing days: ${missingDays.join(', ')}`);
     }
 
-    if (userProfile.goal?.toLowerCase().includes('hypertrophy')) {
-      // For hypertrophy, prefer push/pull/legs or bro split
-      if (daysPerWeek >= 5) {
-        return TRAINING_SPLIT_TEMPLATES['push-pull-legs-6'];
-      }
-    }
-
-    // Customize based on schedule if provided
-    if (userProfile.schedule) {
-      return this.customizeSplitForSchedule(template, userProfile.schedule);
-    }
-
-    return template;
-  }
-
-  /**
-   * Customize split based on schedule
-   */
-  private customizeSplitForSchedule(
-    template: TrainingSplit,
-    schedule: string
-  ): TrainingSplit {
-    // Parse schedule to determine available days
-    // For now, return template as-is (can be enhanced later)
-    return template;
-  }
-
-  /**
-   * Validate training split
-   */
-  private validateSplit(
-    split: TrainingSplit,
-    userProfile: UserProfile
-  ): void {
-    const trainingDays = split.days.filter(d => !d.isRestDay);
-    
+    // Count training days
+    const trainingDays = split.days.filter((d) => !d.isRestDay);
     if (trainingDays.length !== userProfile.trainingDaysPerWeek) {
-      throw new Error(
-        `Split has ${trainingDays.length} training days but user requires ${userProfile.trainingDaysPerWeek}`
+      issues.push(
+        `Split has ${trainingDays.length} training days but user requires exactly ${userProfile.trainingDaysPerWeek}.`
       );
     }
 
-    const restDays = split.days.filter(d => d.isRestDay);
+    // Ensure at least one rest day
+    const restDays = split.days.filter((d) => d.isRestDay);
     if (restDays.length < 1) {
-      throw new Error('Split must include at least one rest day');
+      issues.push('Split must include at least 1 rest day for recovery.');
     }
 
-    // Check for consecutive heavy training days on same muscle groups
-    for (let i = 0; i < split.days.length - 1; i++) {
-      const current = split.days[i];
-      const next = split.days[i + 1];
+    // Check that rest days have no focus
+    const restDaysWithFocus = split.days.filter(d => d.isRestDay && d.focus.length > 0);
+    if (restDaysWithFocus.length > 0) {
+      issues.push(`Rest days should not have focus areas. Found focus on: ${restDaysWithFocus.map(d => d.dayName).join(', ')}`);
+    }
 
-      if (!current.isRestDay && !next.isRestDay) {
-        const overlap = current.focus.filter(f => next.focus.includes(f));
-        if (overlap.length > 0 && current.focus.length <= 2) {
-          // Warning: consecutive days hitting same muscle group
-          console.warn(
-            `Warning: Consecutive training days on ${overlap.join(', ')} may affect recovery`
-          );
-        }
+    // Check that training days have focus
+    const trainingDaysNoFocus = split.days.filter(d => !d.isRestDay && (!d.focus || d.focus.length === 0));
+    if (trainingDaysNoFocus.length > 0) {
+      issues.push(`Training days must have focus areas. Missing focus on: ${trainingDaysNoFocus.map(d => d.dayName).join(', ')}`);
+    }
+
+    return issues;
+  }
+
+  private createFallbackSplit(userProfile: UserProfile): TrainingSplit {
+    const trainingDays = userProfile.trainingDaysPerWeek;
+    const preferredSlots = this.getPreferredTrainingSlots(trainingDays);
+    const focusPattern = this.getFallbackFocusPattern(userProfile.workoutSplit, trainingDays);
+    
+    let focusIndex = 0;
+    const days = DAY_NAMES.map((dayName, index) => {
+      const isTrainingDay = preferredSlots.includes(index);
+      
+      if (isTrainingDay) {
+        const focus = [focusPattern[focusIndex % focusPattern.length]];
+        focusIndex++;
+        return {
+          dayNumber: index + 1,
+          dayName,
+          focus,
+          isRestDay: false,
+          isCardioDay: false,
+        };
       }
+      
+      return {
+        dayNumber: index + 1,
+        dayName,
+        focus: [],
+        isRestDay: true,
+        isCardioDay: false,
+      };
+    });
+
+    return {
+      splitName: `${this.getSplitDisplayName(userProfile.workoutSplit)} (Fallback)`,
+      daysPerWeek: trainingDays,
+      days,
+      reasoning: 'Automatically generated fallback split due to validation failures.',
+    };
+  }
+
+  private getPreferredTrainingSlots(trainingDays: number): number[] {
+    const slotPresets: Record<number, number[]> = {
+      1: [2], // Wednesday
+      2: [1, 4], // Tuesday, Friday
+      3: [0, 2, 4], // Monday, Wednesday, Friday
+      4: [0, 1, 3, 5], // Monday, Tuesday, Thursday, Saturday
+      5: [0, 1, 3, 4, 6], // Monday, Tuesday, Thursday, Friday, Sunday
+      6: [0, 1, 2, 4, 5, 6], // Rest Thursday
+    };
+
+    return slotPresets[trainingDays] || [0, 2, 4]; // Default to MWF
+  }
+
+  private getFallbackFocusPattern(
+    splitPreference: UserProfile['workoutSplit'],
+    trainingDays: number
+  ): string[] {
+    switch (splitPreference) {
+      case 'full_body':
+        return Array(trainingDays).fill('Full Body');
+      
+      case 'upper_lower':
+        return this.repeatPattern(['Upper Body', 'Lower Body'], trainingDays);
+      
+      case 'push_pull_legs':
+        return this.repeatPattern(['Push', 'Pull', 'Legs'], trainingDays);
+      
+      case 'body_part':
+        return this.repeatPattern(
+          ['Chest & Triceps', 'Back & Biceps', 'Legs', 'Shoulders', 'Arms'],
+          trainingDays
+        );
+      
+      default:
+        return Array(trainingDays).fill('Full Body');
     }
   }
 
-  /**
-   * Get split template by name
-   */
-  getSplitTemplate(name: string): TrainingSplit | undefined {
-    const key = Object.keys(TRAINING_SPLIT_TEMPLATES).find(
-      k => TRAINING_SPLIT_TEMPLATES[k].splitName === name
-    );
-    return key ? TRAINING_SPLIT_TEMPLATES[key] : undefined;
+  private repeatPattern(pattern: string[], total: number): string[] {
+    const result: string[] = [];
+    for (let i = 0; i < total; i++) {
+      result.push(pattern[i % pattern.length]);
+    }
+    return result;
   }
 
-  /**
-   * List available split templates
-   */
-  listAvailableTemplates(): string[] {
-    return Object.keys(TRAINING_SPLIT_TEMPLATES);
+  private getSplitDisplayName(splitPreference: UserProfile['workoutSplit']): string {
+    const displayMap: Record<UserProfile['workoutSplit'], string> = {
+      full_body: 'Full Body Split',
+      upper_lower: 'Upper Lower Split',
+      push_pull_legs: 'Push Pull Legs Split',
+      body_part: 'Body Part Split',
+      custom: 'Custom Split',
+    };
+
+    return displayMap[splitPreference] || 'Custom Split';
   }
 }
-
