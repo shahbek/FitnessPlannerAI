@@ -1127,7 +1127,7 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
                 <>
 
               {/* Loading State - Show skeleton when loading plans */}
-              {ragLoading && workoutHistory.length === 0 && (
+              {currentLoading && workoutHistory.length === 0 && (
                 <div className="space-y-6">
                   <div className="space-y-3">
                     <Skeleton className="h-8 w-64" />
@@ -1146,7 +1146,7 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
               )}
 
               {/* Empty State - No Plans */}
-              {!selectedWorkoutId && !ragPlan && workoutHistory.length === 0 && !ragLoading && (
+              {!selectedWorkoutId && !currentPlan && workoutHistory.length === 0 && !currentLoading && (
                 <div className="flex flex-col items-center justify-center py-16 px-6">
                   <Card className="max-w-md w-full text-center border-2 border-dashed border-muted-foreground/20">
                     <CardContent className="pt-12 pb-8">
@@ -1274,7 +1274,7 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
               )}
 
               {/* Plan Overview */}
-              {ragPlan && !selectedWorkoutId && (
+              {currentPlan && !selectedWorkoutId && (
                 <div className="mb-8">
                   <h2 className="text-2xl font-bold mb-6 font-editorial">Your Fitness Plan</h2>
                   
@@ -1287,7 +1287,7 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
                         <Badge variant="secondary" className="text-xs">Confidence</Badge>
                       </div>
                       <div className="text-3xl font-bold mb-1">
-                        {Math.round((ragPlan.feasibility?.confidenceScore || 0.9) * 100)}%
+                        {Math.round(((currentPlan as any)?.feasibility?.confidenceScore || 0.9) * 100)}%
                       </div>
                       <p className="text-xs text-muted-foreground">Plan Feasibility</p>
                     </Card>
@@ -1300,7 +1300,11 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
                         <Badge variant="secondary" className="text-xs">Library</Badge>
                       </div>
                       <div className="text-3xl font-bold mb-1">
-                        {ragPlan.exerciseLibrary?.length || 0}
+                        {(() => {
+                          const cp: any = currentPlan;
+                          const phaseLib = Array.isArray(cp?.phaseExerciseLibraries) ? cp.phaseExerciseLibraries.flat() : [];
+                          return (phaseLib.length || cp?.exerciseLibrary?.length || 0);
+                        })()}
                       </div>
                       <p className="text-xs text-muted-foreground">Total Exercises</p>
                     </Card>
@@ -1313,7 +1317,11 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
                         <Badge variant="secondary" className="text-xs">Schedule</Badge>
                       </div>
                       <div className="text-3xl font-bold mb-1">
-                        {ragPlan.sessionTemplates?.length || 0}
+                        {(() => {
+                          const cp: any = currentPlan;
+                          const phaseSessions = Array.isArray(cp?.phaseSessionTemplates) ? cp.phaseSessionTemplates.flat() : [];
+                          return (phaseSessions.length || cp?.sessionTemplates?.length || 0);
+                        })()}
                       </div>
                       <p className="text-xs text-muted-foreground">Workout Sessions</p>
                     </Card>
@@ -1326,7 +1334,11 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
                         <Badge variant="secondary" className="text-xs">Nutrition</Badge>
                       </div>
                       <div className="text-3xl font-bold mb-1">
-                        {ragPlan.mealTemplates?.length || 0}
+                        {(() => {
+                          const cp: any = currentPlan;
+                          const phaseMeals = Array.isArray(cp?.phaseMealTemplates) ? cp.phaseMealTemplates.flat() : [];
+                          return (phaseMeals.length || cp?.mealTemplates?.length || 0);
+                        })()}
                       </div>
                       <p className="text-xs text-muted-foreground">Meal Plans</p>
                     </Card>
