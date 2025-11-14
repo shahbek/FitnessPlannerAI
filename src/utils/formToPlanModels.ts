@@ -22,7 +22,7 @@ interface FormData {
   timelineWeeks: number;
   preferences?: string;
   avoid?: string;
-  equipment: 'gym_membership' | 'home_gym' | 'bodyweight' | 'minimal_equipment';
+  equipment: 'gym_membership' | 'home_gym' | 'home_gym_advanced' | 'bodyweight' | 'calisthenics' | 'minimal_equipment' | 'minimal';
   schedule?: string;
   mealFrequency?: number;
 }
@@ -40,11 +40,17 @@ export function formToUserProfile(formData: FormData): UserProfile {
   };
 
   // Map equipment
-  const equipmentMap: Record<string, 'gym_membership' | 'home_gym' | 'bodyweight' | 'minimal_equipment'> = {
+  const equipmentMap: Record<
+    string,
+    'gym_membership' | 'home_gym' | 'home_gym_advanced' | 'bodyweight' | 'calisthenics' | 'minimal_equipment' | 'minimal'
+  > = {
     'gym_membership': 'gym_membership',
     'home_gym': 'home_gym',
+    'home_gym_advanced': 'home_gym_advanced',
     'bodyweight': 'bodyweight',
+    'calisthenics': 'calisthenics',
     'minimal_equipment': 'minimal_equipment',
+    'minimal': 'minimal',
     'full': 'gym_membership',
     'limited': 'minimal_equipment',
     'none': 'bodyweight',

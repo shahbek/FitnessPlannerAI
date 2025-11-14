@@ -55,10 +55,16 @@ Return structured exercise library with detailed specifications.
         return 'Full gym access (barbells, dumbbells, machines, cables, cardio equipment)';
       case 'home_gym':
         return 'Home gym setup (barbell, dumbbells, bench, rack)';
+      case 'home_gym_advanced':
+        return 'Advanced home gym (rack, barbell, plates, dumbbells, bench, some machines/cables)';
       case 'bodyweight':
-        return 'Bodyweight exercises only (no equipment)';
+        return 'Bodyweight exercises only (no dedicated calisthenics equipment)';
+      case 'calisthenics':
+        return 'Calisthenics-focused setup (pull-up bar, dip bars, rings, parallettes; bodyweight only)';
       case 'minimal_equipment':
         return 'Limited equipment (dumbbells, resistance bands, pull-up bar)';
+      case 'minimal':
+        return 'Very limited equipment (few dumbbells and/or bands)';
       default:
         return equipment;
     }
