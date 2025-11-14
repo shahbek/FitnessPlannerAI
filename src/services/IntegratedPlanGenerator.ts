@@ -11,7 +11,8 @@
  */
 
 import { UserProfile } from '../models/UserProfile';
-import { CompletePlan, WeeklyOutline } from '../models/PlanModels';
+import { CompletePlan, WeeklyOutline, Exercise, SessionTemplate } from '../models/PlanModels';
+import { DynamicCalculator } from '../ai/dynamicCalculator';
 
 // Foundation Services
 import { USDANutritionService } from './USDANutritionService';
@@ -22,11 +23,10 @@ import { env } from '../config/env';
 // Meal Generation Services (Optimal Batch Architecture)
 import { BatchMealGenerator } from './BatchMealGenerator';
 
-// Workout Generation Services
-import { ExerciseLibraryService } from './ExerciseLibraryService';
-import { TrainingSplitService } from './TrainingSplitService';
+import { TrainingSplitService, TrainingSplit } from './TrainingSplitService';
 import { SessionTemplateGenerator } from './SessionTemplateGenerator';
 import { WorkoutVerificationService } from './WorkoutVerificationService';
+import { WeeklyWorkoutGenerator } from './WeeklyWorkoutGenerator';
 
 /**
  * Generation State
@@ -66,10 +66,11 @@ export class IntegratedPlanGenerator {
   private batchMealGenerator: BatchMealGenerator;
 
   // Workout Generation Services
-  private exerciseLibrary: ExerciseLibraryService;
   private trainingSplitService: TrainingSplitService;
   private sessionGenerator: SessionTemplateGenerator;
   private workoutVerification: WorkoutVerificationService;
+  private weeklyWorkoutGenerator: WeeklyWorkoutGenerator;
+  private calculator: DynamicCalculator;
 
   // State Management
   private currentState: GenerationState;
@@ -120,17 +121,16 @@ export class IntegratedPlanGenerator {
     );
 
     // Initialize Workout Generation Services
-    this.exerciseLibrary = new ExerciseLibraryService();
     this.trainingSplitService = new TrainingSplitService(this.cotService);
     this.sessionGenerator = new SessionTemplateGenerator(
-      this.cotService,
-      this.exerciseLibrary
+      this.cotService
     );
     this.workoutVerification = new WorkoutVerificationService(
       this.cotService,
-      this.exerciseLibrary,
       this.sessionGenerator
     );
+    this.weeklyWorkoutGenerator = new WeeklyWorkoutGenerator(this.cotService);
+    this.calculator = new DynamicCalculator();
 
     // Initialize state
     this.currentState = {
@@ -182,24 +182,12 @@ export class IntegratedPlanGenerator {
         currentStep: 'Determining training split...',
       }, opts.onStateUpdate);
 
-      let trainingSplit;
-      try {
-        trainingSplit = await this.trainingSplitService.determineSplit(
-          userProfile,
-          opts.useCoT
-        );
-      } catch (error) {
-        // If split generation fails (e.g., validation error), use rule-based fallback
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.warn(`⚠️  Split generation failed (${errorMessage}), using rule-based fallback`);
-        this.addWarning(`Split generation had issues: ${errorMessage}. Using rule-based fallback.`);
-        
-        // Force rule-based split as fallback
-        trainingSplit = await this.trainingSplitService.determineSplit(
-          userProfile,
-          false // Force rule-based
-        );
-      }
+      const trainingSplit = await this.trainingSplitService.determineSplit(
+        userProfile,
+        weeklyOutlines
+      );
+
+      const trainingMetrics = await this.computeTrainingMetrics(userProfile);
 
       // Step 2: Generate Session Templates
       this.updateState({
@@ -207,11 +195,14 @@ export class IntegratedPlanGenerator {
         currentStep: 'Generating workout sessions...',
       }, opts.onStateUpdate);
 
-      const sessionTemplates = await this.generateSessionTemplates(
+      const { sessions: allSessions, sessionsByWeek } = await this.generateSessionTemplates(
         trainingSplit,
         userProfile,
-        opts
+        opts,
+        weeklyOutlines,
+        trainingMetrics
       );
+      const sessionTemplates = sessionsByWeek[0] ?? allSessions;
 
       // Step 3: Verify Workout Plan (only if we have sessions)
       let workoutVerification: any = { success: true, sessions: sessionTemplates };
@@ -341,10 +332,11 @@ export class IntegratedPlanGenerator {
 
       return this.compileCompletePlan(
         allMealPlans,
-        workoutVerification.sessions,
+        allSessions,
         trainingSplit,
         weeklyOutlines,
-        userProfile
+        userProfile,
+        sessionsByWeek
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -361,65 +353,94 @@ export class IntegratedPlanGenerator {
   // Old meal generation removed - now using BatchMealGenerator
 
   /**
-   * Generate session templates for training days
+   * Generate session templates for training days using WEEKLY BATCH generation
+   *
+   * This method generates all workouts for an entire week in a SINGLE AI call,
+   * ensuring proper exercise variation, preventing duplicates, and allowing
+   * the AI to see the full week context for better programming.
    */
   private async generateSessionTemplates(
-    trainingSplit: any,
+    trainingSplit: TrainingSplit,
     userProfile: UserProfile,
-    options: GenerationOptions
-  ): Promise<any[]> {
-    const sessionTemplates: any[] = [];
-    const trainingPhase = 'progression'; // Could be derived from weekly outline
+    options: GenerationOptions,
+    weeklyOutlines: WeeklyOutline[],
+    trainingMetrics: TrainingMetricSummary
+  ): Promise<{ sessions: SessionTemplate[]; sessionsByWeek: SessionTemplate[][] }> {
+    const allSessions: SessionTemplate[] = [];
+    const sessionsByWeek: SessionTemplate[][] = [];
 
-    for (const day of trainingSplit.days) {
-      if (day.isRestDay) {
-        // Add rest day marker to session templates
-        sessionTemplates.push({
-          templateId: `rest-${day.dayNumber}`,
-          name: `${day.dayName} - Rest Day`,
-          targetMuscles: [],
-          totalDurationMinutes: 0,
-          structure: [],
-        });
-        continue;
-      }
+    // Ensure we have at least one weekly outline
+    const weeksToProcess = weeklyOutlines.length > 0 ? weeklyOutlines : [{
+      weekNumber: 1,
+      phase: 'progression',
+      dailyTargets: {
+        calories: trainingMetrics.tdee || 0,
+        protein: trainingMetrics.weightKg ? trainingMetrics.weightKg * 2 : 0,
+        carbs: 0,
+        fat: 0,
+        proteinPerKg: 0,
+      },
+      trainingSchedule: {
+        resistanceDays: trainingSplit.days.filter(d => !d.isRestDay).map(d => d.dayName),
+        cardioDays: [],
+        restDays: trainingSplit.days.filter(d => d.isRestDay).map(d => d.dayName),
+        weeklyVolume: 'Moderate',
+        focusAreas: [],
+      },
+      cardioSchedule: {
+        sessions: 0,
+        duration: 0,
+        intensity: 'Low',
+        type: 'None',
+      },
+      objectives: ['Maintain consistency'],
+      expectedOutcomes: [],
+      adjustments: 'None',
+      specialNotes: '',
+    } as WeeklyOutline];
+
+    // Generate workouts for each week using WEEKLY BATCH GENERATION
+    for (const outline of weeksToProcess) {
+      console.log(`🏋️  Generating workouts for Week ${outline.weekNumber} using SINGLE AI CALL...`);
+
+      // Get previous week's sessions for variation
+      const previousWeekSessions = allSessions.length > 0
+        ? allSessions.slice(-trainingSplit.days.filter(d => !d.isRestDay).length)
+        : undefined;
 
       try {
-        const session = await this.sessionGenerator.generateSessionTemplate(
-          day.focus && day.focus.length > 0 ? day.focus : ['full_body'], // Default to full body if no focus
+        // SINGLE AI CALL for entire week's workouts
+        const weekSessions = await this.weeklyWorkoutGenerator.generateWeeklyWorkouts(
+          trainingSplit,
           userProfile,
-          trainingPhase
+          outline,
+          {
+            enableReasoning: options.useCoT,
+            onReasoningUpdate: (reasoning) => {
+              this.updateState({
+                reasoning: [...(this.currentState.reasoning || []), reasoning],
+              }, options.onStateUpdate);
+            },
+            previousWeekSessions,
+          }
         );
 
-        if (session && session.structure && session.structure.length > 0) {
-          sessionTemplates.push(session);
-        } else {
-          console.warn(`⚠️  Session generated but empty for ${day.dayName}, creating placeholder`);
-          // Create a placeholder session so we don't lose the day
-          sessionTemplates.push({
-            templateId: `placeholder-${day.dayNumber}`,
-            name: `${day.dayName} - Workout (Placeholder)`,
-            targetMuscles: day.focus || ['full_body'],
-            totalDurationMinutes: 45,
-            structure: [],
-          });
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        this.addError(`Failed to generate session for ${day.dayName}: ${errorMessage}`);
-        // Create a placeholder session so we don't lose the day
-        console.warn(`⚠️  Session generation failed for ${day.dayName}: ${errorMessage}. Creating placeholder.`);
-        sessionTemplates.push({
-          templateId: `error-${day.dayNumber}`,
-          name: `${day.dayName} - Workout (Generation Failed)`,
-          targetMuscles: day.focus || ['full_body'],
-          totalDurationMinutes: 0,
-          structure: [],
+        console.log(`✅ Generated ${weekSessions.length} workout sessions for Week ${outline.weekNumber}`);
+
+        // Log session names for verification
+        weekSessions.forEach((session, idx) => {
+          console.log(`   - Day ${idx + 1}: ${session.name} (${session.structure.length} exercises)`);
         });
+
+        sessionsByWeek.push(weekSessions);
+        allSessions.push(...weekSessions);
+      } catch (error) {
+        console.error(`❌ Failed to generate workouts for Week ${outline.weekNumber}:`, error);
+        throw new Error(`Week ${outline.weekNumber} workout generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
       }
     }
 
-    return sessionTemplates;
+    return { sessions: allSessions, sessionsByWeek };
   }
 
   /**
@@ -437,6 +458,39 @@ export class IntegratedPlanGenerator {
     );
   }
 
+  private buildExerciseLibraryFromSessions(
+    sessionTemplates: SessionTemplate[],
+    userProfile: UserProfile
+  ): Exercise[] {
+    const difficulty =
+      (userProfile.workoutLevel as 'beginner' | 'intermediate' | 'expert') || 'intermediate';
+
+    const exerciseMap = new Map<string, Exercise>();
+
+    sessionTemplates.forEach((session) => {
+      (session.structure || []).forEach((exercise, index) => {
+        const exerciseId = exercise.exerciseId || `${session.templateId}-exercise-${index + 1}`;
+        if (exerciseMap.has(exerciseId)) {
+          return;
+        }
+
+        exerciseMap.set(exerciseId, {
+          exerciseId,
+          name: exercise.name || exerciseId,
+          muscleGroups: exercise.targetMuscles || session.targetMuscles || [],
+          equipment: ['ai-generated'],
+          difficulty,
+          formCues: exercise.notes ? [exercise.notes] : [],
+          progressionOptions: ['Increase load', 'Add tempo control'],
+          regressionOptions: ['Reduce load', 'Shorten range of motion'],
+          contraindications: [],
+        });
+      });
+    });
+
+    return Array.from(exerciseMap.values());
+  }
+
   /**
    * Compile complete plan
    */
@@ -452,10 +506,13 @@ export class IntegratedPlanGenerator {
     sessionTemplates: any[],
     trainingSplit: any,
     weeklyOutlines: WeeklyOutline[],
-    userProfile: UserProfile
+    userProfile: UserProfile,
+    sessionsByWeek?: SessionTemplate[][]
   ): CompletePlan {
-    // Get all exercises as a single array, then wrap in array for phase structure
-    const allExercises = this.exerciseLibrary.getAllExercises();
+    const derivedExercises = this.buildExerciseLibraryFromSessions(
+      sessionTemplates,
+      userProfile
+    );
     const referenceOutline = weeklyOutlines[0];
     
     // Convert meal plans to MealTemplate format
@@ -585,8 +642,8 @@ export class IntegratedPlanGenerator {
         },
       },
       phaseMealTemplates: phaseMealTemplates,
-      phaseSessionTemplates: [sessionTemplates],
-      phaseExerciseLibraries: [allExercises],
+      phaseSessionTemplates: sessionsByWeek && sessionsByWeek.length > 0 ? sessionsByWeek : [sessionTemplates],
+      phaseExerciseLibraries: derivedExercises.length > 0 ? [derivedExercises] : [],
       // Add dailyMealCombinations for parser compatibility (it expects this format)
       dailyMealCombinations,
       shoppingList: {
@@ -671,4 +728,55 @@ export class IntegratedPlanGenerator {
   getCurrentState(): GenerationState {
     return { ...this.currentState };
   }
+
+  private async computeTrainingMetrics(userProfile: UserProfile): Promise<TrainingMetricSummary> {
+    const bmi = await this.calculator.calculateBMI(userProfile);
+    const bmr = await this.calculator.calculateBMR(userProfile);
+    const tdee = await this.calculator.calculateTDEE(userProfile, bmr.value);
+
+    return {
+      weightKg: userProfile.weightKg,
+      bmi: bmi.value,
+      bmr: bmr.value,
+      tdee: tdee.value,
+      goal: userProfile.goal,
+    };
+  }
+
+  private buildWeeklyGuidanceSummary(weeklyOutlines: WeeklyOutline[]): string {
+    if (!weeklyOutlines || weeklyOutlines.length === 0) {
+      return 'No weekly guidance provided.';
+    }
+
+    return weeklyOutlines
+      .map((outline) => {
+        const objectives = outline.objectives?.join('; ') || 'Focus on consistency';
+        const adjustments = outline.adjustments && outline.adjustments !== 'None'
+          ? ` Adjustments: ${outline.adjustments}.`
+          : '';
+        return `Week ${outline.weekNumber} (${outline.phase}): ${objectives}.${adjustments}`;
+      })
+      .join('\n');
+  }
+
+  private buildSingleWeekGuidance(outline: WeeklyOutline): string {
+    const macros = outline.dailyTargets;
+    const focusAreas = outline.trainingSchedule?.focusAreas?.join(', ') || 'Overall balance';
+    const resistanceDays = outline.trainingSchedule?.resistanceDays?.join(', ') || 'Not specified';
+
+    return [
+      `Phase: ${outline.phase}`,
+      `Daily Calories: ${Math.round(macros?.calories ?? 0)} | Protein: ${Math.round(macros?.protein ?? 0)}g | Carbs: ${Math.round(macros?.carbs ?? 0)}g | Fat: ${Math.round(macros?.fat ?? 0)}g`,
+      `Focus Areas: ${focusAreas}`,
+      `Resistance Days: ${resistanceDays}`,
+    ].join(' • ');
+  }
 }
+
+type TrainingMetricSummary = {
+  weightKg: number;
+  bmi?: number;
+  tdee?: number;
+  bmr?: number;
+  goal?: string;
+};
