@@ -5,30 +5,59 @@
  */
 
 import { Exercise } from '../models/PlanModels';
-import { TrainingSplit } from '../services/TrainingSplitService';
+import { SessionTemplateContext } from '../services/SessionTemplateGenerator';
 
 /**
  * Build CoT prompt for session template planning
  */
+export interface SessionTemplatePromptOptions {
+  excludeExercises?: string[];
+  variationSeed?: string;
+  targetExerciseCount?: number;
+}
+
 export function buildSessionTemplateCoTPrompt(
   dayFocus: string[], // Muscle groups to train this day
-  availableExercises: Exercise[],
   trainingPhase: string, // e.g., 'foundation', 'progression', 'peak'
   userLevel: 'beginner' | 'intermediate' | 'expert',
   targetVolume?: {
     setsPerMuscle?: number;
     totalSets?: number;
-  }
+  },
+  context?: SessionTemplateContext,
+  promptOptions?: SessionTemplatePromptOptions
 ): string {
-  const exercisesList = availableExercises
-    .map(
-      ex =>
-        `- ${ex.name} (${ex.muscleGroups.join(', ')}, ${ex.difficulty}, equipment: ${ex.equipment.join(', ')})`
-    )
-    .join('\n');
-
   const targetVolumeInfo = targetVolume
     ? `\nTarget volume:\n- Sets per muscle: ${targetVolume.setsPerMuscle || 'varies'}\n- Total sets: ${targetVolume.totalSets || 'varies'}`
+    : '';
+
+  const metricsInfo = context?.userMetrics
+    ? `\nUser metrics:\n- Weight: ${context.userMetrics.weightKg ?? 'n/a'} kg\n- BMI: ${context.userMetrics.bmi ?? 'n/a'}\n- BMR: ${context.userMetrics.bmr ?? 'n/a'} kcal\n- TDEE: ${context.userMetrics.tdee ?? 'n/a'} kcal\n- Goal: ${context.userMetrics.goal ?? 'not specified'}`
+    : '';
+
+  const planGuidance = context?.planGuidance
+    ? `\nWeekly strategy guidance:\n${context.planGuidance}`
+    : '';
+
+  const focusHistoryInfo = context?.focusHistorySummary
+    ? `\nRecent focus coverage:\n${context.focusHistorySummary}\nDesign this session to complement earlier work by emphasizing different muscle subdivisions, movement angles, and equipment selections.`
+    : '';
+
+  const excludeExercisesInfo =
+    promptOptions?.excludeExercises && promptOptions.excludeExercises.length > 0
+      ? `\nExercises to avoid (recently used or user preference):\n${promptOptions.excludeExercises.join(', ')}`
+      : '';
+
+  const variationInfo = promptOptions?.variationSeed
+    ? `\nVariation guidance: Consider alternative exercise selection using seed "${promptOptions.variationSeed}".`
+    : '';
+
+  const targetExerciseCountInfo = promptOptions?.targetExerciseCount
+    ? `\nAim for approximately ${promptOptions.targetExerciseCount} total exercises unless rationale suggests otherwise.`
+    : '';
+
+  const sessionContext = context
+    ? `\nSession context:\n- Split: ${context.splitName}\n- Day: ${context.dayName} (Day ${context.dayNumber}${context.weekNumber ? `, Week ${context.weekNumber}` : ''})\n- Phase: ${context.phase || trainingPhase}\n- Objectives: ${(context.objectives && context.objectives.length > 0) ? context.objectives.join('; ') : 'Refer to weekly guidance'}`
     : '';
 
   return `You are a strength and conditioning coach planning a workout session.
@@ -38,39 +67,56 @@ ${dayFocus.join(', ')}
 
 Training phase: ${trainingPhase}
 User experience level: ${userLevel}
-
-Available exercises (filtered by equipment and safety):
-${exercisesList}
+${sessionContext}
+${metricsInfo}
 ${targetVolumeInfo}
+${planGuidance}
+${focusHistoryInfo}
+${excludeExercisesInfo}
+${variationInfo}
+${targetExerciseCountInfo}
 
 Think step by step:
-1. Select 4-8 exercises that effectively target the focus muscle groups
-   - Prioritize compound movements first
+1. Design exactly 6 distinct exercises that effectively target the focus muscle groups
+   - Prioritize proven compound movements first
    - Include 1-2 isolation exercises if needed
+   - Provide realistic equipment (free weights, bodyweight, cables, machines)
    - Ensure exercises match user's experience level (${userLevel})
+   - When repeating a muscle group within the week, rotate emphasis across different fiber orientations/angles (e.g., upper vs. lower chest, medial vs. posterior delts) and avoid duplicating the movement patterns outlined in the focus coverage summary
 
-2. Determine exercise order:
+2. For each exercise provide:
+   - Clear exerciseId (kebab-case)
+   - Exercise name
+   - Primary muscle groups (array)
+   - Sets and reps aligned with the training phase
+   - Rest period in seconds
+   - Coaching note or cue
+
+3. Determine exercise order:
    - Start with most demanding compound movements
    - Progress to accessory/isolation work
-   - Consider fatigue management
+   - Consider fatigue management and movement patterns
 
-3. Assign sets and reps based on training phase:
-   - Foundation phase: 3-4 sets, 8-12 reps (hypertrophy focus)
-   - Progression phase: 3-5 sets, 6-10 reps (strength/hypertrophy)
-   - Peak phase: 4-6 sets, 4-8 reps (strength focus)
+4. Assign sets and reps based on training phase:
+   - Foundation: 3-4 sets, 8-12 reps
+   - Progression: 3-5 sets, 6-10 reps
+   - Peak: 4-6 sets, 4-8 reps
    - Adjust for user level (${userLevel})
 
-4. Calculate total volume:
+5. Calculate total volume:
    - Count total sets per muscle group
    - Ensure it meets volume targets if provided
    - Verify recovery is feasible
 
-5. Verify the session:
+6. Name the session using industry-standard terminology (e.g., "Upper Body Hypertrophy", "Push Strength Session", "Leg Day Power") without referencing phases or weekdays.
+
+7. Verify the session:
    - Does it target all focus muscle groups?
    - Is the volume appropriate for the phase?
    - Will the user recover adequately?
+   - Are there exactly six unique exercises?
 
-Generate a detailed workout session template with exercises, sets, reps, and rest periods.`;
+Generate a detailed workout session template with six unique exercises, their primary muscles, sets, reps, rest periods, and coaching notes.`;
 }
 
 /**
@@ -219,4 +265,3 @@ Think step by step:
 
 Verify and provide feedback on the session volume.`;
 }
-

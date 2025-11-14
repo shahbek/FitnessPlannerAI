@@ -107,6 +107,8 @@ export interface SessionTemplate {
   totalDurationMinutes: number;
   structure: Array<{
     exerciseId: string;
+    name?: string;
+    targetMuscles?: string[];
     sets: number;
     reps: string;
     restSeconds: number;
