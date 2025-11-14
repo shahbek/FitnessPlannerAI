@@ -140,7 +140,7 @@ async function main() {
     specialNotes: 'Debug run for weekly meal generation accuracy.',
   };
 
-  const trainingSplit: TrainingSplit = await trainingSplitService.determineSplit(userProfile, false);
+  const trainingSplit: TrainingSplit = await trainingSplitService.determineSplit(userProfile);
 
   console.log('🚀 Running weekly meal generation debug run...');
   console.log('   User Profile:', JSON.stringify(userProfile, null, 2));
