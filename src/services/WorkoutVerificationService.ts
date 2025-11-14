@@ -12,7 +12,6 @@ import { SessionTemplate } from '../models/PlanModels';
 import { TrainingSplit } from './TrainingSplitService';
 import { FeedbackLoopManager } from '../utils/cotHelpers';
 import { ChainOfThoughtService } from './ChainOfThoughtService';
-import { ExerciseLibraryService } from './ExerciseLibraryService';
 import { SessionTemplateGenerator } from './SessionTemplateGenerator';
 
 /**
@@ -60,17 +59,14 @@ export interface WorkoutVerificationResult {
  */
 export class WorkoutVerificationService {
   private cotService?: ChainOfThoughtService;
-  private exerciseLibrary?: ExerciseLibraryService;
   private sessionGenerator?: SessionTemplateGenerator;
   private feedbackLoopManager: FeedbackLoopManager;
 
   constructor(
     cotService?: ChainOfThoughtService,
-    exerciseLibrary?: ExerciseLibraryService,
     sessionGenerator?: SessionTemplateGenerator
   ) {
     this.cotService = cotService;
-    this.exerciseLibrary = exerciseLibrary;
     this.sessionGenerator = sessionGenerator;
     this.feedbackLoopManager = new FeedbackLoopManager(3); // Max 3 correction iterations
   }
@@ -343,11 +339,8 @@ export class WorkoutVerificationService {
     // Try to extract from exercise name or notes
     // This is a simplified version - in production, would look up from exercise library
     // SessionTemplate.structure has exerciseId, so we need to look it up from library
-    if (exercise.exerciseId && this.exerciseLibrary) {
-      const exerciseData = this.exerciseLibrary.getExerciseById(exercise.exerciseId);
-      if (exerciseData && exerciseData.muscleGroups) {
-        return exerciseData.muscleGroups;
-      }
+    if (Array.isArray(exercise.targetMuscles) && exercise.targetMuscles.length > 0) {
+      return exercise.targetMuscles.map((mg: string) => mg.toLowerCase());
     }
     
     // Fallback: try to extract from name if available
@@ -544,4 +537,3 @@ export class WorkoutVerificationService {
     };
   }
 }
-

@@ -23,6 +23,7 @@ import {
   calculateMacrosForAmount,
   validateMacroValues,
 } from '../utils/usdaMapper';
+import { stripDescriptorWords } from '../constants/ingredients';
 
 /**
  * Configuration
@@ -38,6 +39,60 @@ const CONFIG = {
   DATA_TYPE_PRIORITY: ['Foundation', 'SR Legacy', 'Survey (FNDDS)'],
   ALLOWED_DATA_TYPES: ['Foundation', 'SR Legacy', 'Survey (FNDDS)', 'Experimental'],
 } as const;
+
+type SearchAttempt = {
+  query: string;
+  requireAllWords: boolean;
+  reason: string;
+};
+
+type FallbackRule = {
+  keywords: string[];
+  replacements: string[];
+};
+
+const CATEGORY_FALLBACKS: FallbackRule[] = [
+  {
+    keywords: ['salmon', 'fillet'],
+    replacements: ['salmon', 'atlantic salmon', 'sockeye salmon'],
+  },
+  {
+    keywords: ['salmon'],
+    replacements: ['atlantic salmon', 'sockeye salmon'],
+  },
+  {
+    keywords: ['shredded', 'cheese'],
+    replacements: ['cheddar cheese', 'mozzarella cheese', 'colby cheese'],
+  },
+  {
+    keywords: ['cheese'],
+    replacements: ['cheddar cheese', 'mozzarella cheese'],
+  },
+  {
+    keywords: ['bell', 'pepper'],
+    replacements: ['sweet pepper', 'green bell pepper', 'red bell pepper'],
+  },
+  {
+    keywords: ['rice', 'cracker'],
+    replacements: ['rice crackers plain', 'rice cakes'],
+  },
+  {
+    keywords: ['scrambled', 'egg'],
+    replacements: [
+      'egg, whole, cooked, scrambled',
+      'egg, whole, scrambled',
+      'egg, whole, raw',
+    ],
+  },
+  {
+    keywords: ['rolled', 'oats'],
+    replacements: ['oats, rolled', 'old fashioned oats', 'oatmeal'],
+  },
+  {
+    keywords: ['quinoa'],
+    replacements: ['quinoa, cooked', 'quinoa, uncooked'],
+  },
+];
 
 export class USDANutritionService {
   private apiKey: string;
@@ -69,62 +124,36 @@ export class USDANutritionService {
 
     try {
       const normalizedQuery = normalizeFoodName(query);
-      
-      // Use POST request with dataType filter to get foods with complete nutrient data
-      // Foundation Foods and Branded Foods typically have complete nutrient data
-      // See: https://fdc.nal.usda.gov/api-guide
-      const url = `${CONFIG.BASE_URL}/foods/search?api_key=${this.apiKey}`;
-      
-      const requestBody = {
-        query: normalizedQuery,
-        dataType: CONFIG.ALLOWED_DATA_TYPES,
-        pageSize: CONFIG.SEARCH_PAGE_SIZE,
-      };
+      const attempts = this.buildSearchAttempts(normalizedQuery);
 
-      const response = await this.fetchWithRetry(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
+      let lastError: NutritionError | null = null;
 
-      if (!response.ok) {
-        await this.handleAPIError(response, query);
+      for (const [index, attempt] of attempts.entries()) {
+        try {
+          const foods = await this.executeSearchAttempt(attempt, query);
+          if (foods.length > 0) {
+            if (index > 0) {
+              console.log(
+                `🔎 [USDA] Found "${query}" via ${attempt.reason} -> "${attempt.query}"`
+              );
+            }
+            return foods;
+          }
+        } catch (error: any) {
+          lastError = error;
+        }
       }
 
-      const data: USDASearchResponse = await response.json();
-
-      if (!data.foods || data.foods.length === 0) {
-        throw this.createError(
-          NutritionErrorType.FOOD_NOT_FOUND,
-          `No foods found matching "${query}"`,
-          query,
-          'Please try a different search term or provide more specific food name'
-        );
+      if (lastError) {
+        throw lastError;
       }
 
-      // Prioritize non-branded USDA data (Foundation/SR Legacy/Survey/Experimental)
-      const preferredFoods = data.foods.filter((food) =>
-        CONFIG.DATA_TYPE_PRIORITY.includes(food.dataType)
+      throw this.createError(
+        NutritionErrorType.FOOD_NOT_FOUND,
+        `No foods found matching "${query}"`,
+        query,
+        'Please try a different search term or provide more specific food name'
       );
-      const otherNonBrandedFoods = data.foods.filter(
-        (food) =>
-          !CONFIG.DATA_TYPE_PRIORITY.includes(food.dataType)
-      );
-
-      let orderedFoods = [...preferredFoods, ...otherNonBrandedFoods];
-
-      if (orderedFoods.length === 0) {
-        throw this.createError(
-          NutritionErrorType.FOOD_NOT_FOUND,
-          `No foods found matching "${query}"`,
-          query,
-          'Please try a different search term or provide more specific food name'
-        );
-      }
-
-      return orderedFoods.slice(0, CONFIG.SEARCH_MAX_RESULTS);
     } catch (error) {
       if (error && typeof error === 'object' && 'type' in error) {
         throw error; // Re-throw NutritionError
@@ -147,6 +176,143 @@ export class USDANutritionService {
         'Check your internet connection and API key'
       );
     }
+  }
+
+  private buildSearchAttempts(normalizedQuery: string): SearchAttempt[] {
+    const attempts: SearchAttempt[] = [];
+    const seen = new Set<string>();
+
+    const pushAttempt = (attempt: SearchAttempt) => {
+      if (!attempt.query) return;
+      const key = `${attempt.query}|${attempt.requireAllWords}`;
+      if (seen.has(key)) {
+        return;
+      }
+      attempts.push(attempt);
+      seen.add(key);
+    };
+
+    const tokens = normalizedQuery.split(' ').filter(Boolean);
+    const isMultiWord = tokens.length > 1;
+
+    pushAttempt({
+      query: normalizedQuery,
+      requireAllWords: isMultiWord,
+      reason: 'original phrase (all words)',
+    });
+    pushAttempt({
+      query: normalizedQuery,
+      requireAllWords: false,
+      reason: 'original phrase (any words)',
+    });
+
+    const stripped = stripDescriptorWords(normalizedQuery);
+    if (stripped && stripped !== normalizedQuery) {
+      const strippedTokens = stripped.split(' ').filter(Boolean);
+      pushAttempt({
+        query: stripped,
+        requireAllWords: strippedTokens.length > 1,
+        reason: 'descriptor-stripped phrase (all words)',
+      });
+      pushAttempt({
+        query: stripped,
+        requireAllWords: false,
+        reason: 'descriptor-stripped phrase (any words)',
+      });
+    }
+
+    for (const variant of this.generateFallbackVariants(normalizedQuery)) {
+      const variantTokens = variant.split(' ').filter(Boolean);
+      const multi = variantTokens.length > 1;
+      pushAttempt({
+        query: variant,
+        requireAllWords: multi,
+        reason: `category fallback (${variant})`,
+      });
+      if (multi) {
+        pushAttempt({
+          query: variant,
+          requireAllWords: false,
+          reason: `category fallback (${variant}) relaxed`,
+        });
+      }
+    }
+
+    return attempts;
+  }
+
+  private generateFallbackVariants(query: string): string[] {
+    const normalized = normalizeFoodName(query);
+    const variants = new Set<string>();
+
+    CATEGORY_FALLBACKS.forEach((rule) => {
+      const matches = rule.keywords.every((keyword) =>
+        normalized.includes(keyword)
+      );
+      if (matches) {
+        rule.replacements.forEach((replacement) =>
+          variants.add(normalizeFoodName(replacement))
+        );
+      }
+    });
+
+    const stripped = stripDescriptorWords(normalized);
+    if (stripped && stripped !== normalized) {
+      variants.add(stripped);
+    }
+
+    return Array.from(variants);
+  }
+
+  private async executeSearchAttempt(
+    attempt: SearchAttempt,
+    contextQuery: string
+  ): Promise<USDAFoodItem[]> {
+    // Use POST request with dataType filter to get foods with complete nutrient data
+    const url = `${CONFIG.BASE_URL}/foods/search?api_key=${this.apiKey}`;
+
+    const requestBody = {
+      query: attempt.query,
+      dataType: CONFIG.ALLOWED_DATA_TYPES,
+      pageSize: CONFIG.SEARCH_PAGE_SIZE,
+      requireAllWords: attempt.requireAllWords,
+    };
+
+    const response = await this.fetchWithRetry(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      await this.handleAPIError(response, `${contextQuery} (${attempt.query})`);
+    }
+
+    const data: USDASearchResponse = await response.json();
+
+    if (!data.foods || data.foods.length === 0) {
+      console.warn(
+        `⚠️ [USDA] No foods for attempt "${attempt.query}" (${attempt.reason})`
+      );
+      return [];
+    }
+
+    const preferredFoods = data.foods.filter((food) =>
+      CONFIG.DATA_TYPE_PRIORITY.includes(food.dataType)
+    );
+    const otherNonBrandedFoods = data.foods.filter(
+      (food) => !CONFIG.DATA_TYPE_PRIORITY.includes(food.dataType)
+    );
+
+    const orderedFoods = [...preferredFoods, ...otherNonBrandedFoods];
+
+    if (orderedFoods.length === 0) {
+      return [];
+    }
+
+    return orderedFoods.slice(0, CONFIG.SEARCH_MAX_RESULTS);
   }
 
   /**

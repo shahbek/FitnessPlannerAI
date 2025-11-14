@@ -2,19 +2,13 @@
  * Session Template Generator
  * 
  * Generates workout session templates using Chain-of-Thought
- * Integrates with exercise library for exercise selection
+ * Relies entirely on AI for exercise selection
  */
 
 import { z } from 'zod';
 import { ChainOfThoughtService } from './ChainOfThoughtService';
-import { ExerciseLibraryService } from './ExerciseLibraryService';
-import { TrainingSplit } from './TrainingSplitService';
-import { Exercise, SessionTemplate } from '../models/PlanModels';
-import {
-  buildSessionTemplateCoTPrompt,
-  buildExerciseSelectionPrompt,
-  buildSetRepAssignmentPrompt,
-} from '../prompts/sessionTemplateCoT';
+import { SessionTemplate } from '../models/PlanModels';
+import { buildSessionTemplateCoTPrompt } from '../prompts/sessionTemplateCoT';
 import { UserProfile } from '../models/UserProfile';
 
 /**
@@ -28,16 +22,17 @@ export const SessionTemplateSchema = z.object({
       exerciseId: z.string(),
       name: z.string(),
       sets: z.number(),
-      reps: z.string(), // e.g., "8-12" or "10"
+      reps: z.string(),
       restSeconds: z.number().optional(),
       order: z.number(),
       notes: z.string().optional(),
+      primaryMuscles: z.array(z.string()).optional(),
     })
   ),
-  estimatedDuration: z.number().optional(), // in minutes
+  estimatedDuration: z.number().optional(),
   totalVolume: z.object({
     totalSets: z.number(),
-    setsPerMuscleGroup: z.record(z.string(), z.number()), // Fix: record needs key type (string) and value type (number)
+    setsPerMuscleGroup: z.record(z.string(), z.number()),
   }),
   reasoning: z.string().optional(),
 });
@@ -48,7 +43,7 @@ export type SessionTemplateGeneration = z.infer<typeof SessionTemplateSchema>;
  * Session Generation Options
  */
 export interface SessionGenerationOptions {
-  trainingPhase?: string; // 'foundation', 'progression', 'peak'
+  trainingPhase?: string;
   targetVolume?: {
     setsPerMuscle?: Record<string, number>;
     totalSets?: number;
@@ -57,19 +52,32 @@ export interface SessionGenerationOptions {
   onReasoningUpdate?: (reasoning: string) => void;
 }
 
+export interface SessionTemplateContext {
+  splitName?: string;
+  dayName?: string;
+  dayNumber?: number;
+  weekNumber?: number;
+  phase?: string;
+  objectives?: string[];
+  planGuidance?: string;
+  focusHistorySummary?: string;
+  userMetrics?: {
+    weightKg?: number;
+    bmi?: number;
+    bmr?: number;
+    tdee?: number;
+    goal?: string;
+  };
+}
+
 /**
  * Session Template Generator
  */
 export class SessionTemplateGenerator {
   private cotService?: ChainOfThoughtService;
-  private exerciseLibrary: ExerciseLibraryService;
 
-  constructor(
-    cotService: ChainOfThoughtService,
-    exerciseLibrary: ExerciseLibraryService
-  ) {
+  constructor(cotService: ChainOfThoughtService) {
     this.cotService = cotService;
-    this.exerciseLibrary = exerciseLibrary;
   }
 
   /**
@@ -85,295 +93,329 @@ export class SessionTemplateGenerator {
    * Generate session template for a training day
    */
   async generateSessionTemplate(
-    dayFocus: string[], // Muscle groups to train
-    userProfile: UserProfile,
-    trainingPhase: string,
-    options?: SessionGenerationOptions
-  ): Promise<SessionTemplate> {
-    // Get available exercises for this day
-    // Normalize muscle group names (e.g., 'full_body' -> ['chest', 'back', 'legs', etc.])
-    let normalizedFocus = dayFocus;
-    if (dayFocus.includes('full_body') || dayFocus.length === 0) {
-      normalizedFocus = ['chest', 'back', 'legs', 'shoulders', 'arms'];
-    }
-
-    let availableExercises = this.exerciseLibrary.getRecommendedExercises(
-      {
-        workoutLevel: userProfile.workoutLevel as 'beginner' | 'intermediate' | 'expert',
-        equipment: userProfile.equipment,
-        injuries: userProfile.injuries || [],
-      },
-      normalizedFocus
-    );
-
-    // If no exercises found, try with a broader search (any muscle group)
-    if (availableExercises.length === 0) {
-      console.warn(`⚠️  No exercises found for ${normalizedFocus.join(', ')}, trying broader search`);
-      availableExercises = this.exerciseLibrary.getRecommendedExercises(
-        {
-          workoutLevel: userProfile.workoutLevel as 'beginner' | 'intermediate' | 'expert',
-          equipment: userProfile.equipment,
-          injuries: userProfile.injuries || [],
-        },
-        [] // Empty array to get any exercises
-      );
-    }
-
-    if (availableExercises.length === 0) {
-      throw new Error(
-        `No exercises available for muscle groups: ${dayFocus.join(', ')} (tried: ${normalizedFocus.join(', ')})`
-      );
-    }
-
-    // Check if AI is available, otherwise use deterministic method
-    if (!this.isAIAvailable()) {
-      console.log('📊 Using deterministic session template generation (AI unavailable)');
-      return this.generateSessionTemplateDeterministic(
-        dayFocus,
-        availableExercises,
-        userProfile,
-        trainingPhase,
-        options
-      );
-    }
-
-    // Build CoT prompt
-    const prompt = buildSessionTemplateCoTPrompt(
-      dayFocus,
-      availableExercises,
-      trainingPhase,
-      userProfile.workoutLevel as 'beginner' | 'intermediate' | 'expert',
-      options?.targetVolume
-    );
-
-    // Generate with CoT
-    try {
-      const { result, reasoning } = await this.cotService!.generateWithCoT(
-        prompt,
-        SessionTemplateSchema,
-        {
-          enableVerification: true,
-          onStepUpdate: (step) => {
-            if (options?.onReasoningUpdate) {
-              options.onReasoningUpdate(step.thought);
-            }
-          },
-        }
-      );
-
-      // Convert to SessionTemplate format (matching the interface)
-      const sessionTemplate: SessionTemplate = {
-        templateId: result.templateId,
-        name: result.name,
-        targetMuscles: dayFocus,
-        totalDurationMinutes: result.estimatedDuration || 60,
-        structure: result.exercises.map((ex, index) => ({
-          exerciseId: ex.exerciseId,
-          sets: ex.sets,
-          reps: ex.reps,
-          restSeconds: ex.restSeconds || 60,
-          notes: ex.notes || `Exercise ${index + 1}`,
-        })),
-      };
-
-      return sessionTemplate;
-    } catch (error) {
-      console.warn('⚠️  CoT session generation failed, falling back to deterministic method:', error);
-      return this.generateSessionTemplateDeterministic(
-        dayFocus,
-        availableExercises,
-        userProfile,
-        trainingPhase,
-        options
-      );
-    }
-  }
-
-  /**
-   * Generate session template deterministically (fallback when AI unavailable)
-   */
-  private generateSessionTemplateDeterministic(
     dayFocus: string[],
-    availableExercises: Exercise[],
     userProfile: UserProfile,
     trainingPhase: string,
-    options?: SessionGenerationOptions
-  ): SessionTemplate {
-    // Select 4-6 exercises for the session
-    const exerciseCount = Math.min(6, Math.max(4, availableExercises.length));
-    const selectedExercises = availableExercises.slice(0, exerciseCount);
+    options?: SessionGenerationOptions,
+    context?: SessionTemplateContext,
+    previousSessions?: SessionTemplate[]
+  ): Promise<SessionTemplate> {
+    const normalizedFocus =
+      dayFocus.includes('full_body') || dayFocus.length === 0
+        ? ['chest', 'back', 'legs', 'shoulders', 'arms']
+        : dayFocus;
 
-    // Use existing assignSetsReps method
-    const assignments = this.assignSetsReps(
-      selectedExercises,
-      trainingPhase,
-      userProfile.workoutLevel as 'beginner' | 'intermediate' | 'expert'
+    const expandedFocus = this.expandFocusGroups(normalizedFocus);
+    const focusForPrompt = expandedFocus.length > 0 ? expandedFocus : ['chest', 'back', 'legs', 'shoulders', 'arms'];
+
+    if (!this.isAIAvailable()) {
+      throw new Error('AI service is required to generate workout sessions. Configure an AI API key.');
+    }
+
+    const recentExercises = this.extractRecentExercises(previousSessions, 7);
+    const focusHistorySummary = this.buildFocusHistorySummary(focusForPrompt, previousSessions);
+    const promptContext: SessionTemplateContext = {
+      ...context,
+      focusHistorySummary,
+    };
+    
+    const maxRetries = 2;
+    let lastError: Error | undefined;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const variationHint = attempt > 0 ? this.getAlternateVariation(attempt) : undefined;
+        const promptOptions = {
+          excludeExercises: recentExercises,
+          variationSeed: variationHint,
+        } as const;
+        
+        const prompt = buildSessionTemplateCoTPrompt(
+          focusForPrompt,
+          trainingPhase,
+          userProfile.workoutLevel as 'beginner' | 'intermediate' | 'expert',
+          options?.targetVolume,
+          promptContext,
+          promptOptions
+        );
+
+        const { result } = await this.cotService!.generateWithCoT(
+          prompt,
+          SessionTemplateSchema,
+          {
+            enableVerification: true,
+            onStepUpdate: (step) => {
+              if (options?.onReasoningUpdate) {
+                options.onReasoningUpdate(step.thought);
+              }
+            },
+          }
+        );
+
+        const distinctExercises = this.validateAndNormalizeExercises(result.exercises || [], recentExercises);
+
+        const sessionTemplate: SessionTemplate = {
+          templateId: result.templateId,
+          name: this.resolveSessionName(result.name, focusForPrompt, context),
+          targetMuscles: focusForPrompt,
+          totalDurationMinutes: result.estimatedDuration || this.estimateDuration(distinctExercises),
+          structure: distinctExercises.map((ex, index) => ({
+            exerciseId: ex.exerciseId || `exercise-${index + 1}`,
+            name: ex.name || `Exercise ${index + 1}`,
+            targetMuscles: ex.primaryMuscles || focusForPrompt,
+            sets: ex.sets,
+            reps: ex.reps,
+            restSeconds: ex.restSeconds || this.getDefaultRest(ex.reps),
+            notes: ex.notes || `Exercise ${index + 1}`,
+          })),
+        };
+
+        return sessionTemplate;
+      } catch (error) {
+        lastError = error as Error;
+        if (attempt < maxRetries) {
+          await this.delay(1000 * (attempt + 1));
+        }
+      }
+    }
+
+    throw lastError || new Error('Failed to generate session after retries');
+  }
+
+  private validateAndNormalizeExercises(
+    exercises: SessionTemplateGeneration['exercises'],
+    recentExercises?: string[]
+  ): SessionTemplateGeneration['exercises'] {
+    if (!Array.isArray(exercises) || exercises.length === 0) {
+      throw new Error('AI did not return any exercises for this session.');
+    }
+
+    const unique: SessionTemplateGeneration['exercises'] = [];
+    const seen = new Set<string>();
+
+    for (const exercise of exercises) {
+      const normalized = this.normalizeExerciseName(exercise.name || '');
+      if (!normalized) continue;
+      if (seen.has(normalized)) continue;
+      if (this.isSimilarToRecent(normalized, recentExercises)) continue;
+      
+      seen.add(normalized);
+      unique.push(exercise);
+      if (unique.length === 6) break;
+    }
+
+    if (unique.length < 4) {
+      throw new Error(`AI returned only ${unique.length} unique exercises. Minimum 4 required.`);
+    }
+
+    return unique.slice(0, 6);
+  }
+
+  private normalizeExerciseName(name: string): string {
+    return name
+      .toLowerCase()
+      .replace(/\b(barbell|dumbbell|cable|machine|smith|ez-bar|ez)\b/gi, '')
+      .replace(/[^\w\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  private isSimilarToRecent(exerciseName: string, recentExercises?: string[]): boolean {
+    if (!recentExercises || recentExercises.length === 0) return false;
+    
+    const normalized = this.normalizeExerciseName(exerciseName);
+    
+    return recentExercises.some(recent => {
+      const normalizedRecent = this.normalizeExerciseName(recent);
+      if (normalized === normalizedRecent) return true;
+      if (normalized.length > 5 && normalizedRecent.length > 5 && 
+          (normalized.includes(normalizedRecent) || normalizedRecent.includes(normalized))) {
+        return true;
+      }
+      return false;
+    });
+  }
+
+  private extractRecentExercises(sessions: SessionTemplate[] | undefined, daysBack: number): string[] {
+    if (!sessions || sessions.length === 0) return [];
+    
+    return sessions
+      .slice(-daysBack)
+      .flatMap(s => s.structure.map(e => e.name))
+      .filter((name, idx, arr) => arr.indexOf(name) === idx);
+  }
+
+  private buildFocusHistorySummary(
+    focus: string[],
+    previousSessions?: SessionTemplate[],
+    limit = 3
+  ): string | undefined {
+    if (!previousSessions || previousSessions.length === 0) {
+      return undefined;
+    }
+
+    const normalizedFocus = focus.map((muscle) => muscle.toLowerCase());
+    const relevantSessions = previousSessions
+      .filter((session) => {
+        const targetMuscles = (session.targetMuscles || []).map((muscle) => muscle.toLowerCase());
+        return targetMuscles.some((muscle) => normalizedFocus.includes(muscle));
+      })
+      .slice(-limit);
+
+    if (relevantSessions.length === 0) {
+      return undefined;
+    }
+
+    const summaries = relevantSessions.map((session) => {
+      const muscleSet = new Set<string>();
+      const exerciseHighlights: string[] = [];
+
+      (session.structure || []).forEach((exercise) => {
+        (exercise.targetMuscles || []).forEach((muscle) => muscleSet.add(muscle.toLowerCase()));
+        if (exerciseHighlights.length < 4 && exercise.name) {
+          exerciseHighlights.push(exercise.name);
+        }
+      });
+
+      const musclesText =
+        muscleSet.size > 0
+          ? Array.from(muscleSet)
+              .map((muscle) => this.toTitleCase(muscle))
+              .join(', ')
+          : 'General focus';
+
+      const exercisesText =
+        exerciseHighlights.length > 0 ? exerciseHighlights.join(', ') : 'varied movements';
+
+      return `${session.name || 'Previous session'} → muscles: ${musclesText}; key lifts: ${exercisesText}`;
+    });
+
+    return summaries.join('\n');
+  }
+
+  private expandFocusGroups(focusList: string[]): string[] {
+    const focusMap: Record<string, string[]> = {
+      'upper body': ['chest', 'back', 'shoulders', 'biceps', 'triceps'],
+      'lower body': ['quads', 'hamstrings', 'glutes', 'calves', 'lower-back'],
+      push: ['chest', 'shoulders', 'triceps'],
+      pull: ['back', 'lats', 'biceps', 'rear-delts'],
+      legs: ['quads', 'hamstrings', 'glutes', 'calves'],
+      full_body: ['chest', 'back', 'legs', 'shoulders', 'arms'],
+      conditioning: ['cardio', 'core', 'glutes'],
+      core: ['abs', 'obliques', 'lower-back'],
+      glutes: ['glutes', 'hamstrings'],
+      hips: ['glutes', 'hamstrings', 'quads'],
+      arms: ['biceps', 'triceps', 'forearms'],
+      shoulders: ['shoulders', 'rear-delts'],
+    };
+
+    const muscles = new Set<string>();
+
+    focusList.forEach((labelRaw) => {
+      if (!labelRaw) return;
+      const splits = labelRaw
+        .split(/[,&/]/)
+        .map((segment) => segment.trim().toLowerCase())
+        .filter(Boolean);
+
+      splits.forEach((label) => {
+        if (focusMap[label]) {
+          focusMap[label].forEach((muscle) => muscles.add(muscle));
+          return;
+        }
+
+        if (label.endsWith('s') && focusMap[label.slice(0, -1)]) {
+          focusMap[label.slice(0, -1)].forEach((muscle) => muscles.add(muscle));
+          return;
+        }
+
+        if (label.includes('glute')) ['glutes', 'hamstrings'].forEach((m) => muscles.add(m));
+        else if (label.includes('quad')) muscles.add('quads');
+        else if (label.includes('hamstring')) muscles.add('hamstrings');
+        else if (label.includes('calf')) muscles.add('calves');
+        else if (label.includes('chest')) muscles.add('chest');
+        else if (label.includes('back')) muscles.add('back');
+        else if (label.includes('shoulder')) muscles.add('shoulders');
+        else if (label.includes('bicep')) muscles.add('biceps');
+        else if (label.includes('tricep')) muscles.add('triceps');
+        else if (label.includes('arm')) ['biceps', 'triceps'].forEach((m) => muscles.add(m));
+        else if (label.includes('abs') || label.includes('core')) ['abs', 'obliques'].forEach((m) => muscles.add(m));
+      });
+    });
+
+    return Array.from(muscles);
+  }
+
+  private resolveSessionName(
+    originalName: string | undefined,
+    focus: string[],
+    context?: SessionTemplateContext
+  ): string {
+    const fallback = this.generateFocusBasedName(focus);
+
+    if (!originalName) {
+      return fallback;
+    }
+
+    const lower = originalName.toLowerCase();
+    const hasPhaseToken = ['foundation', 'progression', 'peak'].some((token) =>
+      lower.includes(token)
     );
 
-    // Generate template ID
-    const templateId = `session-${dayFocus.join('-')}-${Date.now()}`;
+    if (hasPhaseToken) {
+      return fallback;
+    }
 
-    // Calculate total duration (rough estimate: 3 min per exercise + rest)
-    const totalDurationMinutes = assignments.reduce((total, assignment) => {
-      return total + (assignment.sets * 3) + (assignment.restSeconds * assignment.sets / 60);
-    }, 0);
-
-    // Convert to SessionTemplate format (matching the interface)
-    return {
-      templateId,
-      name: `${dayFocus.join(' & ')} Workout`,
-      targetMuscles: dayFocus,
-      totalDurationMinutes: Math.round(totalDurationMinutes),
-      structure: assignments.map((assignment, index) => ({
-        exerciseId: assignment.exerciseId,
-        sets: assignment.sets,
-        reps: assignment.reps,
-        restSeconds: assignment.restSeconds,
-        notes: `Deterministic assignment for ${trainingPhase} phase`,
-      })),
-    };
+    return originalName;
   }
 
-  /**
-   * Select exercises from library (can be used independently)
-   */
-  selectExercises(
-    targetMuscleGroups: string[],
-    userProfile: UserProfile,
-    maxExercises: number = 8
-  ): Exercise[] {
-    return this.exerciseLibrary.getRecommendedExercises(
-      {
-        workoutLevel: userProfile.workoutLevel as 'beginner' | 'intermediate' | 'expert',
-        equipment: userProfile.equipment,
-        injuries: userProfile.injuries || [],
-      },
-      targetMuscleGroups
-    ).slice(0, maxExercises);
+  private toTitleCase(text: string): string {
+    return text
+      .split(/[\s-_]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
   }
 
-  /**
-   * Assign sets and reps (deterministic method)
-   */
-  assignSetsReps(
-    exercises: Exercise[],
-    trainingPhase: string,
-    userLevel: 'beginner' | 'intermediate' | 'expert'
-  ): Array<{
-    exerciseId: string;
-    sets: number;
-    reps: string;
-    restSeconds: number;
-  }> {
-    const assignments: Array<{
-      exerciseId: string;
-      sets: number;
-      reps: string;
-      restSeconds: number;
-    }> = [];
+  private generateFocusBasedName(focus: string[]): string {
+    if (!focus || focus.length === 0) {
+      return 'Full Body Strength';
+    }
 
-    exercises.forEach((exercise) => {
-      const isCompound = exercise.muscleGroups.length >= 3;
+    const primary = this.toTitleCase(focus[0]);
+    if (primary.toLowerCase().includes('body') || primary.toLowerCase().includes('day')) {
+      return `${primary} Session`;
+    }
 
-      // Determine sets and reps based on phase and exercise type
-      let sets: number;
-      let reps: string;
-      let restSeconds: number;
-
-      switch (trainingPhase.toLowerCase()) {
-        case 'foundation':
-          sets = isCompound ? 3 : 2;
-          reps = userLevel === 'beginner' ? '8-10' : '10-12';
-          restSeconds = isCompound ? 120 : 60;
-          break;
-        case 'progression':
-          sets = isCompound ? 4 : 3;
-          reps = userLevel === 'beginner' ? '8-10' : '6-8';
-          restSeconds = isCompound ? 150 : 90;
-          break;
-        case 'peak':
-          sets = isCompound ? 5 : 3;
-          reps = userLevel === 'beginner' ? '6-8' : '4-6';
-          restSeconds = isCompound ? 180 : 90;
-          break;
-        default:
-          sets = isCompound ? 3 : 2;
-          reps = '8-12';
-          restSeconds = isCompound ? 120 : 60;
-      }
-
-      assignments.push({
-        exerciseId: exercise.exerciseId,
-        sets,
-        reps,
-        restSeconds,
-      });
-    });
-
-    return assignments;
+    return `${primary} Strength`;
   }
 
-  /**
-   * Calculate volume for a session
-   */
-  calculateVolume(
-    exercises: Array<{
-      exerciseId: string;
-      sets: number;
-      muscleGroups: string[];
-    }>
-  ): {
-    totalSets: number;
-    setsPerMuscleGroup: Record<string, number>;
-  } {
-    const setsPerMuscleGroup: Record<string, number> = {};
-    let totalSets = 0;
-
-    exercises.forEach((exercise) => {
-      totalSets += exercise.sets;
-
-      // Distribute sets across muscle groups
-      // If exercise hits multiple muscle groups, divide sets equally
-      const setsPerGroup = exercise.sets / exercise.muscleGroups.length;
-
-      exercise.muscleGroups.forEach((mg) => {
-        setsPerMuscleGroup[mg] = (setsPerMuscleGroup[mg] || 0) + setsPerGroup;
-      });
-    });
-
-    // Round to whole numbers
-    Object.keys(setsPerMuscleGroup).forEach((mg) => {
-      setsPerMuscleGroup[mg] = Math.round(setsPerMuscleGroup[mg]);
-    });
-
-    return {
-      totalSets,
-      setsPerMuscleGroup,
-    };
+  private estimateDuration(exercises: SessionTemplateGeneration['exercises']): number {
+    const totalSets = exercises.reduce((sum, ex) => sum + ex.sets, 0);
+    return Math.round((totalSets * 135) / 60 + 10);
   }
 
-  /**
-   * Get form cues for exercise
-   */
-  private getFormCues(exerciseId: string): string[] {
-    const exercise = this.exerciseLibrary.getExerciseById(exerciseId);
-    return exercise?.formCues || [];
+  private getDefaultRest(reps: string): number {
+    const repCount = this.parseRepRange(reps);
+    if (repCount <= 5) return 180;
+    if (repCount <= 12) return 90;
+    return 60;
   }
 
-  /**
-   * Get progression options for exercise
-   */
-  private getProgressionOptions(exerciseId: string): string[] {
-    const exercise = this.exerciseLibrary.getExerciseById(exerciseId);
-    return exercise?.progressionOptions || [];
+  private parseRepRange(reps: string): number {
+    const match = reps.match(/(\d+)(?:-(\d+))?/);
+    if (!match) return 10;
+    const low = parseInt(match[1]);
+    const high = match[2] ? parseInt(match[2]) : low;
+    return (low + high) / 2;
   }
 
-  /**
-   * Get regression options for exercise
-   */
-  private getRegressionOptions(exerciseId: string): string[] {
-    const exercise = this.exerciseLibrary.getExerciseById(exerciseId);
-    return exercise?.regressionOptions || [];
+  private getAlternateVariation(attempt: number): string {
+    const variations = ['strength', 'hypertrophy', 'endurance'];
+    return variations[attempt % variations.length];
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
-

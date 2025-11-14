@@ -2,7 +2,7 @@
  * Training Split Service
  *
  * Determines optimal training split based on user goals and weekly guidance.
- * Fully AI-driven with minimal post-processing.
+ * Fully AI-driven with minimal post-processing and advanced optimization.
  */
 
 import { z } from 'zod';
@@ -11,7 +11,7 @@ import { UserProfile } from '../models/UserProfile';
 import { WeeklyOutline } from '../models/PlanModels';
 
 /**
- * Training Split Schema
+ * Training Split Schema with enhanced metadata
  */
 export const TrainingSplitSchema = z.object({
   splitName: z.string(),
@@ -23,15 +23,38 @@ export const TrainingSplitSchema = z.object({
       focus: z.array(z.string()),
       isRestDay: z.boolean(),
       isCardioDay: z.boolean(),
+      intensity: z.enum(['low', 'moderate', 'high']).optional(),
+      estimatedDuration: z.number().optional(), // minutes
+      primaryMuscleGroups: z.array(z.string()).optional(),
+      secondaryMuscleGroups: z.array(z.string()).optional(),
     })
   ),
   reasoning: z.string().optional(),
+  periodizationNotes: z.string().optional(),
+  recoveryStrategy: z.string().optional(),
+  progressionGuidelines: z.string().optional(),
 });
 
 export type TrainingSplit = z.infer<typeof TrainingSplitSchema>;
 
+/**
+ * Split quality metrics for monitoring AI performance
+ */
+interface SplitQualityMetrics {
+  structuralScore: number; // 0-100
+  recoveryScore: number; // 0-100
+  balanceScore: number; // 0-100
+  overallScore: number; // 0-100
+  warnings: string[];
+  suggestions: string[];
+}
+
 const MAX_SPLIT_ATTEMPTS = 3;
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+// Quality thresholds
+const QUALITY_THRESHOLD = 70; // Minimum acceptable overall quality score
+const ENABLE_QUALITY_CHECKS = true; // Toggle for quality validation
 
 export class TrainingSplitService {
   private cotService?: ChainOfThoughtService;
@@ -49,30 +72,71 @@ export class TrainingSplitService {
     }
 
     let issues: string[] = [];
+    let bestSplit: TrainingSplit | null = null;
+    let bestScore = 0;
 
     for (let attempt = 1; attempt <= MAX_SPLIT_ATTEMPTS; attempt++) {
-      const split = await this.generateSplitAttempt(userProfile, weeklyOutlines, issues);
+      const split = await this.generateSplitAttempt(userProfile, weeklyOutlines, issues, attempt);
       const validationIssues = this.validateSplit(split, userProfile);
 
       if (validationIssues.length === 0) {
-        return split;
-      }
+        // Passed structural validation
+        if (ENABLE_QUALITY_CHECKS) {
+          const qualityMetrics = this.assessSplitQuality(split, userProfile);
+          console.log(`✓ Split attempt ${attempt} - Quality Score: ${qualityMetrics.overallScore}/100`);
+          
+          // Track best split
+          if (qualityMetrics.overallScore > bestScore) {
+            bestScore = qualityMetrics.overallScore;
+            bestSplit = split;
+          }
 
-      console.warn(`⚠️  Training split validation failed (attempt ${attempt}):`, validationIssues);
-      issues = validationIssues;
+          // If quality is excellent, return immediately
+          if (qualityMetrics.overallScore >= 90) {
+            console.log('✓ Excellent quality split generated!');
+            return this.applySchedulePreference(split, userProfile);
+          }
+
+          // If quality is acceptable and we're on last attempt, use it
+          if (qualityMetrics.overallScore >= QUALITY_THRESHOLD || attempt === MAX_SPLIT_ATTEMPTS) {
+            if (qualityMetrics.warnings.length > 0) {
+              console.warn('⚠️  Split quality warnings:', qualityMetrics.warnings);
+            }
+            return this.applySchedulePreference(split, userProfile);
+          }
+
+          // Quality too low, try again with feedback
+          issues = [
+            ...qualityMetrics.warnings,
+            ...qualityMetrics.suggestions,
+          ];
+        } else {
+          return this.applySchedulePreference(split, userProfile);
+        }
+      } else {
+        console.warn(`⚠️  Training split validation failed (attempt ${attempt}):`, validationIssues);
+        issues = validationIssues;
+      }
     }
 
-    // If all attempts fail, create a simple fallback
-    console.error('❌ Failed to generate valid split after all attempts. Using fallback.');
-    return this.createFallbackSplit(userProfile);
+    // Return best AI-generated split if we have one
+    if (bestSplit) {
+      console.warn(`⚠️  Using best available AI split from attempts (score: ${bestScore}/100)`);
+      return this.applySchedulePreference(bestSplit, userProfile);
+    }
+
+    const failureMessage = 'Failed to generate a valid training split after multiple AI attempts. Please adjust profile inputs or try again.';
+    console.error(`❌ ${failureMessage}`);
+    throw new Error(failureMessage);
   }
 
   private async generateSplitAttempt(
     userProfile: UserProfile,
     weeklyOutlines: WeeklyOutline[] | undefined,
-    previousIssues: string[]
+    previousIssues: string[],
+    attemptNumber: number
   ): Promise<TrainingSplit> {
-    const prompt = this.buildSplitPrompt(userProfile, weeklyOutlines, previousIssues);
+    const prompt = this.buildSplitPrompt(userProfile, weeklyOutlines, previousIssues, attemptNumber);
 
     const { result } = await this.cotService!.generateWithCoT(
       prompt,
@@ -86,7 +150,8 @@ export class TrainingSplitService {
   private buildSplitPrompt(
     userProfile: UserProfile,
     weeklyOutlines?: WeeklyOutline[],
-    previousIssues?: string[]
+    previousIssues?: string[],
+    attemptNumber?: number
   ): string {
     const splitPreference = userProfile.workoutSplit
       ? this.getSplitDisplayName(userProfile.workoutSplit)
@@ -103,12 +168,26 @@ export class TrainingSplitService {
 
     const issueSection =
       previousIssues && previousIssues.length > 0
-        ? `\n⚠️ CRITICAL - Previous attempt had these validation errors. You MUST fix ALL of them:\n${previousIssues
+        ? `\n⚠️ CRITICAL - Previous attempt had these issues. You MUST address ALL of them:\n${previousIssues
             .map((issue, i) => `${i + 1}. ${issue}`)
             .join('\n')}\n`
         : '';
 
-    return `Generate a training split for this user. Return ONLY the structured split data.
+    const attemptGuidance = attemptNumber && attemptNumber > 1
+      ? `\n📍 This is attempt ${attemptNumber}/${MAX_SPLIT_ATTEMPTS}. Focus on quality and precision.\n`
+      : '';
+
+    // Advanced context for experienced users
+    const advancedContext = userProfile.workoutLevel === 'advanced'
+      ? `\n💪 ADVANCED USER CONSIDERATIONS:
+- Consider periodization and progressive overload principles
+- Include strategic deload planning if applicable
+- Optimize volume distribution across the week
+- Consider adding intensity specifications (low/moderate/high)
+- Think about muscle group overlap and synergies\n`
+      : '';
+
+    return `You are an expert strength coach designing a training split. Generate a high-quality, scientifically sound training split.
 
 USER PROFILE:
 - Training frequency: ${userProfile.trainingDaysPerWeek} days per week
@@ -117,32 +196,281 @@ USER PROFILE:
 - Equipment: ${userProfile.equipment}
 - Preferred split: ${splitPreference}
 - Schedule: ${userProfile.schedule || 'Flexible'}
+- Body stats: ${userProfile.heightCm}cm, ${userProfile.weightKg}kg, ${userProfile.bodyFat ? userProfile.bodyFat + '%' : 'N/A'} BF
 
 WEEKLY PLAN CONTEXT:
-${weeklyGuidance}
-${issueSection}
+${weeklyGuidance}${advancedContext}${attemptGuidance}${issueSection}
 
-STRICT REQUIREMENTS (you MUST satisfy ALL of these):
+MANDATORY STRUCTURAL REQUIREMENTS:
 1. Generate EXACTLY 7 days (Monday through Sunday) in order
 2. Each day must have dayNumber (1-7) and dayName (Monday-Sunday)
 3. EXACTLY ${userProfile.trainingDaysPerWeek} training days (isRestDay: false)
 4. AT LEAST 1 rest day (isRestDay: true)
-5. Rest days must have empty focus array: []
-6. Training days must have focus array with muscle groups/workout type
-7. The split MUST match the user's preference: ${splitPreference}
-   - If "Full Body Split": ALL training days should focus on full body workouts
-   - If "Upper Lower Split": Alternate between upper and lower body
-   - If "Push Pull Legs Split": Rotate through push, pull, and legs
-   - If "Body Part Split": Each day targets specific muscle groups
-8. Do NOT add extra rest days beyond what's needed
+5. Rest days: empty focus array []
+6. Training days: focus array with specific muscle groups/workout types
 
-EXAMPLES OF CORRECT FOCUS VALUES:
-- Full Body Split: ["Full Body"]
-- Upper Lower: ["Upper Body"] or ["Lower Body"]
-- Push Pull Legs: ["Push"], ["Pull"], or ["Legs"]
-- Body Part Split: ["Chest", "Triceps"], ["Back", "Biceps"], ["Legs"], ["Shoulders"]
+SPLIT-SPECIFIC GUIDELINES:
+${this.getSplitGuidelines(userProfile.workoutSplit, userProfile.trainingDaysPerWeek)}
 
-Think through your split design step-by-step, then return the complete 7-day split.`;
+QUALITY FACTORS (aim for excellence):
+- Recovery: Space out similar muscle groups (48-72 hours ideal)
+- Balance: Ensure proportional volume across push/pull/legs movements
+- Periodization: Consider weekly progression if context provided
+- Practicality: Realistic session durations (45-90 minutes typical)
+- Intensity distribution: Mix high/moderate/low intensity days appropriately
+
+OPTIONAL ENHANCEMENTS (highly recommended):
+- intensity: 'low' | 'moderate' | 'high' for each training day
+- estimatedDuration: Session length in minutes
+- primaryMuscleGroups: Main muscle groups targeted
+- secondaryMuscleGroups: Secondary muscle groups involved
+- periodizationNotes: How this split supports progression
+- recoveryStrategy: Recovery considerations for this split
+- progressionGuidelines: How to progress over weeks
+
+EXAMPLES OF EXCELLENT FOCUS VALUES:
+- Full Body: ["Full Body Strength"], ["Full Body Hypertrophy"], ["Full Body Power"]
+- Upper/Lower: ["Upper Body Push Focus"], ["Lower Body Quad Dominant"], ["Upper Body Pull Focus"]
+- Push/Pull/Legs: ["Push (Chest & Shoulders)"], ["Pull (Back & Biceps)"], ["Legs (Quads & Glutes)"]
+- Body Part: ["Chest & Triceps"], ["Back & Rear Delts"], ["Legs (Quads)"], ["Shoulders & Abs"]
+
+Think step-by-step through your split design considering recovery, balance, and the user's goals. Then return a complete, high-quality 7-day training split.`;
+  }
+
+  private getSplitGuidelines(
+    splitPreference: UserProfile['workoutSplit'],
+    trainingDays: number
+  ): string {
+    switch (splitPreference) {
+      case 'full_body':
+        return `Full Body Split Guidelines:
+- Each training day works ALL major muscle groups
+- Vary intensity and volume across sessions (e.g., Heavy/Light/Moderate)
+- Space sessions with at least 1 rest day between workouts when possible
+- Focus examples: "Full Body Strength", "Full Body Hypertrophy", "Full Body Conditioning"`;
+
+      case 'upper_lower':
+        return `Upper/Lower Split Guidelines:
+- Alternate between upper and lower body sessions
+- For ${trainingDays} days: ${trainingDays <= 4 ? 'Standard 2x upper, 2x lower pattern' : 'Consider 3 upper, 2 lower or 2 upper, 3 lower based on needs'}
+- Upper sessions: Push + Pull movements
+- Lower sessions: Quads, Hamstrings, Glutes, Calves
+- Avoid back-to-back upper or lower days when possible`;
+
+      case 'push_pull_legs':
+        return `Push/Pull/Legs Split Guidelines:
+- Rotate through Push → Pull → Legs pattern
+- Push: Chest, Shoulders, Triceps
+- Pull: Back, Biceps, Rear Delts
+- Legs: Quads, Hamstrings, Glutes, Calves
+- For ${trainingDays} days: ${trainingDays === 6 ? 'Run 2 full cycles' : trainingDays === 3 ? '1 cycle exactly' : 'Repeat pattern as needed'}
+- This is a proven and balanced approach`;
+
+      case 'body_part':
+        return `Body Part Split Guidelines:
+- Each day focuses on 1-2 specific muscle groups
+- Common pairings: Chest+Triceps, Back+Biceps, Shoulders+Abs, Legs
+- Space similar movements (e.g., Chest and Shoulders need 48-72hr apart)
+- Allow adequate recovery between sessions (48-72 hours per muscle group)
+- Avoid training same muscle group on consecutive days`;
+
+      case 'custom':
+        return `Custom Split Guidelines:
+- Design based on user's specific goals and preferences
+- Ensure balanced volume across major muscle groups over the week
+- Consider recovery and muscle group overlap
+- Be creative but scientifically sound`;
+
+      default:
+        return `General Guidelines:
+- Balance push/pull/legs movements across the week
+- Provide adequate rest and recovery
+- Consider the user's experience level and goals`;
+    }
+  }
+
+  private assessSplitQuality(split: TrainingSplit, userProfile: UserProfile): SplitQualityMetrics {
+    const warnings: string[] = [];
+    const suggestions: string[] = [];
+    let structuralScore = 100;
+    let recoveryScore = 100;
+    let balanceScore = 100;
+
+    const trainingDays = split.days.filter(d => !d.isRestDay);
+
+    // Recovery analysis
+    const recoveryIssues = this.analyzeRecovery(split);
+    if (recoveryIssues.length > 0) {
+      recoveryScore -= recoveryIssues.length * 15;
+      warnings.push(...recoveryIssues);
+    }
+
+    // Balance analysis
+    const balanceIssues = this.analyzeBalance(split, userProfile);
+    if (balanceIssues.length > 0) {
+      balanceScore -= balanceIssues.length * 10;
+      warnings.push(...balanceIssues);
+    }
+
+    // Enhancement suggestions
+    const missingIntensity = trainingDays.filter(d => !d.intensity).length;
+    if (missingIntensity > 0) {
+      suggestions.push('Consider adding intensity levels (low/moderate/high) to training days for better planning');
+      structuralScore -= 5;
+    }
+
+    const missingDuration = trainingDays.filter(d => !d.estimatedDuration).length;
+    if (missingDuration > 0) {
+      suggestions.push('Adding estimated session durations would help with time management');
+      structuralScore -= 5;
+    }
+
+    if (!split.periodizationNotes) {
+      suggestions.push('Periodization notes would enhance long-term progression planning');
+      structuralScore -= 5;
+    }
+
+    const overallScore = Math.round(
+      (structuralScore * 0.3 + recoveryScore * 0.4 + balanceScore * 0.3)
+    );
+
+    return {
+      structuralScore: Math.max(0, structuralScore),
+      recoveryScore: Math.max(0, recoveryScore),
+      balanceScore: Math.max(0, balanceScore),
+      overallScore: Math.max(0, overallScore),
+      warnings,
+      suggestions,
+    };
+  }
+
+  private analyzeRecovery(split: TrainingSplit): string[] {
+    const issues: string[] = [];
+    const days = split.days;
+
+    // Check for back-to-back training days without consideration
+    let consecutiveTraining = 0;
+    for (const day of days) {
+      if (!day.isRestDay) {
+        consecutiveTraining++;
+        if (consecutiveTraining >= 4) {
+          issues.push(`${consecutiveTraining} consecutive training days detected - recovery may be compromised`);
+          break;
+        }
+      } else {
+        consecutiveTraining = 0;
+      }
+    }
+
+    // Check for muscle group overlap in consecutive days
+    for (let i = 0; i < days.length - 1; i++) {
+      const current = days[i];
+      const next = days[i + 1];
+
+      if (!current.isRestDay && !next.isRestDay) {
+        const overlap = this.detectMuscleGroupOverlap(
+          current.focus,
+          next.focus,
+          current.primaryMuscleGroups,
+          next.primaryMuscleGroups
+        );
+        
+        if (overlap.length > 0) {
+          issues.push(
+            `Potential overtraining: ${overlap.join(', ')} trained on ${current.dayName} and ${next.dayName}`
+          );
+        }
+      }
+    }
+
+    return issues;
+  }
+
+  private analyzeBalance(split: TrainingSplit, userProfile: UserProfile): string[] {
+    const issues: string[] = [];
+    const trainingDays = split.days.filter(d => !d.isRestDay);
+
+    // For specific split types, check adherence to pattern
+    if (userProfile.workoutSplit === 'push_pull_legs' && trainingDays.length >= 3) {
+      const hasPush = trainingDays.some(d => 
+        d.focus.some(f => f.toLowerCase().includes('push'))
+      );
+      const hasPull = trainingDays.some(d => 
+        d.focus.some(f => f.toLowerCase().includes('pull'))
+      );
+      const hasLegs = trainingDays.some(d => 
+        d.focus.some(f => f.toLowerCase().includes('leg'))
+      );
+
+      if (!hasPush || !hasPull || !hasLegs) {
+        issues.push('Push/Pull/Legs split should include all three movement patterns');
+      }
+    }
+
+    if (userProfile.workoutSplit === 'upper_lower' && trainingDays.length >= 2) {
+      const hasUpper = trainingDays.some(d => 
+        d.focus.some(f => f.toLowerCase().includes('upper'))
+      );
+      const hasLower = trainingDays.some(d => 
+        d.focus.some(f => f.toLowerCase().includes('lower'))
+      );
+
+      if (!hasUpper || !hasLower) {
+        issues.push('Upper/Lower split should include both upper and lower body sessions');
+      }
+    }
+
+    if (userProfile.workoutSplit === 'full_body') {
+      const allFullBody = trainingDays.every(d => 
+        d.focus.some(f => f.toLowerCase().includes('full'))
+      );
+
+      if (!allFullBody) {
+        issues.push('Full Body split should have all training days targeting full body');
+      }
+    }
+
+    return issues;
+  }
+
+  private detectMuscleGroupOverlap(
+    focus1: string[],
+    focus2: string[],
+    primary1?: string[],
+    primary2?: string[]
+  ): string[] {
+    const overlap: string[] = [];
+
+    // Define muscle group relationships
+    const muscleGroups: Record<string, string[]> = {
+      push: ['chest', 'shoulder', 'tricep', 'pec', 'delt'],
+      pull: ['back', 'bicep', 'lat', 'trap', 'rhomboid'],
+      legs: ['quad', 'hamstring', 'glute', 'calf', 'leg'],
+      chest: ['chest', 'pec', 'push'],
+      shoulders: ['shoulder', 'delt', 'push'],
+      back: ['back', 'lat', 'trap', 'pull'],
+      arms: ['bicep', 'tricep', 'arm'],
+    };
+
+    // Combine all focus and primary muscle groups
+    const allFocus1 = [...focus1, ...(primary1 || [])].map(f => f.toLowerCase());
+    const allFocus2 = [...focus2, ...(primary2 || [])].map(f => f.toLowerCase());
+
+    // Check for overlap
+    for (const group1 of allFocus1) {
+      for (const [category, keywords] of Object.entries(muscleGroups)) {
+        if (keywords.some(k => group1.includes(k))) {
+          for (const group2 of allFocus2) {
+            if (keywords.some(k => group2.includes(k))) {
+              overlap.push(category);
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    return [...new Set(overlap)]; // Remove duplicates
   }
 
   private validateSplit(split: TrainingSplit, userProfile: UserProfile): string[] {
@@ -193,90 +521,6 @@ Think through your split design step-by-step, then return the complete 7-day spl
     return issues;
   }
 
-  private createFallbackSplit(userProfile: UserProfile): TrainingSplit {
-    const trainingDays = userProfile.trainingDaysPerWeek;
-    const preferredSlots = this.getPreferredTrainingSlots(trainingDays);
-    const focusPattern = this.getFallbackFocusPattern(userProfile.workoutSplit, trainingDays);
-    
-    let focusIndex = 0;
-    const days = DAY_NAMES.map((dayName, index) => {
-      const isTrainingDay = preferredSlots.includes(index);
-      
-      if (isTrainingDay) {
-        const focus = [focusPattern[focusIndex % focusPattern.length]];
-        focusIndex++;
-        return {
-          dayNumber: index + 1,
-          dayName,
-          focus,
-          isRestDay: false,
-          isCardioDay: false,
-        };
-      }
-      
-      return {
-        dayNumber: index + 1,
-        dayName,
-        focus: [],
-        isRestDay: true,
-        isCardioDay: false,
-      };
-    });
-
-    return {
-      splitName: `${this.getSplitDisplayName(userProfile.workoutSplit)} (Fallback)`,
-      daysPerWeek: trainingDays,
-      days,
-      reasoning: 'Automatically generated fallback split due to validation failures.',
-    };
-  }
-
-  private getPreferredTrainingSlots(trainingDays: number): number[] {
-    const slotPresets: Record<number, number[]> = {
-      1: [2], // Wednesday
-      2: [1, 4], // Tuesday, Friday
-      3: [0, 2, 4], // Monday, Wednesday, Friday
-      4: [0, 1, 3, 5], // Monday, Tuesday, Thursday, Saturday
-      5: [0, 1, 3, 4, 6], // Monday, Tuesday, Thursday, Friday, Sunday
-      6: [0, 1, 2, 4, 5, 6], // Rest Thursday
-    };
-
-    return slotPresets[trainingDays] || [0, 2, 4]; // Default to MWF
-  }
-
-  private getFallbackFocusPattern(
-    splitPreference: UserProfile['workoutSplit'],
-    trainingDays: number
-  ): string[] {
-    switch (splitPreference) {
-      case 'full_body':
-        return Array(trainingDays).fill('Full Body');
-      
-      case 'upper_lower':
-        return this.repeatPattern(['Upper Body', 'Lower Body'], trainingDays);
-      
-      case 'push_pull_legs':
-        return this.repeatPattern(['Push', 'Pull', 'Legs'], trainingDays);
-      
-      case 'body_part':
-        return this.repeatPattern(
-          ['Chest & Triceps', 'Back & Biceps', 'Legs', 'Shoulders', 'Arms'],
-          trainingDays
-        );
-      
-      default:
-        return Array(trainingDays).fill('Full Body');
-    }
-  }
-
-  private repeatPattern(pattern: string[], total: number): string[] {
-    const result: string[] = [];
-    for (let i = 0; i < total; i++) {
-      result.push(pattern[i % pattern.length]);
-    }
-    return result;
-  }
-
   private getSplitDisplayName(splitPreference: UserProfile['workoutSplit']): string {
     const displayMap: Record<UserProfile['workoutSplit'], string> = {
       full_body: 'Full Body Split',
@@ -287,5 +531,85 @@ Think through your split design step-by-step, then return the complete 7-day spl
     };
 
     return displayMap[splitPreference] || 'Custom Split';
+  }
+
+  private parseScheduleSlots(schedule?: string): number[] {
+    if (!schedule) return [];
+    const dayIndexMap: Record<string, number> = {
+      monday: 0,
+      mon: 0,
+      tuesday: 1,
+      tue: 1,
+      tues: 1,
+      wednesday: 2,
+      wed: 2,
+      thursday: 3,
+      thu: 3,
+      thurs: 3,
+      friday: 4,
+      fri: 4,
+      saturday: 5,
+      sat: 5,
+      sunday: 6,
+      sun: 6,
+    };
+
+    return schedule
+      .split(/[,|;/\n]+/)
+      .map((part) => part.trim().toLowerCase())
+      .map((token) => dayIndexMap[token])
+      .filter((idx): idx is number => typeof idx === 'number');
+  }
+
+  private applySchedulePreference(split: TrainingSplit, userProfile: UserProfile): TrainingSplit {
+    const scheduleSlots = this.parseScheduleSlots(userProfile.schedule);
+    const requiredTrainingDays = userProfile.trainingDaysPerWeek;
+    let adjustedSplit = split;
+
+    if (scheduleSlots.length === requiredTrainingDays && scheduleSlots.length > 0) {
+      const desiredNames = scheduleSlots.map((idx) => DAY_NAMES[idx]);
+      const trainingTemplates = split.days.filter((d) => !d.isRestDay);
+
+      if (trainingTemplates.length > 0) {
+        const updatedDays = split.days.map((day) => {
+          const desiredIndex = desiredNames.findIndex(
+            (name) => name.toLowerCase() === day.dayName.toLowerCase()
+          );
+          if (desiredIndex !== -1) {
+            const template = trainingTemplates[desiredIndex % trainingTemplates.length];
+            return {
+              ...day,
+              focus: [...template.focus],
+              isRestDay: false,
+              isCardioDay: template.isCardioDay,
+              intensity: template.intensity,
+              estimatedDuration: template.estimatedDuration,
+              primaryMuscleGroups: template.primaryMuscleGroups,
+              secondaryMuscleGroups: template.secondaryMuscleGroups,
+            };
+          }
+          return {
+            ...day,
+            focus: [],
+            isRestDay: true,
+            isCardioDay: false,
+          };
+        });
+        adjustedSplit = { ...split, days: updatedDays };
+      }
+    }
+
+    if (userProfile.workoutSplit === 'full_body') {
+      adjustedSplit = {
+        ...adjustedSplit,
+        days: adjustedSplit.days.map((day) =>
+          day.isRestDay
+            ? { ...day, focus: [] }
+            : { ...day, focus: ['Full Body'] }
+        ),
+      };
+    }
+
+    return adjustedSplit;
   }
 }
