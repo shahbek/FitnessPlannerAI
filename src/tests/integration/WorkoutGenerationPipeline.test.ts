@@ -1,22 +1,20 @@
 /**
  * Integration Tests for Workout Generation Pipeline
- * 
- * Tests the complete workout generation flow:
- * 1. Exercise library filtering
- * 2. Training split determination
- * 3. Session template generation
- * 4. Workout verification
- * 
+ *
+ * Verifies the AI-only workout flow:
+ * 1. Training split determination
+ * 2. Session template generation (six fully described exercises)
+ * 3. Weekly workout verification
+ *
  * Run with: tsx src/tests/integration/WorkoutGenerationPipeline.test.ts
  */
 
 import { config } from 'dotenv';
-import { ExerciseLibraryService } from '../../services/ExerciseLibraryService';
 import { TrainingSplitService } from '../../services/TrainingSplitService';
 import { SessionTemplateGenerator } from '../../services/SessionTemplateGenerator';
 import { WorkoutVerificationService } from '../../services/WorkoutVerificationService';
-import { ChainOfThoughtService } from '../../services/ChainOfThoughtService';
 import { UserProfile } from '../../models/UserProfile';
+import { ChainOfThoughtService } from '../../services/ChainOfThoughtService';
 
 config();
 
@@ -24,33 +22,32 @@ async function runTests() {
   console.log('🧪 Testing Workout Generation Pipeline Integration');
   console.log('================================================\n');
 
-  // Initialize services
-  const exerciseLibrary = new ExerciseLibraryService();
-  const cotService = null as any; // Can be replaced with real CoT service
-  const trainingSplitService = new TrainingSplitService(cotService);
-  const sessionGenerator = new SessionTemplateGenerator(cotService!, exerciseLibrary);
+  const cotProvider = createCoTProvider();
+  const trainingSplitService = new TrainingSplitService(cotProvider as any);
+  const sessionGenerator = new SessionTemplateGenerator(cotProvider as any);
   const workoutVerification = new WorkoutVerificationService(
-    cotService,
-    exerciseLibrary,
+    cotProvider as any,
     sessionGenerator
   );
 
   let passed = 0;
   let failed = 0;
 
-  const test = async (name: string, fn: () => Promise<void>) => {
-    try {
-      await fn();
+  const logResult = (name: string, success: boolean, error?: unknown) => {
+    if (success) {
       console.log(`✅ ${name}`);
       passed++;
-    } catch (error) {
+    } else {
       console.error(`❌ ${name}`);
-      console.error(`   Error: ${error instanceof Error ? error.message : String(error)}`);
+      if (error instanceof Error) {
+        console.error(`   Error: ${error.message}`);
+      } else {
+        console.error(`   Error: ${String(error)}`);
+      }
       failed++;
     }
   };
 
-  // Sample user profiles
   const beginnerProfile: UserProfile = {
     age: 25,
     gender: 'male',
@@ -75,54 +72,8 @@ async function runTests() {
     trainingDaysPerWeek: 4,
   };
 
-  // Test 1: Exercise Library Filtering
-  await test('Exercise library filters by equipment', async () => {
-    const exercises = exerciseLibrary.getExercisesByEquipment(['bodyweight', 'dumbbells']);
-    
-    if (exercises.length === 0) {
-      throw new Error('No exercises found for available equipment');
-    }
-
-    // Verify all exercises only use available equipment
-    exercises.forEach(ex => {
-      ex.equipment.forEach(eq => {
-        if (!['bodyweight', 'dumbbells'].includes(eq)) {
-          throw new Error(`Exercise ${ex.name} uses unavailable equipment: ${eq}`);
-        }
-      });
-    });
-
-    console.log(`   Found ${exercises.length} exercises for bodyweight + dumbbells`);
-  });
-
-  await test('Exercise library filters by injuries', async () => {
-    const exercises = exerciseLibrary.getSafeExercises(
-      ['knee injury', 'shoulder impingement'],
-      { muscleGroups: ['chest', 'quads'] }
-    );
-
-    // Note: Some exercises may have similar contraindications
-    // The filter uses substring matching, so it may be conservative
-    // This test verifies the filter works, even if some exercises are excluded
-    exercises.forEach(ex => {
-      // Verify that filtered exercises don't have exact matches
-      const hasExactMatch = ex.contraindications.some(contraindication => {
-        const lower = contraindication.toLowerCase();
-        return lower.includes('knee injury') || lower.includes('shoulder impingement');
-      });
-      
-      if (hasExactMatch) {
-        console.log(`   ⚠️  Exercise ${ex.name} has similar contraindication but was included`);
-        console.log(`   This is acceptable - filter may be conservative`);
-      }
-    });
-
-    console.log(`   Found ${exercises.length} safe exercises (filter working)`);
-  });
-
-  // Test 2: Training Split Determination
-  await test('Training split service generates split for user', async () => {
-    const split = await trainingSplitService.determineSplit(beginnerProfile, false); // Use rule-based
+  try {
+    const split = await trainingSplitService.determineSplit(beginnerProfile);
 
     if (split.days.length !== 7) {
       throw new Error(`Expected 7 days, got ${split.days.length}`);
@@ -143,187 +94,94 @@ async function runTests() {
     console.log(`   Split: ${split.splitName}`);
     console.log(`   Training days: ${trainingDays.length}`);
     console.log(`   Rest days: ${restDays.length}`);
-  });
+    logResult('Training split service generates split for user', true);
+  } catch (error) {
+    logResult('Training split service generates split for user', false, error);
+  }
 
-  // Test 3: Exercise Selection for Muscle Groups
-  await test('Exercise selection for target muscle groups', async () => {
-    // Try with more flexible equipment options
-    const exercises = exerciseLibrary.getExercisesForMuscleGroups(
+  let baseSession = null;
+  try {
+    baseSession = await sessionGenerator.generateSessionTemplate(
       ['chest', 'back'],
-      {
-        equipment: ['barbell', 'dumbbells', 'bodyweight'], // Include bodyweight
-        difficulty: 'intermediate',
-        maxExercises: 5,
-      }
+      intermediateProfile,
+      'progression'
     );
 
-    if (exercises.length === 0) {
-      // Try without equipment filter
-      const allExercises = exerciseLibrary.getExercisesForMuscleGroups(
-        ['chest', 'back'],
-        {
-          difficulty: 'intermediate',
-          maxExercises: 5,
-        }
+    if (!baseSession?.structure || baseSession.structure.length !== 6) {
+      throw new Error('Session template must contain exactly 6 exercises');
+    }
+
+    baseSession.structure.forEach((exercise, index) => {
+      if (!exercise.name) {
+        throw new Error(`Exercise ${index + 1} missing name`);
+      }
+      if (!exercise.targetMuscles || exercise.targetMuscles.length === 0) {
+        throw new Error(`Exercise ${exercise.name} missing target muscles`);
+      }
+      if (!exercise.reps || exercise.sets <= 0) {
+        throw new Error(`Exercise ${exercise.name} missing set/rep scheme`);
+      }
+    });
+
+    console.log(`   Generated session: ${baseSession.name}`);
+    baseSession.structure.forEach((exercise) => {
+      console.log(
+        `   - ${exercise.name}: ${exercise.sets} sets × ${exercise.reps} (${exercise.targetMuscles?.join(', ')})`
       );
-      
-      if (allExercises.length === 0) {
-        throw new Error('No exercises found for chest and back even without equipment filter');
-      }
-      
-      console.log(`   Found ${allExercises.length} exercises (without equipment filter)`);
-      allExercises.forEach(ex => {
-        console.log(`   - ${ex.name} (${ex.muscleGroups.join(', ')})`);
-      });
-      return;
-    }
-
-    // Verify exercises target the requested muscle groups
-    exercises.forEach(ex => {
-      const hasTarget = ex.muscleGroups.some(
-        mg => mg.includes('chest') || mg.includes('back') || mg.includes('lats')
-      );
-      if (!hasTarget) {
-        throw new Error(`Exercise ${ex.name} does not target chest or back`);
-      }
     });
 
-    console.log(`   Selected ${exercises.length} exercises for chest and back`);
-    exercises.forEach(ex => {
-      console.log(`   - ${ex.name} (${ex.muscleGroups.join(', ')})`);
-    });
-  });
+    logResult('Session generator produces six detailed exercises with AI', true);
+  } catch (error) {
+    logResult('Session generator produces six detailed exercises with AI', false, error);
+  }
 
-  // Test 4: Session Template Generation (Deterministic)
-  await test('Session generator creates workout with set/rep assignments', async () => {
-    const exercises = exerciseLibrary.getExercisesForMuscleGroups(
-      ['chest', 'shoulders', 'triceps'],
-      { maxExercises: 4 }
-    );
-
-    if (exercises.length === 0) {
-      throw new Error('No exercises available');
-    }
-
-    // Use deterministic set/rep assignment
-    const assignments = sessionGenerator.assignSetsReps(
-      exercises,
-      'progression',
-      'intermediate'
-    );
-
-    if (assignments.length !== exercises.length) {
-      throw new Error('Not all exercises got assignments');
-    }
-
-    assignments.forEach((assignment, index) => {
-      if (assignment.sets <= 0 || !assignment.reps) {
-        throw new Error(`Invalid assignment for ${exercises[index].name}`);
-      }
-    });
-
-    console.log(`   Generated ${assignments.length} exercise assignments`);
-    assignments.forEach(assignment => {
-      const exercise = exercises.find(ex => ex.exerciseId === assignment.exerciseId);
-      console.log(`   - ${exercise?.name}: ${assignment.sets} sets × ${assignment.reps} reps`);
-    });
-  });
-
-  // Test 5: Volume Calculation
-  await test('Volume calculation aggregates sets per muscle group', async () => {
-    const exercises = exerciseLibrary.getExercisesForMuscleGroups(
-      ['chest', 'back', 'shoulders'],
-      { maxExercises: 6 }
-    );
-
-    const assignments = sessionGenerator.assignSetsReps(
-      exercises,
-      'foundation',
-      'beginner'
-    );
-
-    const volume = sessionGenerator.calculateVolume(
-      assignments.map(a => ({
-        exerciseId: a.exerciseId,
-        sets: a.sets,
-        muscleGroups: exercises.find(ex => ex.exerciseId === a.exerciseId)!.muscleGroups,
-      }))
-    );
-
-    if (volume.totalSets <= 0) {
-      throw new Error('Invalid total sets');
-    }
-
-    const muscleGroupsWithVolume = Object.keys(volume.setsPerMuscleGroup).filter(
-      mg => volume.setsPerMuscleGroup[mg] > 0
-    );
-
-    if (muscleGroupsWithVolume.length === 0) {
-      throw new Error('No muscle groups have volume');
-    }
-
-    console.log(`   Total sets: ${volume.totalSets}`);
-    console.log(`   Sets per muscle group:`);
-    Object.entries(volume.setsPerMuscleGroup).forEach(([mg, sets]) => {
-      if (sets > 0) {
-        console.log(`     - ${mg}: ${sets} sets`);
-      }
-    });
-  });
-
-  // Test 6: Workout Verification
-  await test('Workout verification checks volume and recovery', async () => {
-    const split = await trainingSplitService.determineSplit(intermediateProfile, false);
+  try {
+    const split = await trainingSplitService.determineSplit(intermediateProfile);
     const trainingDays = split.days.filter(d => !d.isRestDay);
 
-    // Create mock session templates
-    const mockSessions = trainingDays.map((day, index) => ({
-      templateId: `session-${index}`,
-      name: `${day.dayName} Workout`,
-      exercises: [
-        {
-          exerciseId: 'chest-001',
-          name: 'Barbell Bench Press',
-          sets: 3,
-          reps: '8-10',
-          order: 1,
-        },
-        {
-          exerciseId: 'chest-002',
-          name: 'Dumbbell Bench Press',
-          sets: 3,
-          reps: '10-12',
-          order: 2,
-        },
-      ],
-      estimatedDuration: 60,
-      totalVolume: {
-        totalSets: 6,
-        setsPerMuscleGroup: { chest: 6 },
-      },
-    }));
+    const sessions = [];
+    for (const day of trainingDays) {
+      const focus = day.focus && day.focus.length > 0 ? day.focus : ['full_body'];
+      const session = await sessionGenerator.generateSessionTemplate(
+        focus,
+        intermediateProfile,
+        'progression'
+      );
+
+      sessions.push({
+        ...session,
+        templateId: `${session.templateId}-${day.dayName.toLowerCase()}`,
+        name: `${day.dayName} Workout`,
+      });
+    }
 
     const verification = workoutVerification.verifyWeeklyWorkout(
-      mockSessions as any,
+      sessions as any,
       split
     );
 
-    // Check that verification ran
     if (!verification.volumeVerification || !verification.recoveryVerification || !verification.muscleBalanceVerification) {
       throw new Error('Verification did not run properly');
     }
 
-    // Safely access issues arrays
-    const errors = verification.summary?.errors || [];
-    const warnings = verification.summary?.warnings || [];
-    const imbalances = verification.muscleBalanceVerification?.imbalances || [];
+    const issues = [
+      ...(verification.volumeVerification.issues || []),
+      ...(verification.recoveryVerification.issues || []),
+      ...(verification.muscleBalanceVerification.imbalances || []),
+    ].filter(Boolean);
 
-    console.log(`   Verification passed: ${verification.passed}`);
+    console.log(`   Verification summary: ${verification.passed ? 'pass' : 'warnings only'}`);
     console.log(`   Rest days: ${verification.recoveryVerification.restDays}`);
-    console.log(`   Errors: ${errors.length}, Warnings: ${warnings.length}, Imbalances: ${imbalances.length}`);
-  });
+    if (issues.length > 0) {
+      console.log(`   ⚠️  Verification issues (${issues.length}):`);
+      issues.forEach((issue) => console.log(`      - ${issue}`));
+    }
 
-  // Summary
+    logResult('Workout verification checks volume and recovery', true);
+  } catch (error) {
+    logResult('Workout verification checks volume and recovery', false, error);
+  }
+
   console.log('\n================================================');
   console.log(`Tests: ${passed + failed} total`);
   console.log(`✅ Passed: ${passed}`);
@@ -334,9 +192,127 @@ async function runTests() {
   }
 }
 
-// Run tests
-runTests().catch(error => {
-  console.error('Test runner error:', error);
+function createCoTProvider() {
+  const liveCoT = new ChainOfThoughtService();
+
+  if (liveCoT.isAIAvailable()) {
+    console.log('✅ Using live ChainOfThoughtService for workout pipeline tests');
+    return liveCoT;
+  }
+
+  console.warn('⚠️  AI API key missing. Using deterministic mock ChainOfThoughtService for tests.');
+
+  const mockSplit = {
+    splitName: 'Mock AI Split',
+    daysPerWeek: 4,
+    days: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((dayName, index) => ({
+      dayNumber: index + 1,
+      dayName,
+      focus: index < 4 ? ['full_body'] : [],
+      isRestDay: index >= 4,
+      isCardioDay: false,
+    })),
+    reasoning: 'Mocked split for integration tests',
+  };
+
+  const mockSession = {
+    templateId: 'mock-session',
+    name: 'Mock Strength Session',
+    exercises: [
+      {
+        exerciseId: 'mock-back-squat',
+        name: 'Back Squat',
+        primaryMuscles: ['quads', 'glutes', 'hamstrings'],
+        sets: 4,
+        reps: '8-10',
+        restSeconds: 120,
+        order: 1,
+        notes: 'Keep chest tall and drive through heels',
+      },
+      {
+        exerciseId: 'mock-bench-press',
+        name: 'Barbell Bench Press',
+        primaryMuscles: ['chest', 'shoulders', 'triceps'],
+        sets: 4,
+        reps: '8-10',
+        restSeconds: 90,
+        order: 2,
+        notes: 'Control the descent and pause on the chest',
+      },
+      {
+        exerciseId: 'mock-bent-row',
+        name: 'Bent-Over Row',
+        primaryMuscles: ['back', 'lats', 'biceps'],
+        sets: 4,
+        reps: '10',
+        restSeconds: 90,
+        order: 3,
+        notes: 'Drive elbows back and squeeze shoulder blades',
+      },
+      {
+        exerciseId: 'mock-lunge',
+        name: 'Walking Lunge',
+        primaryMuscles: ['glutes', 'hamstrings', 'quads'],
+        sets: 3,
+        reps: '12 each leg',
+        restSeconds: 75,
+        order: 4,
+        notes: 'Keep long stride and tall torso',
+      },
+      {
+        exerciseId: 'mock-overhead-press',
+        name: 'Overhead Press',
+        primaryMuscles: ['shoulders', 'triceps'],
+        sets: 3,
+        reps: '8-10',
+        restSeconds: 90,
+        order: 5,
+        notes: 'Brace core and press straight overhead',
+      },
+      {
+        exerciseId: 'mock-plank',
+        name: 'Weighted Plank',
+        primaryMuscles: ['core'],
+        sets: 3,
+        reps: '45 sec',
+        restSeconds: 60,
+        order: 6,
+        notes: 'Maintain neutral spine and active glutes',
+      },
+    ],
+    estimatedDuration: 60,
+    totalVolume: {
+      totalSets: 21,
+      setsPerMuscleGroup: { quads: 7, chest: 4, back: 4, shoulders: 3, core: 3 },
+    },
+    reasoning: 'Mock reasoning',
+  };
+
+  return {
+    isAIAvailable: () => true,
+    async generateWithCoT(_prompt: string, schema: any) {
+      const candidates = [mockSplit, mockSession];
+      for (const candidate of candidates) {
+        try {
+          const parsed = schema.parse(candidate);
+          return {
+            result: parsed,
+            reasoning: {
+              steps: [],
+              finalResult: 'mock-result',
+            },
+          };
+        } catch {
+          // Try next candidate
+        }
+      }
+
+      throw new Error('Mock ChainOfThoughtService cannot satisfy requested schema.');
+    },
+  };
+}
+
+runTests().catch((error) => {
+  console.error('Unhandled error while running tests:', error);
   process.exit(1);
 });
-
