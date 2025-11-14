@@ -16,6 +16,7 @@ import { MacroValues } from '../../types/nutrition';
 import { normalizeFoodName, calculateMacrosForAmount } from '../../utils/usdaMapper';
 import { ProteinPriorityOptimizer, OptimizableIngredient, OptimizationResult, OptimizationTargets } from './ProteinPriorityOptimizer';
 import { LinearProgrammingOptimizer } from './LinearProgrammingOptimizer';
+import { isZeroImpactIngredient } from '../../constants/ingredients';
 
 export interface HybridOptimizationResult extends OptimizationResult {
   method: 'lp' | 'protein-priority' | 'hybrid';
@@ -252,16 +253,19 @@ export class HybridMealOptimizer {
     return mealIngredients.map((ing, index) => {
       const normalized = normalizeFoodName(ing.name);
       const usdaEntry = usdaData[normalized];
+      const zeroImpact = isZeroImpactIngredient(ing.name);
 
       // Determine if ingredient should be locked (seasoning)
       const isSmallAmount = ing.amount <= seasoningThreshold;
       const isSeasoningKeyword = seasoningKeywords.some(keyword =>
         ing.name.toLowerCase().includes(keyword)
       );
-      const isLocked = isSmallAmount || isSeasoningKeyword || !usdaEntry;
+      const isLocked = zeroImpact || isSmallAmount || isSeasoningKeyword || !usdaEntry;
 
       // Get per-100g nutrition
-      const per100g = usdaEntry?.nutrition ?? ing.nutrition;
+      const per100g = zeroImpact
+        ? { calories: 0, protein: 0, carbs: 0, fats: 0 }
+        : usdaEntry?.nutrition ?? ing.nutrition;
 
       // Calculate density (per 1g)
       const density = {
