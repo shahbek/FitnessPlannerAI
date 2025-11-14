@@ -20,9 +20,10 @@ import { UserProfile } from '../models/UserProfile';
 import { WeeklyOutline } from '../models/PlanModels';
 import { USDANutritionService } from './USDANutritionService';
 import { ChainOfThoughtService } from './ChainOfThoughtService';
-import { MacroValues } from '../types/nutrition';
+import { MacroValues, NutritionErrorType } from '../types/nutrition';
 import { calculateMacrosForAmount, extractMacrosFromUSDA, normalizeFoodName } from '../utils/usdaMapper';
 import { HybridMealOptimizer } from './optimizers/HybridMealOptimizer';
+import { isZeroImpactIngredient, stripDescriptorWords } from '../constants/ingredients';
 
 /**
  * Meal Schema for Batch Generation
@@ -871,21 +872,19 @@ Generate meals for all 7 days now. Remember: EACH meal type on EACH day must be 
   ): Promise<Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>> {
     const usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }> = {};
 
-    // Treat common non-caloric seasonings as zero-impact to avoid bad USDA matches (e.g., "pepper steak")
-    const NON_CALORIC_SEASONINGS = new Set([
-      'salt', 'sea salt', 'kosher salt', 'table salt',
-      'pepper', 'black pepper', 'white pepper', 'pepper flakes',
-      'garlic powder', 'onion powder', 'italian seasoning', 'seasoning', 'mixed herbs', 'herbs', 'spice', 'spices'
-    ]);
-
     // Refine ambiguous queries to canonical USDA-friendly forms
     const refineQuery = (name: string): string => {
-      const n = name.toLowerCase();
-      if (n === 'pepper') return 'black pepper';
-      if (n === 'salt') return 'table salt';
-      if (n === 'garlic') return 'garlic, raw';
-      if (n === 'onion') return 'onions, raw';
-      return name;
+      const stripped = stripDescriptorWords(name) || name;
+      const map: Record<string, string> = {
+        'scallions': 'green onions',
+        'spring onion': 'green onions',
+        'spring onions': 'green onions',
+        'bell pepper': 'sweet pepper',
+        'bell peppers': 'sweet peppers',
+        'sweet peppers': 'sweet pepper',
+      };
+      const normalized = normalizeFoodName(stripped);
+      return map[normalized] || normalized;
     };
 
     // When searching ambiguous seasonings, filter out obvious prepared dishes (e.g., "pepper steak")
@@ -894,15 +893,15 @@ Generate meals for all 7 days now. Remember: EACH meal type on EACH day must be 
     // Lookup all ingredients in parallel
     const lookupPromises = uniqueIngredients.map(async (ingredient) => {
       try {
-        // Skip USDA lookup for non-caloric seasonings (treated as 0 macros)
-        if (NON_CALORIC_SEASONINGS.has(ingredient)) {
-          console.log(`⚙️  [BATCH] Skipping USDA for seasoning: ${ingredient} (assumed 0 macros)`);
+        // Skip USDA lookup for condiments/seasonings that should not impact macros
+        if (isZeroImpactIngredient(ingredient)) {
+          console.log(`⚙️  [BATCH] Skipping USDA for zero-impact ingredient: ${ingredient}`);
           return {
             ingredient,
             data: {
               nutrition: { calories: 0, protein: 0, carbs: 0, fats: 0 },
               fdcId: 0,
-              rawFoodDetails: { skipped: 'seasoning' }
+              rawFoodDetails: { skipped: 'zero-impact' }
             }
           };
         }
@@ -922,8 +921,25 @@ Generate meals for all 7 days now. Remember: EACH meal type on EACH day must be 
           return { ingredient, data: null };
         }
 
-        // Get details for the best match (first result)
-        const foodDetails = await this.usdaService.getFoodDetails(foods[0].fdcId);
+        // Try each candidate until we get a valid FDC detail response
+        let foodDetails: any = null;
+        for (const candidate of foods) {
+          try {
+            foodDetails = await this.usdaService.getFoodDetails(candidate.fdcId);
+            break;
+          } catch (error: any) {
+            if (error?.type === NutritionErrorType.FOOD_NOT_FOUND) {
+              console.warn(`⚠️  [BATCH] USDA returned 404 for FDC ${candidate.fdcId}, trying next candidate for "${ingredient}"`);
+              continue;
+            }
+            throw error;
+          }
+        }
+
+        if (!foodDetails) {
+          console.warn(`⚠️  [BATCH] Exhausted USDA candidates for ${ingredient}`);
+          return { ingredient, data: null };
+        }
         
         // Log raw USDA data for comparison
         console.log(`\n🔬 [BATCH] RAW USDA DATA for "${ingredient}":`);
