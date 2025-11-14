@@ -2,7 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { Dumbbell, Utensils, Clock, Target, ChevronDown } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 interface DailySchedule {
   day: string;
@@ -83,6 +83,19 @@ export function WeeklyScheduleTable({ data }: WeeklyScheduleTableProps) {
     return 'text-muted-foreground border border-border bg-transparent';
   };
 
+  //TODO: remove this when we complete the bug fix.
+  const logWorkoutData = () => {
+    data.map((week) => {
+      week.days.map((day) => {
+        console.log("This is a log of the day exercises !!!!!!", JSON.stringify(day.workouts))
+      });
+    });
+  }
+
+  useEffect(() => {
+    logWorkoutData();
+  }, []);
+
   return (
     <div className="space-y-6">
       {data.map((week, weekIndex) => {
@@ -162,17 +175,14 @@ export function WeeklyScheduleTable({ data }: WeeklyScheduleTableProps) {
                     ))}
                   </TabsList>
 
-                  {week.days.map((day) => (
-                    <TabsContent key={`day-${day.dayNumber}`} value={`day-${String(day.dayNumber)}`} className="mt-0">
-                      {day.restDay ? (
-                        <div className="text-center py-16">
-                          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-muted/50 mb-4">
-                            <Target className="h-8 w-8 text-muted-foreground" />
-                          </div>
-                          <h3 className="text-xl font-editorial font-light mb-2">Rest Day</h3>
-                          <p className="text-sm text-muted-foreground">Active recovery and nutrition focus</p>
-                        </div>
-                      ) : (
+                  {week.days.map((day) => {
+                    const isRestDay = day.restDay || day.workouts.length === 0;
+                    return (
+                      <TabsContent
+                        key={`day-${day.dayNumber}`}
+                        value={`day-${String(day.dayNumber)}`}
+                        className="mt-0"
+                      >
                         <div className="space-y-8">
                           {/* Workouts Section */}
                           <div className="bg-background/80 rounded-lg p-5 border border-border/40 shadow-sm">
@@ -180,15 +190,27 @@ export function WeeklyScheduleTable({ data }: WeeklyScheduleTableProps) {
                               <div className="p-1.5 bg-primary/10 rounded-md">
                                 <Dumbbell className="h-4 w-4 text-primary" />
                               </div>
-                              <h3 className="text-sm font-medium uppercase tracking-wide text-foreground">Workouts</h3>
+                              <h3 className="text-sm font-medium uppercase tracking-wide text-foreground">
+                                Workouts
+                              </h3>
                             </div>
-                            
-                            {day.workouts.length > 0 ? (
+
+                            {isRestDay ? (
+                              <div className="text-center py-12 text-muted-foreground">
+                                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-muted/50 mb-4">
+                                  <Target className="h-8 w-8 text-muted-foreground" />
+                                </div>
+                                <h3 className="text-xl font-editorial font-light mb-2">Rest Day</h3>
+                                <p className="text-sm text-muted-foreground">Active recovery and nutrition focus</p>
+                              </div>
+                            ) : (
                               <div className="space-y-5">
                                 {day.workouts.map((workout, workoutIndex) => (
-                                  <div 
-                                    key={workout.sessionId} 
-                                    className={`pb-5 last:pb-0 ${workoutIndex < day.workouts.length - 1 ? 'border-b border-border/50 mb-5' : ''}`}
+                                  <div
+                                    key={workout.sessionId}
+                                    className={`pb-5 last:pb-0 ${
+                                      workoutIndex < day.workouts.length - 1 ? 'border-b border-border/50 mb-5' : ''
+                                    }`}
                                   >
                                     <div className="flex items-start justify-between mb-4">
                                       <div className="flex-1">
@@ -201,13 +223,13 @@ export function WeeklyScheduleTable({ data }: WeeklyScheduleTableProps) {
                                         </div>
                                       </div>
                                     </div>
-                                    
+
                                     {workout.targetMuscles.length > 0 && (
                                       <div className="flex flex-wrap gap-1.5 mb-4">
                                         {workout.targetMuscles.map((muscle) => (
-                                          <Badge 
-                                            key={muscle} 
-                                            variant="outline" 
+                                          <Badge
+                                            key={muscle}
+                                            variant="outline"
                                             className={getMuscleGroupStyle()}
                                           >
                                             {muscle}
@@ -217,11 +239,13 @@ export function WeeklyScheduleTable({ data }: WeeklyScheduleTableProps) {
                                     )}
 
                                     <div className="space-y-3">
-                                      <h5 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Exercises</h5>
+                                      <h5 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                                        Exercises
+                                      </h5>
                                       <div className="space-y-2">
                                         {workout.exercises.map((exercise) => (
-                                          <div 
-                                            key={exercise.exerciseId} 
+                                          <div
+                                            key={exercise.exerciseId}
                                             className="flex justify-between items-center py-2 border-b border-border/50"
                                           >
                                             <span className="text-sm">{exercise.name}</span>
@@ -234,11 +258,6 @@ export function WeeklyScheduleTable({ data }: WeeklyScheduleTableProps) {
                                     </div>
                                   </div>
                                 ))}
-                              </div>
-                            ) : (
-                              <div className="text-center py-12 text-muted-foreground">
-                                <Dumbbell className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                                <p className="text-sm">No workouts scheduled</p>
                               </div>
                             )}
                           </div>
@@ -256,11 +275,13 @@ export function WeeklyScheduleTable({ data }: WeeklyScheduleTableProps) {
                               <div className="space-y-4">
                                 {day.meals.map((meal, mealIndex) => {
                                   const actualMealName = meal.mealName || 'Meal';
-                                  
+
                                   return (
-                                    <div 
+                                    <div
                                       key={meal.mealId}
-                                      className={`pb-4 last:pb-0 ${mealIndex < day.meals.length - 1 ? 'border-b border-border/50 mb-4' : ''}`}
+                                      className={`pb-4 last:pb-0 ${
+                                        mealIndex < day.meals.length - 1 ? 'border-b border-border/50 mb-4' : ''
+                                      }`}
                                     >
                                       <div className="flex items-start justify-between mb-2">
                                         <div className="flex-1 text-left">
@@ -272,7 +293,9 @@ export function WeeklyScheduleTable({ data }: WeeklyScheduleTableProps) {
                                           </div>
                                           <h4 className="text-sm font-medium mt-2 text-left">{actualMealName}</h4>
                                         </div>
-                                        <span className="font-mono text-sm font-semibold ml-4">{Math.round(meal.calories)} cal</span>
+                                        <span className="font-mono text-sm font-semibold ml-4">
+                                          {Math.round(meal.calories)} cal
+                                        </span>
                                       </div>
                                       <div className="flex gap-4 text-xs text-muted-foreground mt-2">
                                         <span>P: {Math.round(meal.macros.protein)}g</span>
@@ -298,28 +321,36 @@ export function WeeklyScheduleTable({ data }: WeeklyScheduleTableProps) {
                               </h4>
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 <div>
-                                  <div className="text-xl font-semibold font-mono">{Math.round(day.dailyMacros.totalCalories)}</div>
+                                  <div className="text-xl font-semibold font-mono">
+                                    {Math.round(day.dailyMacros.totalCalories)}
+                                  </div>
                                   <div className="text-xs text-muted-foreground mt-1">Calories</div>
                                 </div>
                                 <div>
-                                  <div className="text-xl font-semibold font-mono">{Math.round(day.dailyMacros.protein)}g</div>
+                                  <div className="text-xl font-semibold font-mono">
+                                    {Math.round(day.dailyMacros.protein)}g
+                                  </div>
                                   <div className="text-xs text-muted-foreground mt-1">Protein</div>
                                 </div>
                                 <div>
-                                  <div className="text-xl font-semibold font-mono">{Math.round(day.dailyMacros.carbs)}g</div>
+                                  <div className="text-xl font-semibold font-mono">
+                                    {Math.round(day.dailyMacros.carbs)}g
+                                  </div>
                                   <div className="text-xs text-muted-foreground mt-1">Carbs</div>
                                 </div>
                                 <div>
-                                  <div className="text-xl font-semibold font-mono">{Math.round(day.dailyMacros.fat)}g</div>
+                                  <div className="text-xl font-semibold font-mono">
+                                    {Math.round(day.dailyMacros.fat)}g
+                                  </div>
                                   <div className="text-xs text-muted-foreground mt-1">Fat</div>
                                 </div>
                               </div>
                             </div>
                           </div>
                         </div>
-                      )}
-                    </TabsContent>
-                  ))}
+                      </TabsContent>
+                    );
+                  })}
                 </Tabs>
                 </div>
               </CollapsibleContent>

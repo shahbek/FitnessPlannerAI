@@ -22,6 +22,7 @@ interface WorkoutProgramViewProps {
 export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramViewProps) {
   const { state: sidebarState } = useSidebar();
   const [parsedData, setParsedData] = useState<ParsedWorkoutData | null>(null);
+  const [activeTab, setActiveTab] = useState('comprehensive-meals');
 
   // Parse the data when component mounts or data changes
   useEffect(() => {
@@ -38,6 +39,16 @@ export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramVie
 
   // Check if the plan is still generating
   const isGenerating = workoutData?.isGenerating;
+
+  useEffect(() => {
+    if (activeTab === 'comprehensive-meals' && parsedData?.comprehensiveMeals?.length) {
+      console.log('\n🍽️ [UI] Meal names for current plan:');
+      parsedData.comprehensiveMeals.forEach((meal, index) => {
+        console.log(`  Meal ${index + 1}: ${meal.name}`);
+      });
+      console.log('');
+    }
+  }, [activeTab, parsedData]);
 
   if (!parsedData || isGenerating) {
     return (
@@ -198,7 +209,11 @@ export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramVie
       </div>
 
       {/* Tabbed Content - Clean tabs */}
-      <Tabs defaultValue="comprehensive-meals" className="w-full">
+      <Tabs
+        value={activeTab}
+        onValueChange={setActiveTab}
+        className="w-full"
+      >
         {/* Tabs container - positioned relative to plan view area, accounting for content padding */}
         <div 
           className="fixed bottom-8 z-50 flex justify-center pointer-events-none transition-all duration-200 px-6"
