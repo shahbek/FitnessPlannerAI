@@ -21,15 +21,14 @@
     "test:planning": "tsx src/tests/integratedPlanningService.test.ts",
     "test:reasoning": "tsx test-two-step-reasoning.ts",
     "test:usda": "tsx src/tests/unit/USDANutritionService.test.ts",
-    "test:macro-accuracy": "tsx src/tests/unit/MacroAccuracy.test.ts",
     "debug:meals": "tsx src/tests/manual/WeeklyMealGenerationDebug.ts",
     "debug:custom-meals": "tsx src/tests/manual/CustomMealAdjustmentDemo.ts",
     "test:dummy": "tsx src/tests/unit/DummyWeeklyAdjust.test.ts",
-    "test:meal-pipeline": "tsx src/tests/integration/MealGenerationPipeline.test.ts",
     "test:workout-pipeline": "tsx src/tests/integration/WorkoutGenerationPipeline.test.ts",
+    "test:weekly-workout-generation": "tsx src/tests/integration/WeeklyWorkoutGeneration.test.ts",
     "test:integration": "tsx src/tests/integration/IntegratedPlanGenerator.test.ts",
     "test:full-generation": "tsx src/tests/integration/FullPlanGeneration.test.ts",
-    "test:all": "npm run test:usda && npm run test:meal-pipeline && npm run test:workout-pipeline && npm run test:integration"
+    "test:all": "npm run test:usda && npm run test:workout-pipeline && npm run test:integration && npm run test:full-generation"
   },
   "dependencies": {
     "@ai-sdk/groq": "^2.0.24",

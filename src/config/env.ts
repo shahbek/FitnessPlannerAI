@@ -7,21 +7,93 @@
  * Access them via import.meta.env (not process.env).
  */
 
-/**
- * Get environment variable - works in both browser (Vite) and Node.js
- */
-function getEnvVar(key: string, defaultValue: string = ''): string {
-  // In Vite (browser), import.meta.env is always available
-  // @ts-ignore - import.meta.env is a Vite global
-  if (typeof import.meta !== 'undefined' && import.meta.env) {
-    // @ts-ignore
-    return import.meta.env[key] || defaultValue;
+const TRUE_VALUES = new Set(['true', '1', 'yes', 'y', 'on']);
+const FALSE_VALUES = new Set(['false', '0', 'no', 'n', 'off']);
+
+function readEnvVar(key: string): string | undefined {
+  if (typeof import.meta !== 'undefined') {
+    const viteEnv = (import.meta as any).env as Record<string, string | undefined> | undefined;
+    if (viteEnv && Object.prototype.hasOwnProperty.call(viteEnv, key)) {
+      const value = viteEnv[key];
+      if (value !== undefined) {
+        return typeof value === 'string' ? value : String(value);
+      }
+    }
   }
-  // Fallback to process.env for Node.js (tests)
-  if (typeof process !== 'undefined' && process.env) {
-    return process.env[key] || defaultValue;
+
+  if (typeof process !== 'undefined' && process.env && Object.prototype.hasOwnProperty.call(process.env, key)) {
+    return process.env[key];
+  }
+
+  return undefined;
+}
+
+function getStringEnvVar(keys: string[], defaultValue = ''): string {
+  for (const key of keys) {
+    const raw = readEnvVar(key);
+    if (raw === undefined || raw === null) {
+      continue;
+    }
+    const value = raw.trim();
+    if (value !== '') {
+      return value;
+    }
   }
   return defaultValue;
+}
+
+function getBooleanEnvVar(keys: string[], defaultValue: boolean): boolean {
+  for (const key of keys) {
+    const raw = readEnvVar(key);
+    if (raw === undefined || raw === null) {
+      continue;
+    }
+    const value = raw.trim().toLowerCase();
+    if (value === '') {
+      continue;
+    }
+    if (TRUE_VALUES.has(value)) {
+      return true;
+    }
+    if (FALSE_VALUES.has(value)) {
+      return false;
+    }
+    // Unrecognized string – fall back to default
+    return defaultValue;
+  }
+  return defaultValue;
+}
+
+function getNumberEnvVar(keys: string[], defaultValue: number): number {
+  for (const key of keys) {
+    const raw = readEnvVar(key);
+    if (raw === undefined || raw === null) {
+      continue;
+    }
+    const value = raw.trim();
+    if (value === '') {
+      continue;
+    }
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+    return defaultValue;
+  }
+  return defaultValue;
+}
+
+function getNodeEnvDefault(): 'development' | 'staging' | 'production' {
+  if (typeof import.meta !== 'undefined') {
+    const viteMode = (import.meta as any).env?.MODE as string | undefined;
+    if (viteMode) {
+      const normalized = viteMode.toLowerCase();
+      if (normalized === 'production' || normalized === 'staging') {
+        return normalized;
+      }
+    }
+  }
+  return 'development';
 }
 
 /**
@@ -32,48 +104,87 @@ function getEnvVar(key: string, defaultValue: string = ''): string {
  */
 export const env = {
   // USDA API
-  USDA_API_KEY: getEnvVar('VITE_USDA_API_KEY') || getEnvVar('USDA_API_KEY', ''),
-  
+  get USDA_API_KEY(): string {
+    return getStringEnvVar(['VITE_USDA_API_KEY', 'USDA_API_KEY']);
+  },
+
   // AI Model Configuration (Groq only)
-  // Primary: VITE_GROQ_API_KEY (for Vite/browser)
-  // Fallback: GROQ_API_KEY (for Node.js/tests)
-  AI_MODEL_PROVIDER: 'groq' as const, // Only Groq is supported
-  AI_API_KEY: getEnvVar('VITE_GROQ_API_KEY') || 
-               getEnvVar('GROQ_API_KEY') ||
-               getEnvVar('VITE_AI_API_KEY') || // Legacy support
-               getEnvVar('AI_API_KEY', ''), // Legacy support
-  AI_MODEL_NAME: getEnvVar('VITE_AI_MODEL_NAME') || getEnvVar('AI_MODEL_NAME', 'llama-3.3-70b-versatile'),
-  AI_ENDPOINT: getEnvVar('VITE_AI_ENDPOINT') || getEnvVar('AI_ENDPOINT', ''),
-  AI_TEMPERATURE: parseFloat(getEnvVar('VITE_AI_TEMPERATURE') || getEnvVar('AI_TEMPERATURE', '0.3')),
-  
+  get AI_MODEL_PROVIDER(): 'groq' | 'openai' {
+    const provider = getStringEnvVar(['VITE_AI_MODEL_PROVIDER', 'AI_MODEL_PROVIDER'], 'groq').toLowerCase();
+    return provider === 'openai' ? 'openai' : 'groq';
+  },
+  get AI_API_KEY(): string {
+    return getStringEnvVar(['VITE_GROQ_API_KEY', 'GROQ_API_KEY', 'VITE_AI_API_KEY', 'AI_API_KEY']);
+  },
+  get AI_MODEL_NAME(): string {
+    return getStringEnvVar(['VITE_AI_MODEL_NAME', 'AI_MODEL_NAME'], 'llama-3.3-70b-versatile');
+  },
+  get AI_ENDPOINT(): string {
+    return getStringEnvVar(['VITE_AI_ENDPOINT', 'AI_ENDPOINT']);
+  },
+  get AI_TEMPERATURE(): number {
+    return getNumberEnvVar(['VITE_AI_TEMPERATURE', 'AI_TEMPERATURE'], 0.3);
+  },
+
   // Application
-  NODE_ENV: (getEnvVar('VITE_NODE_ENV') || getEnvVar('NODE_ENV', 
-    typeof import.meta !== 'undefined' && import.meta.env?.MODE 
-      ? import.meta.env.MODE 
-      : 'development'
-  )) as 'development' | 'staging' | 'production',
-  API_BASE_URL: getEnvVar('VITE_API_BASE_URL') || getEnvVar('API_BASE_URL', ''),
-  DEBUG: getEnvVar('VITE_DEBUG') || getEnvVar('DEBUG', '') === 'true',
-  
+  get NODE_ENV(): 'development' | 'staging' | 'production' {
+    const value = getStringEnvVar(['VITE_NODE_ENV', 'NODE_ENV'], getNodeEnvDefault());
+    const normalized = value.toLowerCase();
+    if (normalized === 'production' || normalized === 'staging') {
+      return normalized;
+    }
+    return 'development';
+  },
+  get API_BASE_URL(): string {
+    return getStringEnvVar(['VITE_API_BASE_URL', 'API_BASE_URL']);
+  },
+  get DEBUG(): boolean {
+    return getBooleanEnvVar(['VITE_DEBUG', 'DEBUG'], false);
+  },
+
   // Performance & Caching
-  USDA_CACHE_TTL: parseInt(getEnvVar('VITE_USDA_CACHE_TTL') || getEnvVar('USDA_CACHE_TTL', '24'), 10),
-  USDA_CACHE_MAX_ITEMS: parseInt(getEnvVar('VITE_USDA_CACHE_MAX_ITEMS') || getEnvVar('USDA_CACHE_MAX_ITEMS', '10000'), 10),
-  ENABLE_API_TRACKING: getEnvVar('VITE_ENABLE_API_TRACKING') || getEnvVar('ENABLE_API_TRACKING', '') !== 'false',
-  
+  get USDA_CACHE_TTL(): number {
+    return getNumberEnvVar(['VITE_USDA_CACHE_TTL', 'USDA_CACHE_TTL'], 24);
+  },
+  get USDA_CACHE_MAX_ITEMS(): number {
+    return getNumberEnvVar(['VITE_USDA_CACHE_MAX_ITEMS', 'USDA_CACHE_MAX_ITEMS'], 10000);
+  },
+  get ENABLE_API_TRACKING(): boolean {
+    return getBooleanEnvVar(['VITE_ENABLE_API_TRACKING', 'ENABLE_API_TRACKING'], true);
+  },
+
   // Feature Flags
-  ENABLE_COT: getEnvVar('VITE_ENABLE_COT') || getEnvVar('ENABLE_COT', '') !== 'false',
-  ENABLE_MEAL_CORRECTIONS: getEnvVar('VITE_ENABLE_MEAL_CORRECTIONS') || getEnvVar('ENABLE_MEAL_CORRECTIONS', '') !== 'false',
-  ENABLE_WORKOUT_CORRECTIONS: getEnvVar('VITE_ENABLE_WORKOUT_CORRECTIONS') || getEnvVar('ENABLE_WORKOUT_CORRECTIONS', '') !== 'false',
-  USE_AI_FOR_MEALS: getEnvVar('VITE_USE_AI_FOR_MEALS') || getEnvVar('USE_AI_FOR_MEALS', '') !== 'false',
-  USE_AI_FOR_WORKOUTS: getEnvVar('VITE_USE_AI_FOR_WORKOUTS') || getEnvVar('USE_AI_FOR_WORKOUTS', '') !== 'false',
-  
+  get ENABLE_COT(): boolean {
+    return getBooleanEnvVar(['VITE_ENABLE_COT', 'ENABLE_COT'], true);
+  },
+  get ENABLE_MEAL_CORRECTIONS(): boolean {
+    return getBooleanEnvVar(['VITE_ENABLE_MEAL_CORRECTIONS', 'ENABLE_MEAL_CORRECTIONS'], true);
+  },
+  get ENABLE_WORKOUT_CORRECTIONS(): boolean {
+    return getBooleanEnvVar(['VITE_ENABLE_WORKOUT_CORRECTIONS', 'ENABLE_WORKOUT_CORRECTIONS'], true);
+  },
+  get USE_AI_FOR_MEALS(): boolean {
+    return getBooleanEnvVar(['VITE_USE_AI_FOR_MEALS', 'USE_AI_FOR_MEALS'], true);
+  },
+  get USE_AI_FOR_WORKOUTS(): boolean {
+    return getBooleanEnvVar(['VITE_USE_AI_FOR_WORKOUTS', 'USE_AI_FOR_WORKOUTS'], true);
+  },
+
   // Rate Limiting
-  USDA_RATE_LIMIT: parseInt(getEnvVar('VITE_USDA_RATE_LIMIT') || getEnvVar('USDA_RATE_LIMIT', '1000'), 10),
-  AI_RATE_LIMIT: parseInt(getEnvVar('VITE_AI_RATE_LIMIT') || getEnvVar('AI_RATE_LIMIT', '30'), 10),
-  RATE_LIMIT_RETRY_DELAY: parseInt(getEnvVar('VITE_RATE_LIMIT_RETRY_DELAY') || getEnvVar('RATE_LIMIT_RETRY_DELAY', '2000'), 10),
-  
+  get USDA_RATE_LIMIT(): number {
+    return getNumberEnvVar(['VITE_USDA_RATE_LIMIT', 'USDA_RATE_LIMIT'], 1000);
+  },
+  get AI_RATE_LIMIT(): number {
+    return getNumberEnvVar(['VITE_AI_RATE_LIMIT', 'AI_RATE_LIMIT'], 30);
+  },
+  get RATE_LIMIT_RETRY_DELAY(): number {
+    return getNumberEnvVar(['VITE_RATE_LIMIT_RETRY_DELAY', 'RATE_LIMIT_RETRY_DELAY'], 2000);
+  },
+
   // Security
-  SESSION_SECRET: getEnvVar('VITE_SESSION_SECRET') || getEnvVar('SESSION_SECRET', ''),
+  get SESSION_SECRET(): string {
+    return getStringEnvVar(['VITE_SESSION_SECRET', 'SESSION_SECRET']);
+  },
 } as const;
 
 /**
