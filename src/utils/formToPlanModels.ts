@@ -110,7 +110,11 @@ export function formToWeeklyOutline(
   const fats = calculateFats(formData, baseCalories, protein, carbs);
 
   // Map workout split to training days
-  const trainingDays = getTrainingDays(formData.workoutSplit, formData.trainingDaysPerWeek);
+  const trainingDays = getTrainingDays(
+    formData.workoutSplit,
+    formData.trainingDaysPerWeek,
+    formData.schedule
+  );
 
   return {
     weekNumber,
@@ -229,21 +233,43 @@ function calculateFats(formData: FormData, calories: number, protein: number, ca
 /**
  * Get training days based on split
  */
-function getTrainingDays(split: string, daysPerWeek: number): string[] {
+function getTrainingDays(split: string, daysPerWeek: number, schedule?: string): string[] {
   const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  
-  // Simple distribution
-  if (daysPerWeek === 3) {
-    return ['Monday', 'Wednesday', 'Friday'];
-  } else if (daysPerWeek === 4) {
-    return ['Monday', 'Tuesday', 'Thursday', 'Friday'];
-  } else if (daysPerWeek === 5) {
-    return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-  } else if (daysPerWeek === 6) {
-    return ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const scheduledDays = parseScheduleDays(schedule);
+  if (scheduledDays.length > 0) {
+    const unique = Array.from(new Set(scheduledDays));
+    if (unique.length >= daysPerWeek) {
+      return unique.slice(0, daysPerWeek);
+    }
+    const defaults = getDefaultDistribution(daysPerWeek);
+    const merged = [...unique];
+    defaults.forEach((day) => {
+      if (merged.length < daysPerWeek && !merged.includes(day)) {
+        merged.push(day);
+      }
+    });
+    return merged.slice(0, daysPerWeek);
   }
-  
-  return dayNames.slice(0, daysPerWeek);
+
+  return getDefaultDistribution(daysPerWeek, dayNames);
+}
+
+function getDefaultDistribution(daysPerWeek: number, dayNames?: string[]): string[] {
+  const defaults = {
+    1: ['Wednesday'],
+    2: ['Tuesday', 'Friday'],
+    3: ['Monday', 'Wednesday', 'Friday'],
+    4: ['Monday', 'Tuesday', 'Thursday', 'Saturday'],
+    5: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+    6: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+  } as Record<number, string[]>;
+
+  if (defaults[daysPerWeek]) {
+    return defaults[daysPerWeek];
+  }
+
+  const fallback = dayNames || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  return fallback.slice(0, daysPerWeek);
 }
 
 /**
@@ -252,6 +278,34 @@ function getTrainingDays(split: string, daysPerWeek: number): string[] {
 function getRestDays(trainingDays: string[]): string[] {
   const allDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
   return allDays.filter(day => !trainingDays.includes(day));
+}
+
+function parseScheduleDays(schedule?: string): string[] {
+  if (!schedule) return [];
+  const dayMap: Record<string, string> = {
+    monday: 'Monday',
+    mon: 'Monday',
+    tuesday: 'Tuesday',
+    tue: 'Tuesday',
+    tues: 'Tuesday',
+    wednesday: 'Wednesday',
+    wed: 'Wednesday',
+    thursday: 'Thursday',
+    thu: 'Thursday',
+    thurs: 'Thursday',
+    friday: 'Friday',
+    fri: 'Friday',
+    saturday: 'Saturday',
+    sat: 'Saturday',
+    sunday: 'Sunday',
+    sun: 'Sunday',
+  };
+
+  return schedule
+    .split(/[,|;/\n]+/)
+    .map((part) => part.trim().toLowerCase())
+    .map((token) => dayMap[token])
+    .filter((day): day is string => Boolean(day));
 }
 
 /**

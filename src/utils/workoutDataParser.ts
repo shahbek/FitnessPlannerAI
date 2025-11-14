@@ -552,6 +552,9 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
       jsonData.mealTemplates || [];
     
     // Use the weekly outlines system
+    const sessionTemplatesForGeneration = allSessionTemplates;
+    const exerciseLibraryForGeneration = allExercises;
+
     jsonData.weeklyOutlines.forEach((week: any) => {
       const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
       const weeklyScheduleData: WeeklyScheduleRow = {
@@ -567,10 +570,10 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
           // Pass training schedule to determine if this is a workout day
           const workouts = isWorkoutDay ? generateDayWorkouts(
             dayNumber, 
-            jsonData.phaseSessionTemplates || jsonData.sessionTemplates, 
+            sessionTemplatesForGeneration, 
             week.phase, 
             week.weekNumber,
-            jsonData.phaseExerciseLibraries || jsonData.exerciseLibrary || [],
+            exerciseLibraryForGeneration,
             week.trainingSchedule
           ) : [];
           
@@ -587,13 +590,15 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
             fat: totals.fat + meal.macros.fat
           }), { totalCalories: 0, protein: 0, carbs: 0, fat: 0 });
 
+          const inferredRestDay = !isWorkoutDay || workouts.length === 0;
+
           return {
             day,
             dayNumber,
             workouts,
             meals,
             dailyMacros,
-            restDay: !isWorkoutDay
+            restDay: day.restDay ?? inferredRestDay
           };
         }),
         weeklyTotals: {
@@ -715,11 +720,25 @@ function generateDayWorkouts(
   exerciseLibrary: any[] = [],
   trainingSchedule?: any
 ): any[] {
-  if (!sessionTemplates || sessionTemplates.length === 0) return [];
-  
+  const normalizedSessions = Array.isArray(sessionTemplates)
+    ? sessionTemplates.flatMap((session: any) => {
+        if (!session) return [];
+        return Array.isArray(session) ? session : [session];
+      })
+    : [];
+
+  if (normalizedSessions.length === 0) return [];
+
+  const normalizedExercises = Array.isArray(exerciseLibrary)
+    ? exerciseLibrary.flatMap((exercise: any) => {
+        if (!exercise) return [];
+        return Array.isArray(exercise) ? exercise : [exercise];
+      })
+    : [];
+
   // Create exercise lookup map for fast access
   const exerciseMap = new Map<string, any>();
-  exerciseLibrary.forEach((exercise: any) => {
+  normalizedExercises.forEach((exercise: any) => {
     if (exercise.exerciseId) {
       exerciseMap.set(exercise.exerciseId, exercise);
     }
@@ -741,12 +760,12 @@ function generateDayWorkouts(
   // 4. Available session templates (AI-generated)
   
   // Filter sessions by phase if phase name matches
-  let availableSessions = sessionTemplates;
+  let availableSessions = normalizedSessions;
   
   if (phaseName) {
     const phaseLower = phaseName.toLowerCase();
     // Try to match by phase in templateId or name
-    const phaseMatched = sessionTemplates.filter(s => 
+    const phaseMatched = normalizedSessions.filter(s => 
       s.templateId?.toLowerCase().includes(phaseLower) ||
       s.name?.toLowerCase().includes(phaseLower)
     );
@@ -787,17 +806,24 @@ function generateDayWorkouts(
   const adjustedDuration = Math.round((session.totalDurationMinutes || 60) * intensityMultiplier);
   
   // Map exercises with proper names from exercise library
-  const exercises = (session.structure || []).map((exercise: any) => {
-    const exerciseId = exercise.exerciseId || '';
+  const exercises = (session.structure || []).map((exercise: any, idx: number) => {
+    const exerciseId = exercise.exerciseId || `exercise-${idx + 1}`;
     const exerciseInfo = exerciseMap.get(exerciseId);
+    const inferredName = exerciseId
+      .split('_')
+      .map((part: string) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+    const name = exercise.name || exerciseInfo?.name || inferredName;
+    const targetMuscles = exercise.targetMuscles || exerciseInfo?.muscleGroups || [];
     
     return {
-      exerciseId: exerciseId,
-      name: exerciseInfo?.name || exerciseId, // Use name from library, fallback to ID
+      exerciseId,
+      name,
       sets: exercise.sets || 0,
       reps: exercise.reps || '',
       restSeconds: exercise.restSeconds || 0,
-      notes: exercise.notes || ''
+      notes: exercise.notes || '',
+      targetMuscles
     };
   });
   
