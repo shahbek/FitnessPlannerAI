@@ -636,8 +636,8 @@ ${unknownIngredients.map((ing, idx) =>
 
 YOUR TASK:
 For EACH ingredient, provide:
-1. Price per standard unit (e.g., $X.XX/kg, $X.XX/lb, $X.XX/piece)
-2. Standard unit format (kg, lb, dozen, piece, liter, etc.)
+1. Price per 100 grams (100g) in CAD (e.g., $X.XX per 100g)
+2. The unit must be exactly "100g" so downstream code can scale the price based on actual grams used.
 
 CRITICAL:
 - Use realistic 2024-2025 Canadian grocery prices
@@ -650,9 +650,9 @@ Return ONLY valid JSON in this exact format (no markdown, no explanations):
   "ingredients": [
     {
       "name": "ingredient name (exact match)",
-      "pricePerUnit": 12.99,
-      "unit": "kg",
-      "notes": "Typical package size: 500g-1kg"
+      "pricePerUnit": 1.99,
+      "unit": "100g",
+      "notes": "Equivalent to $19.90/kg based on typical Canadian grocery pricing"
     }
   ]
 }
@@ -741,6 +741,8 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
             let weightPerUnit = 1000; // Default 1kg
             if (unknownCost.unit === 'kg') {
               weightPerUnit = 1000;
+            } else if (unknownCost.unit === '100g') {
+              weightPerUnit = 100;
             } else if (unknownCost.unit === 'dozen') {
               weightPerUnit = 600; // Approx for eggs
             } else if (unknownCost.unit === 'piece' || unknownCost.unit === 'each') {
@@ -771,6 +773,8 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
           // Convert to price unit
           if (priceInfo.unit === 'kg') {
             amountInPriceUnit = grams / 1000;
+          } else if (priceInfo.unit === '100g') {
+            amountInPriceUnit = grams / 100;
           } else if (priceInfo.unit === 'dozen' && priceInfo.weightPerUnit) {
             amountInPriceUnit = grams / priceInfo.weightPerUnit;
           } else {
@@ -778,9 +782,8 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
           }
         }
 
-        // Calculate cost (round up to full packages)
-        const unitsNeeded = Math.ceil(amountInPriceUnit);
-        const cost = unitsNeeded * priceInfo.costPerUnit;
+        // Calculate cost proportionally based on actual amount used
+        const cost = amountInPriceUnit * priceInfo.costPerUnit;
 
         // Store weekly cost
         if (!weeklyCosts.has(ingredientName)) {
