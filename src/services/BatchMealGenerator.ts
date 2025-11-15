@@ -565,7 +565,7 @@ export class BatchMealGenerator {
 
     // Calculate meal calorie distribution
     const mealDistribution = this.getMealCalorieDistribution(mealFrequency, dailyTargets.calories);
-    
+
     // Log meal calorie distribution
     console.log('📊 [BATCH] Meal Calorie Distribution:', {
       mealFrequency,
@@ -575,11 +575,15 @@ export class BatchMealGenerator {
         breakfast: ((mealDistribution.breakfast / dailyTargets.calories) * 100).toFixed(1) + '%',
         lunch: ((mealDistribution.lunch / dailyTargets.calories) * 100).toFixed(1) + '%',
         dinner: ((mealDistribution.dinner / dailyTargets.calories) * 100).toFixed(1) + '%',
-        snacks: mealDistribution.snacks?.map((cal, i) => 
+        snacks: mealDistribution.snacks?.map((cal, i) =>
           `Snack ${i + 1}: ${((cal / dailyTargets.calories) * 100).toFixed(1)}%`
         ) || [],
       },
     });
+
+    // Build dietary guidance based on user preferences
+    const dietaryGuidance = this.buildDietaryGuidance(userProfile.preferences);
+    console.log('🍽️  [BATCH] Generated dietary guidance for preferences:', userProfile.preferences);
 
     // Build day information
     const dayInfo = trainingSplit.days.map((day: { dayName: string; isRestDay: boolean }, index: number) => {
@@ -632,8 +636,8 @@ INGREDIENT NAMING RULES (MUST FOLLOW):
 USER PROFILE:
 - Goal: ${userProfile.goal}
 - Meal Frequency: ${mealFrequency} meals per day
-- Preferences: ${(userProfile as any).preferences || 'None specified'}
-- Restrictions: ${(userProfile as any).restrictions?.join(', ') || 'None'}
+
+${dietaryGuidance}
 
 WEEKLY TARGETS (Daily Averages):
 - Calories: ${dailyTargets.calories} kcal/day
@@ -779,6 +783,174 @@ CRITICAL REQUIREMENTS:
 Focus on meal creativity and variety. The macro estimates don't need to be perfect - they will be corrected with USDA data.
 
 Generate meals for all 7 days now. Remember: EACH meal type on EACH day must be UNIQUE.`;
+  }
+
+  /**
+   * Build detailed dietary guidance based on user preferences
+   * Similar to how workout generation handles equipment constraints
+   */
+  private buildDietaryGuidance(preferences: string): string {
+    if (!preferences || preferences.trim() === '') {
+      return `DIETARY PREFERENCES: None specified - create balanced, varied meals with common ingredients.`;
+    }
+
+    const prefs = preferences.toLowerCase();
+    let guidance = `DIETARY PREFERENCES & RESTRICTIONS:\n`;
+    guidance += `⚠️ CRITICAL: The following dietary requirements MUST be strictly followed:\n\n`;
+
+    // Pattern detection flags
+    const isVegan = prefs.includes('vegan');
+    const isVegetarian = prefs.includes('vegetarian') && !isVegan;
+    const isKeto = prefs.includes('keto') || prefs.includes('ketogenic');
+    const isLowCarb = (prefs.includes('low carb') || prefs.includes('low-carb')) && !isKeto;
+    const isPaleo = prefs.includes('paleo');
+    const isMediterranean = prefs.includes('mediterranean');
+    const isGlutenFree = prefs.includes('gluten-free') || prefs.includes('gluten free') || prefs.includes('celiac');
+    const isDairyFree = prefs.includes('dairy-free') || prefs.includes('dairy free') || prefs.includes('lactose');
+    const isNutFree = prefs.includes('nut-free') || prefs.includes('nut free') || prefs.includes('nut allergy');
+    const isPescatarian = prefs.includes('pescatarian') && !isVegan && !isVegetarian;
+    const isHighProtein = prefs.includes('high protein') || prefs.includes('high-protein');
+    const isWholeFoods = prefs.includes('whole food') || prefs.includes('whole-food') || prefs.includes('clean eating');
+
+    // Build specific guidance for each detected pattern
+    if (isVegan) {
+      guidance += `🌱 VEGAN DIET (STRICT - NO EXCEPTIONS):
+- ❌ FORBIDDEN: All animal products including meat, poultry, fish, seafood, dairy (milk, cheese, yogurt, butter), eggs, honey, gelatin, whey
+- ✅ PROTEIN SOURCES: Tofu (firm/silken), tempeh, seitan, edamame, lentils (red/green/black), chickpeas, black beans, kidney beans, pinto beans, quinoa, hemp seeds, nutritional yeast, pea protein powder, soy protein
+- ✅ DAIRY ALTERNATIVES: Almond milk, oat milk, soy milk, coconut milk/yogurt, cashew cheese, coconut cream
+- ✅ HEALTHY FATS: Avocado, nuts (almonds, walnuts, cashews), seeds (chia, flax, hemp, pumpkin), nut butters, tahini, olive oil, coconut oil
+- ✅ CARBS: Whole grains (quinoa, brown rice, oats, whole wheat pasta), sweet potatoes, regular potatoes, fruits
+- ✅ VEGETABLES: All vegetables are allowed
+- Example Meals: Tofu scramble with spinach, lentil curry with brown rice, chickpea pasta with marinara, quinoa Buddha bowl with tahini dressing, black bean tacos
+- IMPORTANT: Ensure adequate protein (25-35g per meal) from plant sources - combine legumes with grains for complete proteins\n\n`;
+    } else if (isVegetarian) {
+      guidance += `🥚 VEGETARIAN DIET:
+- ❌ FORBIDDEN: Meat, poultry, fish, seafood, gelatin
+- ✅ ALLOWED: Eggs, dairy products (milk, cheese, yogurt, butter), all plant-based foods
+- ✅ PROTEIN SOURCES: Eggs, Greek yogurt, cottage cheese, paneer, tofu, tempeh, lentils, chickpeas, black beans, quinoa, edamame, protein powder (whey or plant-based)
+- ✅ HEALTHY FATS: Cheese, avocado, nuts, seeds, nut butters, olive oil, butter (if not dairy-free)
+- Example Meals: Scrambled eggs with vegetables, Greek yogurt parfait, vegetarian chili, paneer tikka, egg salad sandwich, cheese and bean quesadilla
+- IMPORTANT: Vary protein sources throughout the week for complete amino acid profile\n\n`;
+    } else if (isPescatarian) {
+      guidance += `🐟 PESCATARIAN DIET:
+- ❌ FORBIDDEN: Meat (beef, pork, lamb), poultry (chicken, turkey)
+- ✅ ALLOWED: Fish, seafood, eggs, dairy, all plant-based foods
+- ✅ PROTEIN SOURCES: Salmon, tuna, cod, tilapia, shrimp, crab, mussels, eggs, Greek yogurt, cottage cheese, tofu, lentils, chickpeas
+- ✅ FOCUS: Prioritize fatty fish (salmon, mackerel, sardines) for omega-3s at least 2-3 times per week
+- Example Meals: Grilled salmon with quinoa, tuna salad, shrimp stir-fry, cod with roasted vegetables, seafood pasta
+- IMPORTANT: Choose wild-caught fish when possible, vary seafood types for nutrient diversity\n\n`;
+    }
+
+    if (isKeto) {
+      guidance += `🥑 KETOGENIC DIET (VERY LOW CARB):
+- ⚠️ STRICT CARB LIMIT: Maximum 20-30g net carbs per day (5-10g per meal, 5-10g for snacks)
+- ❌ FORBIDDEN: All grains (bread, rice, pasta, oats, quinoa), all starchy vegetables (potatoes, sweet potatoes, corn, peas), most fruits (except small portions of berries), sugar, beans/legumes
+- ✅ PROTEIN SOURCES: Fatty cuts of meat (ribeye, pork belly, chicken thighs with skin, salmon, mackerel), eggs, full-fat cheese
+- ✅ HEALTHY FATS (70-75% of calories): Avocado, olive oil, coconut oil, butter, ghee, heavy cream, MCT oil, nuts (macadamias, pecans, walnuts - limit to 1oz), seeds (chia, flax, hemp)
+- ✅ LOW-CARB VEGETABLES: Spinach, kale, lettuce, broccoli, cauliflower, zucchini, asparagus, bell peppers, mushrooms, Brussels sprouts (portion controlled)
+- ✅ ALLOWED FRUITS: Small portions of berries only (20-30g strawberries, blueberries, raspberries)
+- Example Meals: Scrambled eggs with avocado and bacon, salmon with butter and asparagus, ribeye with cauliflower mash, chicken thigh salad with olive oil dressing
+- MACRO TARGET: 70% fat, 25% protein, 5% carbs
+- IMPORTANT: Track net carbs (total carbs - fiber). Prioritize fat as primary energy source\n\n`;
+    } else if (isLowCarb) {
+      guidance += `🍖 LOW-CARB DIET:
+- ⚠️ MODERATE CARB LIMIT: 50-100g carbs per day (15-30g per meal)
+- ❌ MINIMIZE: Refined grains (white bread, white rice, regular pasta), sugary foods, processed carbs
+- ✅ LIMITED CARBS: Sweet potatoes, quinoa, brown rice, oats, whole grain bread (small portions - 50-100g cooked)
+- ✅ PROTEIN SOURCES: Chicken breast, turkey, lean beef, pork, fish, eggs, Greek yogurt
+- ✅ HEALTHY FATS: Avocado, nuts, seeds, olive oil, fatty fish
+- ✅ UNLIMITED: Non-starchy vegetables, leafy greens
+- Example Meals: Grilled chicken with roasted vegetables and small sweet potato, salmon with cauliflower rice, egg scramble with peppers and cheese
+- MACRO TARGET: 40% protein, 30% fat, 30% carbs
+- IMPORTANT: Focus on fiber-rich carbs from vegetables and limited whole grains\n\n`;
+    }
+
+    if (isPaleo) {
+      guidance += `🦴 PALEO DIET (WHOLE FOODS):
+- ❌ FORBIDDEN: All grains (wheat, rice, oats, corn), legumes (beans, lentils, peanuts), dairy products, refined sugar, processed foods, vegetable oils
+- ✅ PROTEIN SOURCES: Grass-fed beef, free-range chicken, wild-caught fish, eggs, pork
+- ✅ HEALTHY FATS: Avocado, nuts (almonds, walnuts, cashews - NO peanuts), seeds, coconut oil, olive oil, ghee
+- ✅ CARBS: Sweet potatoes, regular potatoes (white/red), squash, fruits, root vegetables
+- ✅ VEGETABLES: All vegetables are allowed
+- Example Meals: Grilled steak with roasted sweet potatoes, chicken with vegetables, salmon with cauliflower, egg scramble with avocado
+- IMPORTANT: Focus on unprocessed, whole foods that were available to our ancestors\n\n`;
+    }
+
+    if (isMediterranean) {
+      guidance += `🫒 MEDITERRANEAN DIET:
+- ✅ EMPHASIS: Olive oil as primary fat source, fish and seafood (2-3x per week), whole grains, legumes, fruits, vegetables, nuts, moderate dairy (yogurt, cheese)
+- ✅ PROTEIN SOURCES: Fish (salmon, sardines, mackerel), seafood, chicken, turkey, eggs, legumes (chickpeas, lentils), Greek yogurt
+- ✅ HEALTHY FATS: Extra virgin olive oil (generous amounts), olives, nuts (almonds, walnuts), seeds, avocado
+- ✅ WHOLE GRAINS: Whole wheat pasta, brown rice, quinoa, farro, bulgur, whole grain bread
+- ✅ FLAVOR PROFILE: Garlic, tomatoes, herbs (oregano, basil, rosemary), lemon, capers
+- ❌ MINIMIZE: Red meat (limit to 1-2x per month), processed meats, refined grains, sweets
+- Example Meals: Greek yogurt with nuts and honey, chickpea salad with olive oil, grilled fish with vegetables and quinoa, whole wheat pasta with tomato sauce
+- IMPORTANT: Use olive oil liberally, include fish regularly, emphasize plant-based proteins\n\n`;
+    }
+
+    if (isGlutenFree) {
+      guidance += `🌾 GLUTEN-FREE (CELIAC-SAFE):
+- ❌ FORBIDDEN: Wheat, barley, rye, regular oats (unless certified gluten-free), spelt, triticale, malt, brewer's yeast
+- ❌ HIDDEN SOURCES: Soy sauce (use tamari), some protein powders, processed foods with wheat derivatives
+- ✅ SAFE GRAINS: Rice (white, brown, wild), quinoa, certified gluten-free oats, corn, millet, buckwheat, amaranth
+- ✅ SAFE CARBS: Potatoes, sweet potatoes, rice noodles, corn tortillas, gluten-free bread/pasta
+- ✅ NATURALLY GLUTEN-FREE: All meats, fish, eggs, dairy, fruits, vegetables, nuts, seeds, legumes
+- Example Meals: Rice bowl with chicken and vegetables, gluten-free oatmeal, corn tortilla tacos, quinoa salad, rice noodle stir-fry
+- IMPORTANT: Check all packaged foods for hidden gluten, use gluten-free alternatives for grains\n\n`;
+    }
+
+    if (isDairyFree) {
+      guidance += `🥛 DAIRY-FREE / LACTOSE-FREE:
+- ❌ FORBIDDEN: Milk, cheese, yogurt, butter, cream, ice cream, whey protein, casein
+- ✅ DAIRY ALTERNATIVES: Almond milk, oat milk, soy milk, coconut milk/cream/yogurt, cashew cheese, coconut oil instead of butter
+- ✅ PROTEIN SOURCES: Meat, poultry, fish, eggs (if not vegan), legumes, tofu, plant-based protein powder
+- ✅ CALCIUM SOURCES: Fortified plant milks, leafy greens (kale, collards), almonds, tahini, fortified tofu
+- Example Meals: Oatmeal with almond milk, chicken with olive oil and vegetables, tofu scramble, smoothie with coconut yogurt
+- IMPORTANT: Replace dairy in all recipes with plant-based alternatives, check labels for hidden dairy (whey, casein)\n\n`;
+    }
+
+    if (isNutFree) {
+      guidance += `🚫 NUT-FREE (ALLERGY-SAFE):
+- ❌ FORBIDDEN: All tree nuts (almonds, walnuts, cashews, pecans, pistachios, macadamias, hazelnuts, Brazil nuts), peanuts, nut butters, nut oils, nut flours
+- ⚠️ CROSS-CONTAMINATION: Avoid foods processed in facilities with nuts
+- ✅ SAFE ALTERNATIVES: Seeds (sunflower seed butter, pumpkin seeds, chia seeds, hemp seeds, tahini/sesame butter), coconut (technically safe for most nut allergies)
+- ✅ SAFE FATS: Olive oil, avocado, coconut oil, seeds, fatty fish
+- ✅ SAFE PROTEINS: All meats, fish, eggs, dairy, legumes, tofu
+- Example Meals: Chicken with sunflower seed pesto, oatmeal with seeds and fruit, hummus with vegetables, salmon with tahini sauce
+- IMPORTANT: Replace all nut-based ingredients with seed-based alternatives\n\n`;
+    }
+
+    if (isHighProtein) {
+      guidance += `💪 HIGH PROTEIN FOCUS:
+- 🎯 TARGET: 35-45g protein per main meal, 15-20g per snack
+- ✅ PRIORITIZE: Lean meats (chicken breast, turkey, lean beef), fish (tuna, cod, tilapia), eggs, egg whites, Greek yogurt, cottage cheese, protein powder
+- ✅ PLANT PROTEINS: Tofu, tempeh, edamame, lentils, chickpeas, protein-fortified foods
+- IMPORTANT: Start each meal planning with protein source first, then build around it
+- Each main meal should have AT LEAST 180-250g of lean protein source (chicken, fish, tofu)\n\n`;
+    }
+
+    if (isWholeFoods) {
+      guidance += `🥗 WHOLE FOODS / CLEAN EATING:
+- ✅ EMPHASIS: Single-ingredient foods, minimally processed items
+- ❌ AVOID: Processed foods, artificial ingredients, preservatives, refined sugars, refined grains
+- ✅ PROTEIN: Fresh meats, fish, eggs, plain Greek yogurt, plain cottage cheese
+- ✅ CARBS: Whole grains (brown rice, quinoa, oats), sweet potatoes, fruits
+- ✅ FATS: Avocado, nuts, seeds, olive oil, coconut oil
+- IMPORTANT: Choose foods that look like they did when grown/raised, minimal ingredient lists\n\n`;
+    }
+
+    // Add general notes
+    guidance += `\n📋 GENERAL MEAL CREATION GUIDELINES:
+- Read and follow ALL dietary restrictions above before generating ANY meal
+- If a restriction forbids an ingredient, find appropriate substitutes from the allowed lists
+- When in doubt about an ingredient, check if it violates any restriction above
+- Ensure every meal strictly complies with ALL applicable restrictions
+- Be creative with allowed ingredients to maintain meal variety and enjoyment
+- Original user input: "${preferences}"
+
+⚠️ COMPLIANCE CHECK: Before finalizing each meal, verify it contains ZERO forbidden ingredients from the restrictions above.\n`;
+
+    return guidance;
   }
 
   /**
