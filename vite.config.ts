@@ -18,6 +18,11 @@ export default defineConfig({
         target: 'https://valuable-parrot-115.convex.site',
         changeOrigin: true,
         secure: true,
+      },
+      '/api/webhook/stripe': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        secure: false,
       }
     }
   },
