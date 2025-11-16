@@ -24,6 +24,9 @@ import { MacroValues, NutritionErrorType } from '../types/nutrition';
 import { calculateMacrosForAmount, extractMacrosFromUSDA, normalizeFoodName } from '../utils/usdaMapper';
 import { HybridMealOptimizer } from './optimizers/HybridMealOptimizer';
 import { isZeroImpactIngredient, stripDescriptorWords } from '../constants/ingredients';
+import {
+  MACRO_CYCLING,
+} from './NutritionCalculationService';
 
 /**
  * Meal Schema for Batch Generation
@@ -996,23 +999,28 @@ Generate meals for all 7 days now. Remember: EACH meal type on EACH day must be 
 
   /**
    * Calculate day macros with cycling
+   *
+   * NOTE: Now uses NutritionCalculationService constants for evidence-based macro cycling.
+   * Training days: +5% calories, +20% carbs, -15% fat (optimized for performance)
+   * Rest days: -5% calories, -20% carbs, +15% fat (optimized for recovery)
+   * Protein remains constant across all days.
    */
   private calculateDayMacros(weeklyOutline: WeeklyOutline, isRestDay: boolean): MacroValues {
     const base = weeklyOutline.dailyTargets;
-    
+
     if (isRestDay) {
       return {
-        calories: Math.round(base.calories * 0.97), // -3%
-        protein: base.protein,
-        carbs: Math.round(base.carbs * 0.9), // -10%
-        fats: Math.round(base.fat * 1.1), // +10%
+        calories: Math.round(base.calories * (1 - MACRO_CYCLING.REST_DAY_CALORIE_REDUCTION)),
+        protein: base.protein, // Constant
+        carbs: Math.round(base.carbs * (1 - MACRO_CYCLING.REST_DAY_CARB_REDUCTION)),
+        fats: Math.round(base.fat * (1 + MACRO_CYCLING.REST_DAY_FAT_BOOST)),
       };
     } else {
       return {
-        calories: Math.round(base.calories * 1.03), // +3%
-        protein: base.protein,
-        carbs: Math.round(base.carbs * 1.1), // +10%
-        fats: Math.round(base.fat * 0.9), // -10%
+        calories: Math.round(base.calories * (1 + MACRO_CYCLING.TRAINING_DAY_CALORIE_BOOST)),
+        protein: base.protein, // Constant
+        carbs: Math.round(base.carbs * (1 + MACRO_CYCLING.TRAINING_DAY_CARB_BOOST)),
+        fats: Math.round(base.fat * (1 - MACRO_CYCLING.TRAINING_DAY_FAT_REDUCTION)),
       };
     }
   }
