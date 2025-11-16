@@ -17,6 +17,10 @@ import { NutritionalResearchService } from './NutritionalResearchService';
 import { MealGenerationService } from './MealGenerationService';
 import { ShoppingListGenerationService } from './ShoppingListGenerationService';
 
+// NOTE: For direct access to centralized nutrition calculations, see:
+// @/services/NutritionCalculationService - Single source of truth for BMR, TDEE, macros, and cycling
+// This service (AISdkRagService) uses DynamicCalculator which now delegates to NutritionCalculationService
+
 // ============================================================================
 // CONSTANTS - Extract magic numbers for maintainability
 // ============================================================================
