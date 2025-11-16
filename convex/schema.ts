@@ -163,6 +163,7 @@ export default defineSchema({
   // ✅ Token System - User Accounts
   userAccounts: defineTable({
     userId: v.string(),
+    email: v.optional(v.string()),
     tokens: v.number(), // Available tokens
     totalTokensPurchased: v.number(), // Lifetime tokens purchased
     planType: v.optional(v.string()), // e.g., "free", "basic", "premium"
@@ -171,7 +172,9 @@ export default defineSchema({
     
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_user", ["userId"]),
+  })
+    .index("by_user", ["userId"])
+    .index("by_email", ["email"]),
   
   // ✅ Token Usage Tracking
   tokenUsage: defineTable({
@@ -189,4 +192,3 @@ export default defineSchema({
     .index("by_user_date", ["userId", "createdAt"])
     .index("by_status", ["status"]),
 });
-

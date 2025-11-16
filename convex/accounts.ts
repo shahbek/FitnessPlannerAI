@@ -2,6 +2,10 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
 
+function normalizeEmail(email?: string | null): string | undefined {
+  return email ? email.trim().toLowerCase() : undefined;
+}
+
 // Get user account with token balance
 export const getUserAccount = query({
   args: {},
@@ -46,6 +50,7 @@ export const initializeAccount = mutation({
     // Create new account with 0 tokens (no free plan)
     return await ctx.db.insert("userAccounts", {
       userId,
+      email: normalizeEmail(user.email),
       tokens: 0,
       totalTokensPurchased: 0,
       planType: "none",
@@ -106,6 +111,7 @@ export const recordTokenUsage = mutation({
     if (!account) {
       const accountId = await ctx.db.insert("userAccounts", {
         userId,
+        email: normalizeEmail(user.email),
         tokens: 0,
         totalTokensPurchased: 0,
         planType: "none",
@@ -173,6 +179,7 @@ export const addTokens = mutation({
     if (!account) {
       const accountId = await ctx.db.insert("userAccounts", {
         userId,
+        email: normalizeEmail(user.email),
         tokens: args.amount,
         totalTokensPurchased: args.amount,
         planType: "none",
@@ -216,6 +223,7 @@ export const addTokensFromPayment = mutation({
     if (!account) {
       const accountId = await ctx.db.insert("userAccounts", {
         userId: args.userId,
+        email: undefined,
         tokens: args.tokens,
         totalTokensPurchased: args.tokens,
         planType: "none",
@@ -239,6 +247,94 @@ export const addTokensFromPayment = mutation({
     }
 
     return { success: true };
+  },
+});
+
+// Add tokens from payment using email mapping (called by external webhook)
+export const addTokensFromPaymentByEmail = mutation({
+  args: {
+    email: v.string(),
+    tokens: v.number(),
+    paymentId: v.string(),
+    amount: v.number(),
+    packageId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const normalizedEmail = normalizeEmail(args.email);
+    if (!normalizedEmail) {
+      throw new Error("Invalid email for token crediting");
+    }
+
+    let account = await ctx.db
+      .query("userAccounts")
+      .withIndex("by_email", (q) => q.eq("email", normalizedEmail))
+      .first();
+
+    if (!account) {
+      throw new Error(
+        `No user account found for email ${normalizedEmail}. Make sure the user has opened the app with this email at least once.`
+      );
+    }
+
+    await ctx.db.patch(account._id, {
+      tokens: account.tokens + args.tokens,
+      totalTokensPurchased: account.totalTokensPurchased + args.tokens,
+      lastPurchaseDate: Date.now(),
+      lastPurchaseAmount: args.amount,
+      updatedAt: Date.now(),
+    });
+
+    await ctx.db.insert("tokenUsage", {
+      userId: account.userId,
+      operationType: "token_purchase",
+      tokensUsed: args.tokens, // Positive for purchases
+      status: "success",
+      paymentId: args.paymentId,
+      details: {
+        packageId: args.packageId,
+        amount: args.amount,
+        email: normalizedEmail,
+      },
+      createdAt: Date.now(),
+    });
+
+    return { success: true };
+  },
+});
+
+// Ensure existing accounts have normalized email stored
+export const syncAccountEmail = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await authComponent.getAuthUser(ctx);
+    if (!user || !user.email) {
+      throw new Error("Not authenticated or missing email");
+    }
+    const userId = user._id as any;
+    const normalized = normalizeEmail(user.email);
+    if (!normalized) {
+      throw new Error("Invalid email");
+    }
+
+    const account = await ctx.db
+      .query("userAccounts")
+      .withIndex("by_user", (q) => q.eq("userId", userId))
+      .first();
+
+    if (!account) {
+      return { updated: false };
+    }
+
+    if (account.email === normalized) {
+      return { updated: false };
+    }
+
+    await ctx.db.patch(account._id, {
+      email: normalized,
+      updatedAt: Date.now(),
+    });
+
+    return { updated: true };
   },
 });
 

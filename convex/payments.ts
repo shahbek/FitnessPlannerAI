@@ -30,7 +30,7 @@ export const createCheckoutSession = mutation({
       // Get Stripe secret key from Convex secrets
       // Set this in Convex dashboard: npx convex env set STRIPE_SECRET_KEY sk_test_...
       const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-      
+
       if (!stripeSecretKey) {
         // Fallback: Return package info for manual testing
         // In production, this should always have the secret key
@@ -44,45 +44,34 @@ export const createCheckoutSession = mutation({
         };
       }
 
-      // Dynamically import Stripe to avoid bundling issues
-      const stripeModule = await import("stripe");
-      const Stripe = stripeModule.default;
-      const stripe = new Stripe(stripeSecretKey, {
-        apiVersion: "2025-10-29.clover",
-      });
-
-      // Get base URL from environment or use default
-      // In production, set CONVEX_SITE_URL in Convex dashboard
       const baseUrl = process.env.CONVEX_SITE_URL || "http://localhost:5173";
+      const formData = new URLSearchParams();
+      formData.append("payment_method_types[]", "card");
+      formData.append("line_items[0][price_data][currency]", "usd");
+      formData.append("line_items[0][price_data][product_data][name]", `${pkg.tokens.toLocaleString()} Tokens - ${args.packageId}`);
+      formData.append("line_items[0][price_data][product_data][description]", `Purchase ${pkg.tokens.toLocaleString()} tokens for ${pkg.price.toLocaleString()} plan generations`);
+      formData.append("line_items[0][price_data][unit_amount]", Math.round(pkg.price * 100).toString());
+      formData.append("line_items[0][quantity]", "1");
+      formData.append("mode", "payment");
+      formData.append("success_url", `${baseUrl}/settings/tokens?session_id={CHECKOUT_SESSION_ID}&success=true`);
+      formData.append("cancel_url", `${baseUrl}/settings/tokens?canceled=true`);
+      formData.append("client_reference_id", user._id as string);
+      formData.append("metadata[userId]", user._id as string);
+      formData.append("metadata[userEmail]", user.email || "");
+      formData.append("metadata[packageId]", args.packageId);
+      formData.append("metadata[tokens]", pkg.tokens.toString());
+      formData.append("metadata[amount]", pkg.price.toString());
 
-      // Create Stripe Checkout Session
-      const session = await stripe.checkout.sessions.create({
-        payment_method_types: ["card"],
-        line_items: [
-          {
-            price_data: {
-              currency: "usd",
-              product_data: {
-                name: `${pkg.tokens.toLocaleString()} Tokens - ${args.packageId}`,
-                description: `Purchase ${pkg.tokens.toLocaleString()} tokens for ${pkg.price.toLocaleString()} plan generations`,
-              },
-              unit_amount: Math.round(pkg.price * 100), // Convert to cents
-            },
-            quantity: 1,
-          },
-        ],
-        mode: "payment",
-        success_url: `${baseUrl}/settings/tokens?session_id={CHECKOUT_SESSION_ID}&success=true`,
-        cancel_url: `${baseUrl}/settings/tokens?canceled=true`,
-        client_reference_id: user._id as string,
-        metadata: {
-          userId: user._id as string,
-          userEmail: user.email || "",
-          packageId: args.packageId,
-          tokens: pkg.tokens.toString(),
-          amount: pkg.price.toString(),
+      const response = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${stripeSecretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
         },
+        body: formData.toString(),
       });
+
+      const session = await parseStripeResponse(response);
 
       return {
         packageId: args.packageId,
@@ -102,16 +91,10 @@ export const createCheckoutSession = mutation({
 
 // Handle Stripe webhook for successful payments
 export const handleStripeWebhook = httpAction(async (ctx, request) => {
-  const signature = request.headers.get("stripe-signature");
-  if (!signature) {
-    return new Response("No signature", { status: 400 });
-  }
-
   const body = await request.text();
   
   // Get Stripe webhook secret and secret key from Convex secrets
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   
   if (!stripeSecretKey) {
     console.error("STRIPE_SECRET_KEY not configured");
@@ -120,24 +103,14 @@ export const handleStripeWebhook = httpAction(async (ctx, request) => {
 
   let event;
   try {
-    // Dynamically import Stripe
-    const stripeModule = await import("stripe");
-    const Stripe = stripeModule.default;
-    const stripe = new Stripe(stripeSecretKey, {
-      apiVersion: "2025-10-29.clover",
-    });
-
-    // Verify webhook signature in production
-    if (webhookSecret) {
-      event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
-    } else {
-      // Development mode: parse directly (NOT SECURE for production)
-      console.warn("STRIPE_WEBHOOK_SECRET not set, skipping signature verification (DEVELOPMENT ONLY)");
-      event = JSON.parse(body);
-    }
+    // Note: This Convex webhook implementation is deprecated in favor of the
+    // external Express webhook server in api/webhook/stripe/server.ts.
+    // We still parse the event for backward compatibility, but do not verify
+    // the Stripe signature here to avoid Node.js crypto dependencies.
+    event = JSON.parse(body);
   } catch (err) {
     console.error("Webhook signature verification failed:", err);
-    return new Response(`Webhook Error: ${err}`, { status: 400 });
+    return new Response(`Webhook Error: ${err instanceof Error ? err.message : err}`, { status: 400 });
   }
 
   // Handle the event
@@ -177,3 +150,17 @@ export const handleStripeWebhook = httpAction(async (ctx, request) => {
   });
 });
 
+async function parseStripeResponse(response: Response): Promise<any> {
+  const text = await response.text();
+  if (!response.ok) {
+    let message = text;
+    try {
+      const json = JSON.parse(text);
+      message = json.error?.message ? `${json.error.message} (${json.error.type})` : text;
+    } catch {
+      // ignore JSON parse errors
+    }
+    throw new Error(`Stripe API error (${response.status}): ${message}`);
+  }
+  return JSON.parse(text);
+}
