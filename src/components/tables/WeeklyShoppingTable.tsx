@@ -145,7 +145,7 @@ export function WeeklyShoppingTable({ data }: WeeklyShoppingTableProps) {
               
               <CollapsibleContent>
                 <div className="px-6 py-6 border-t border-border/50">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  <div className="w-full">
                     {/* Shopping List */}
                     <div className="bg-background/80 rounded-lg p-5 border border-border/40 shadow-sm">
                       <div className="flex items-center gap-2 mb-5 pb-2 border-b border-border/30">
@@ -201,41 +201,6 @@ export function WeeklyShoppingTable({ data }: WeeklyShoppingTableProps) {
                       </div>
                     </div>
 
-                    {/* Weekly Meals */}
-                    <div className="bg-background/80 rounded-lg p-5 border border-border/40 shadow-sm">
-                      <div className="flex items-center gap-2 mb-5 pb-2 border-b border-border/30">
-                        <div className="p-1.5 bg-primary/10 rounded-md">
-                          <Package className="h-4 w-4 text-primary" />
-                        </div>
-                        <h3 className="text-sm font-medium uppercase tracking-wide text-foreground">Weekly Meal Plan</h3>
-                      </div>
-                      
-                      <div className="space-y-3">
-                        {week.meals.map((meal, index) => (
-                          <div 
-                            key={index} 
-                            className={`pb-3 ${index < week.meals.length - 1 ? 'border-b border-border/50 mb-3' : ''}`}
-                          >
-                            <div className="flex items-center gap-2 mb-2">
-                              <Badge variant="outline" className={getMealTypeStyle()}>
-                                {meal.mealType}
-                              </Badge>
-                              <span className="font-medium text-sm">{meal.mealName}</span>
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              <div className="font-medium mb-1.5">Ingredients:</div>
-                              <div className="flex flex-wrap gap-1.5">
-                                {meal.ingredients.map((ingredient, idx) => (
-                                  <Badge key={idx} variant="outline" className="text-xs">
-                                    {ingredient}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
                   </div>
                 </div>
               </CollapsibleContent>
