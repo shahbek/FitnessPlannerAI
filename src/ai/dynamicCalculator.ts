@@ -1,10 +1,19 @@
 // Dynamic Calculator System (self-contained)
 // Provides evidence-aligned calculations without relying on the removed enhancedRAG layer.
+//
+// NOTE: This class now delegates to NutritionCalculationService for core calculations.
+// It maintains backward compatibility while using the centralized calculation logic.
 
 import {
   researchKnowledgeBase,
   ResearchFact,
 } from './knowledgeBase';
+
+import {
+  nutritionCalculationService,
+  UserMetrics,
+  GoalConfig,
+} from '../services/NutritionCalculationService';
 
 export interface CalculationResult {
   value: number;
@@ -33,50 +42,37 @@ export class DynamicCalculator {
   }
 
   /**
-   * Basal metabolic rate using Katch–McArdle (if body-fat% available) or Mifflin–St Jeor.
+   * Basal metabolic rate using Katch–McArdle (if body-fat% available) or Mifflin–St Jeor.
+   *
+   * NOTE: Now delegates to NutritionCalculationService for calculation.
    */
   async calculateBMR(userProfile: any): Promise<CalculationResult> {
     await this.ensureKnowledgeBase();
 
-    const hasBodyFat =
-      typeof userProfile.bodyFat === 'number' && userProfile.bodyFat > 0;
-    let value: number;
-    let formula: string;
-    let variables: Record<string, number>;
-    let sourceFact: ResearchFact | undefined;
+    const metrics = this.convertToUserMetrics(userProfile);
+    const maintenanceCalories = await nutritionCalculationService.calculateMaintenanceCalories(metrics);
+
+    // Extract BMR-related variables for backward compatibility
+    const hasBodyFat = typeof userProfile.bodyFat === 'number' && userProfile.bodyFat > 0;
+    const variables: Record<string, number> = {};
 
     if (hasBodyFat) {
-      const leanBodyMass =
-        userProfile.weightKg * (1 - userProfile.bodyFat / 100);
-      value = 370 + 21.6 * leanBodyMass;
-      formula = 'BMR = 370 + (21.6 × LBM_kg)';
-      variables = { LBM_kg: leanBodyMass };
-      sourceFact = researchKnowledgeBase.getFactById('katch_mcardle_bmr');
+      const leanBodyMass = userProfile.weightKg * (1 - userProfile.bodyFat / 100);
+      variables.LBM_kg = leanBodyMass;
     } else {
-      const genderFactor = userProfile.sex === 'male' ? 5 : -161;
-      value =
-        10 * userProfile.weightKg +
-        6.25 * userProfile.heightCm -
-        5 * userProfile.age +
-        genderFactor;
-      formula =
-        'BMR = (10 × weight_kg) + (6.25 × height_cm) - (5 × age) + gender_factor';
-      variables = {
-        weight_kg: userProfile.weightKg,
-        height_cm: userProfile.heightCm,
-        age: userProfile.age,
-        gender_factor: genderFactor,
-      };
-      sourceFact = researchKnowledgeBase.getFactById('mifflin_st_jeor_bmr');
+      variables.weight_kg = userProfile.weightKg;
+      variables.height_cm = userProfile.heightCm;
+      variables.age = userProfile.age;
+      variables.gender_factor = userProfile.sex === 'male' ? 5 : -161;
     }
 
     return {
-      value: Math.round(value),
-      confidence: 0.92,
-      formula,
+      value: maintenanceCalories.bmr,
+      confidence: maintenanceCalories.confidence,
+      formula: maintenanceCalories.bmrFormula,
       variables,
-      source: sourceFact?.source ?? 'Research-backed BMR formula',
-      warnings: [],
+      source: maintenanceCalories.bmrSource,
+      warnings: maintenanceCalories.warnings,
       recommendations: [],
     };
   }
@@ -113,6 +109,8 @@ export class DynamicCalculator {
 
   /**
    * Total daily energy expenditure based on activity factors.
+   *
+   * NOTE: Now delegates to NutritionCalculationService for calculation.
    */
   async calculateTDEE(
     userProfile: any,
@@ -120,24 +118,24 @@ export class DynamicCalculator {
   ): Promise<CalculationResult> {
     await this.ensureKnowledgeBase();
 
-    const activityFactor = this.determineActivityFactor(userProfile);
-    const tdee = bmr * activityFactor;
+    const metrics = this.convertToUserMetrics(userProfile);
+    const maintenanceCalories = await nutritionCalculationService.calculateMaintenanceCalories(metrics);
 
     return {
-      value: Math.round(tdee),
-      confidence: 0.9,
-      formula: 'TDEE = BMR × activity_factor',
-      variables: { BMR: bmr, activity_factor: activityFactor },
-      source:
-        researchKnowledgeBase.getFactById('activity_factors')?.source ??
-        'Activity factor guidelines',
-      warnings: [],
+      value: maintenanceCalories.tdee,
+      confidence: maintenanceCalories.confidence,
+      formula: maintenanceCalories.tdeeFormula,
+      variables: { BMR: maintenanceCalories.bmr, activity_factor: maintenanceCalories.activityFactor },
+      source: maintenanceCalories.activityFactorSource,
+      warnings: maintenanceCalories.warnings,
       recommendations: [],
     };
   }
 
   /**
    * Macro distribution tailored to goal (fat loss, recomp, gain).
+   *
+   * NOTE: Now delegates to NutritionCalculationService for calculation.
    */
   async calculateMacroTargets(
     userProfile: any,
@@ -146,19 +144,27 @@ export class DynamicCalculator {
   ): Promise<MacroTargets> {
     await this.ensureKnowledgeBase();
 
-    const { proteinPerKg, fatPerKg } = this.deriveMacroRatios(goal);
-    const protein = userProfile.weightKg * proteinPerKg;
-    const fat = userProfile.weightKg * fatPerKg;
-    const remainingCalories = Math.max(tdee - protein * 4 - fat * 9, 200);
-    const carbs = remainingCalories / 4;
+    const metrics = this.convertToUserMetrics(userProfile);
+    const maintenanceCalories = await nutritionCalculationService.calculateMaintenanceCalories(metrics);
+
+    const goalConfig: GoalConfig = {
+      goal: goal,
+      deficitMagnitude: 'moderate',
+    };
+
+    const macros = await nutritionCalculationService.calculateMacroTargets(
+      metrics,
+      maintenanceCalories,
+      goalConfig
+    );
 
     return {
-      calories: Math.round(tdee),
-      protein: Math.round(protein),
-      fat: Math.round(fat),
-      carbs: Math.round(carbs),
+      calories: macros.calories,
+      protein: macros.protein,
+      fat: macros.fat,
+      carbs: macros.carbs,
       confidence: 0.88,
-      sources: this.collectMacroSources(goal),
+      sources: macros.sources,
     };
   }
 
@@ -248,7 +254,7 @@ export class DynamicCalculator {
   }
 
   /**
-   * Basic hydration guidance (35 ml/kg baseline).
+   * Basic hydration guidance (35 ml/kg baseline).
    */
   async calculateWaterRequirement(
     userProfile: any,
@@ -279,78 +285,21 @@ export class DynamicCalculator {
     }
   }
 
-  private determineActivityFactor(userProfile: any): number {
-    const trainingDays =
-      userProfile.trainingDaysPerWeek ??
-      userProfile.currentTrainingDaysPerWeek ??
-      userProfile.trainingHistory?.currentTrainingDaysPerWeek;
-
-    if (typeof userProfile.activityLevel === 'number') {
-      return this.clampActivity(userProfile.activityLevel);
-    }
-
-    if (
-      typeof userProfile.activityLevel === 'string' &&
-      ACTIVITY_LEVEL_MAP[userProfile.activityLevel]
-    ) {
-      return ACTIVITY_LEVEL_MAP[userProfile.activityLevel];
-    }
-
-    if (typeof trainingDays === 'number') {
-      return this.clampActivity(this.mapTrainingDaysToActivityFactor(trainingDays));
-    }
-
-    return 1.45;
-  }
-
-  private clampActivity(value: number): number {
-    return Math.min(Math.max(value, 1.2), 1.9);
-  }
-
-  private mapTrainingDaysToActivityFactor(days: number): number {
-    if (days <= 1) return 1.2;
-    if (days === 2) return 1.35;
-    if (days === 3) return 1.5;
-    if (days === 4) return 1.6;
-    if (days === 5) return 1.7;
-    return 1.8;
-  }
-
-  private deriveMacroRatios(goal: string): { proteinPerKg: number; fatPerKg: number } {
-    const lowerGoal = goal.toLowerCase();
-    if (lowerGoal.includes('fat') || lowerGoal.includes('cut')) {
-      return { proteinPerKg: 2.2, fatPerKg: 0.7 };
-    }
-    if (lowerGoal.includes('muscle') || lowerGoal.includes('gain')) {
-      return { proteinPerKg: 2.0, fatPerKg: 0.9 };
-    }
-    return { proteinPerKg: 1.8, fatPerKg: 0.8 };
-  }
-
-  private collectMacroSources(goal: string): string[] {
-    const sourceSet = new Set<string>();
-    [
-      'helms_protein_cut',
-      'peos_protein_peak',
-      'helms_calorie_deficit',
-    ].forEach((id) => {
-      const fact = researchKnowledgeBase.getFactById(id);
-      if (fact) {
-        sourceSet.add(fact.source);
-      }
-    });
-
-    if (goal.toLowerCase().includes('muscle')) {
-      const muscleFact = researchKnowledgeBase.searchFacts(
-        'hypertrophy volume protein',
-        'training',
-      )[0];
-      if (muscleFact) {
-        sourceSet.add(muscleFact.source);
-      }
-    }
-
-    return Array.from(sourceSet);
+  /**
+   * Convert user profile to UserMetrics for NutritionCalculationService
+   */
+  private convertToUserMetrics(userProfile: any): UserMetrics {
+    return {
+      weightKg: userProfile.weightKg,
+      heightCm: userProfile.heightCm,
+      age: userProfile.age,
+      sex: userProfile.sex,
+      bodyFat: userProfile.bodyFat,
+      activityLevel: userProfile.activityLevel,
+      trainingDaysPerWeek: userProfile.trainingDaysPerWeek ??
+                           userProfile.currentTrainingDaysPerWeek ??
+                           userProfile.trainingHistory?.currentTrainingDaysPerWeek,
+    };
   }
 
   private deriveFatLossRate(userProfile: any): number {
@@ -387,13 +336,5 @@ export class DynamicCalculator {
     return { setsPerWeek: sets, frequency };
   }
 }
-
-const ACTIVITY_LEVEL_MAP: Record<string, number> = {
-  sedentary: 1.2,
-  light: 1.375,
-  moderate: 1.55,
-  active: 1.725,
-  'very_active': 1.9,
-};
 
 export const dynamicCalculator = new DynamicCalculator();
