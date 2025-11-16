@@ -11,7 +11,13 @@
  */
 
 import { UserProfile } from '../models/UserProfile';
-import { CompletePlan, WeeklyOutline, Exercise, SessionTemplate } from '../models/PlanModels';
+import {
+  CompletePlan,
+  WeeklyOutline,
+  Exercise,
+  SessionTemplate,
+  ShoppingList,
+} from '../models/PlanModels';
 import { DynamicCalculator } from '../ai/dynamicCalculator';
 
 // Foundation Services
@@ -27,6 +33,7 @@ import { TrainingSplitService, TrainingSplit } from './TrainingSplitService';
 import { SessionTemplateGenerator } from './SessionTemplateGenerator';
 import { WorkoutVerificationService } from './WorkoutVerificationService';
 import { WeeklyWorkoutGenerator } from './WeeklyWorkoutGenerator';
+import { ShoppingListGenerationService } from './ShoppingListGenerationService';
 
 /**
  * Generation State
@@ -71,6 +78,7 @@ export class IntegratedPlanGenerator {
   private workoutVerification: WorkoutVerificationService;
   private weeklyWorkoutGenerator: WeeklyWorkoutGenerator;
   private calculator: DynamicCalculator;
+  private shoppingListService: ShoppingListGenerationService | null;
 
   // State Management
   private currentState: GenerationState;
@@ -131,6 +139,17 @@ export class IntegratedPlanGenerator {
     );
     this.weeklyWorkoutGenerator = new WeeklyWorkoutGenerator(this.cotService);
     this.calculator = new DynamicCalculator();
+
+    // Initialize Shopping List Generation (uses Groq via AI API key)
+    const aiKey = env.AI_API_KEY;
+    if (aiKey) {
+      this.shoppingListService = new ShoppingListGenerationService(aiKey);
+    } else {
+      this.shoppingListService = null;
+      console.warn(
+        '⚠️  No AI API key found (env.AI_API_KEY). Shopping list generation will be disabled in IntegratedPlanGenerator.',
+      );
+    }
 
     // Initialize state
     this.currentState = {
@@ -330,7 +349,7 @@ export class IntegratedPlanGenerator {
         currentStep: 'Plan generation complete!',
       }, opts.onStateUpdate);
 
-      return this.compileCompletePlan(
+      return await this.compileCompletePlan(
         allMealPlans,
         allSessions,
         trainingSplit,
@@ -494,7 +513,7 @@ export class IntegratedPlanGenerator {
   /**
    * Compile complete plan
    */
-  private compileCompletePlan(
+  private async compileCompletePlan(
     mealPlans: Array<{
       weekNumber: number;
       dayNumber: number;
@@ -508,7 +527,7 @@ export class IntegratedPlanGenerator {
     weeklyOutlines: WeeklyOutline[],
     userProfile: UserProfile,
     sessionsByWeek?: SessionTemplate[][]
-  ): CompletePlan {
+  ): Promise<CompletePlan> {
     const derivedExercises = this.buildExerciseLibraryFromSessions(
       sessionTemplates,
       userProfile
@@ -602,6 +621,86 @@ export class IntegratedPlanGenerator {
         });
       }
     });
+
+    // Build shopping list (master + weekly) using ShoppingListGenerationService when available
+    let shoppingList: ShoppingList;
+    let shoppingListWithWeeks: any;
+
+    if (this.shoppingListService && dailyMealCombinations.length > 0) {
+      try {
+        console.log('🛒  [GENERATION] Generating shopping lists with cost estimation...');
+
+        // Group daily combinations by week to match ShoppingListGenerationService expectations
+        const combosByWeek = new Map<number, any[]>();
+        dailyMealCombinations.forEach((combo) => {
+          const weekNumber = combo.weekNumber || 1;
+          if (!combosByWeek.has(weekNumber)) {
+            combosByWeek.set(weekNumber, []);
+          }
+          combosByWeek.get(weekNumber)!.push(combo);
+        });
+
+        const sortedWeekNumbers = Array.from(combosByWeek.keys()).sort((a, b) => a - b);
+        const phaseMealTemplatesForShopping: any[][] = sortedWeekNumbers.map(
+          (weekNumber) => combosByWeek.get(weekNumber)!,
+        );
+
+        const fullShoppingList = await this.shoppingListService.generateShoppingListsWithGroq({
+          phaseMealTemplates: phaseMealTemplatesForShopping,
+          weeklyOutlines,
+          userProfile,
+        });
+
+        // Map master shopping list into legacy ShoppingList type for compatibility
+        const master = fullShoppingList.masterShoppingList || {};
+        const masterCategories = master.categories || [];
+
+        shoppingList = {
+          categories: masterCategories.map((cat: any) => ({
+            category: cat.category || 'Other',
+            items: (cat.items || []).map((item: any) => ({
+              name: item.name || '',
+              // Prefer totalQuantity if available, otherwise quantity
+              quantity: item.totalQuantity || item.quantity || '',
+              estimatedCost:
+                typeof item.totalEstimatedCost === 'number'
+                  ? item.totalEstimatedCost
+                  : item.estimatedCost,
+              priority: item.priority || 'medium',
+            })),
+          })),
+          totalEstimatedCost:
+            typeof master.totalEstimatedCost === 'number'
+              ? master.totalEstimatedCost
+              : master.totalCost ?? 0,
+          notes: master.notes || [],
+        };
+
+        // Preserve weekly shopping lists on the object for parsers/UI (extended shape)
+        shoppingListWithWeeks = shoppingList as any;
+        shoppingListWithWeeks.weeklyShoppingLists = fullShoppingList.weeklyShoppingLists || [];
+
+        console.log('✅  [GENERATION] Shopping lists generated successfully');
+      } catch (error) {
+        console.warn(
+          '⚠️  [GENERATION] Shopping list generation failed in IntegratedPlanGenerator. Using empty placeholder.',
+          error,
+        );
+        shoppingList = {
+          categories: [],
+          totalEstimatedCost: 0,
+          notes: ['Shopping list generation failed'],
+        };
+        shoppingListWithWeeks = shoppingList;
+      }
+    } else {
+      shoppingList = {
+        categories: [],
+        totalEstimatedCost: 0,
+        notes: ['Shopping list generation disabled or no meals available'],
+      };
+      shoppingListWithWeeks = shoppingList;
+    }
     
     return {
       // Required fields
@@ -646,11 +745,7 @@ export class IntegratedPlanGenerator {
       phaseExerciseLibraries: derivedExercises.length > 0 ? [derivedExercises] : [],
       // Add dailyMealCombinations for parser compatibility (it expects this format)
       dailyMealCombinations,
-      shoppingList: {
-        categories: [],
-        totalEstimatedCost: 0,
-        notes: [],
-      },
+      shoppingList: shoppingListWithWeeks as ShoppingList,
       metrics: {
         bmr: { value: 0, formula: '', source: '' },
         tdee: { value: 0, formula: '', source: '' },
