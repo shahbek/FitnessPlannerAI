@@ -677,12 +677,22 @@ Day ${day.dayNumber} (${day.dayName} - ${day.isTrainingDay ? 'Training' : 'Rest'
 - Meal Targets: Breakfast ~${day.mealTargets.breakfast} cal, Lunch ~${day.mealTargets.lunch} cal, Dinner ~${day.mealTargets.dinner} cal${day.mealTargets.snacks ? `, Snacks: ${day.mealTargets.snacks.map((s: number) => `~${s} cal`).join(', ')}` : ''}
 `).join('')}
 
-CRITICAL REQUIREMENTS:
+CRITICAL REQUIREMENTS (IN ORDER OF IMPORTANCE):
+
+🎯 PRIORITY #1: DIETARY PREFERENCES & RESTRICTIONS
+- The user's dietary preferences (shown in the guidance above) are MANDATORY
+- If they specified a cuisine type (Mediterranean, Indian, etc.), ALL meals MUST be from that cuisine
+- If they have allergies/restrictions (no beef, no dairy, etc.), ZERO violations allowed
+- Treat preferences as EQUALLY IMPORTANT as macro targets - both must be met
+
+📊 PRIORITY #2: MACRO ACCURACY
 1. Generate EXACTLY 7 days of meals (Monday through Sunday)
 2. Each day has EXACTLY ${mealFrequency} meals (breakfast, lunch, dinner, snack)
-3. **MEAL VARIETY - ABSOLUTELY CRITICAL - READ THIS FIRST**:
-   - ❌ NEVER repeat the same meal name for different meal types on the same day
-   - ✅ Breakfast, lunch, and dinner MUST have different meal names and different ingredients
+3. Hit the calorie and macro targets for each day (shown in DAY-BY-DAY TARGETS above)
+
+🍽️ PRIORITY #3: MEAL VARIETY
+- ❌ NEVER repeat the same meal name for different meal types on the same day
+- ✅ Breakfast, lunch, and dinner MUST have different meal names and different ingredients
    - ✅ Use meal-type-appropriate foods (breakfast foods for breakfast, lunch foods for lunch, etc.)
    - ✅ Ensure variety across the entire week
 4. **MEAL CALORIE TARGETS**: Each meal should target the calorie distribution shown above. For example:
@@ -785,7 +795,18 @@ CRITICAL REQUIREMENTS:
 
 Focus on meal creativity and variety. The macro estimates don't need to be perfect - they will be corrected with USDA data.
 
-Generate meals for all 7 days now. Remember: EACH meal type on EACH day must be UNIQUE.`;
+⚠️ FINAL REMINDER - BEFORE GENERATING ANY MEAL, RE-READ THE USER'S PREFERENCES ABOVE.
+
+If the user specified:
+- A cuisine type → EVERY meal must be from that cuisine (no generic Western meals)
+- Foods to avoid → ZERO instances of those foods in any meal
+- Foods they love → Prioritize those foods throughout the week
+- Dietary restrictions → Strictly follow them (as important as macro targets)
+
+Generate meals for all 7 days now. Remember:
+1. RESPECT THE USER'S PREFERENCES (cuisine, likes, dislikes, restrictions)
+2. HIT THE MACRO TARGETS (calories, protein, carbs, fat)
+3. ENSURE MEAL VARIETY (each meal type on each day must be unique)`;
   }
 
   /**
@@ -942,16 +963,38 @@ Generate meals for all 7 days now. Remember: EACH meal type on EACH day must be 
 - IMPORTANT: Choose foods that look like they did when grown/raised, minimal ingredient lists\n\n`;
     }
 
-    // Add general notes
-    guidance += `\n📋 GENERAL MEAL CREATION GUIDELINES:
-- Read and follow ALL dietary restrictions above before generating ANY meal
-- If a restriction forbids an ingredient, find appropriate substitutes from the allowed lists
-- When in doubt about an ingredient, check if it violates any restriction above
-- Ensure every meal strictly complies with ALL applicable restrictions
-- Be creative with allowed ingredients to maintain meal variety and enjoyment
-- Original user input: "${preferences}"
+    // CRITICAL: Always include the raw user preferences prominently
+    // This ensures ANY preference (not just predefined patterns) is respected
+    guidance += `\n🎯 USER'S EXACT PREFERENCES (CRITICAL - MUST FOLLOW):
+"${preferences}"
 
-⚠️ COMPLIANCE CHECK: Before finalizing each meal, verify it contains ZERO forbidden ingredients from the restrictions above.\n`;
+⚠️ THIS IS EXTREMELY IMPORTANT: The user specifically requested the above preferences. You MUST interpret and strictly follow them, even if they don't match standard diet patterns above.
+
+Examples of how to interpret preferences:
+- "Mediterranean Food" → ALL meals must be authentic Mediterranean cuisine (Greek, Italian, Spanish, Turkish, Lebanese, Moroccan)
+- "Indian cuisine" → ALL meals must be Indian dishes (curry, dal, biryani, tandoori, etc.)
+- "Asian food" → ALL meals must be Asian cuisine (Chinese, Thai, Japanese, Korean, Vietnamese)
+- "Mexican food" → ALL meals must be Mexican dishes (tacos, burritos, enchiladas, etc.)
+- "No beef" → ZERO beef in any meal, use chicken, fish, pork, or plant proteins instead
+- "I love spicy food" → Include spicy elements (chili peppers, hot sauce, cayenne) in most meals
+- "No dairy" → ZERO milk, cheese, yogurt, butter, cream in any meal
+- "Allergic to shellfish" → ZERO shrimp, crab, lobster, mussels, clams, oysters
+- "Prefer chicken and fish" → Prioritize chicken and fish as protein sources, minimize red meat
+
+📋 GENERAL MEAL CREATION GUIDELINES:
+- Read and follow ALL dietary restrictions/preferences above before generating ANY meal
+- The user's exact preferences (shown above) are AS IMPORTANT as hitting macro targets
+- If a restriction forbids an ingredient, find appropriate substitutes from allowed lists
+- When in doubt about an ingredient, check if it violates any restriction/preference
+- Ensure every meal strictly complies with ALL applicable restrictions and preferences
+- Be creative with allowed ingredients to maintain meal variety and enjoyment
+- If user specified a cuisine type (Mediterranean, Indian, Asian, etc.), EVERY meal must be from that cuisine
+- If user specified food likes/dislikes, prioritize liked foods and NEVER include disliked foods
+
+⚠️ COMPLIANCE CHECK: Before finalizing each meal, verify:
+1. It contains ZERO forbidden ingredients from restrictions above
+2. It strictly follows the user's stated preferences (cuisine type, likes/dislikes, etc.)
+3. If a cuisine was specified, the meal name and ingredients match that cuisine authentically\n`;
 
     return guidance;
   }
