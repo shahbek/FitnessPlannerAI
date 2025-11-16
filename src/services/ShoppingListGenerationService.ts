@@ -2,6 +2,7 @@ import { createGroq } from '@ai-sdk/groq';
 import { generateText, generateObject } from 'ai';
 import { z } from 'zod';
 import { IngredientCostCalculator } from '../utils/IngredientCostCalculator';
+import { INGREDIENT_CATEGORIES, CATEGORY_DESCRIPTIONS, type IngredientCategory } from '../data/ingredientCategoryDatabase';
 
 export interface GenerateShoppingListParams {
   phaseMealTemplates: any[][];  // Array of phase meal templates
@@ -21,6 +22,7 @@ interface UniqueIngredient {
 export class ShoppingListGenerationService {
   private groq: any;
   private costCalculator: IngredientCostCalculator;
+  private ingredientCategoryCache: Map<string, string> = new Map();
 
   constructor(apiKey: string) {
     this.groq = createGroq({ apiKey });
@@ -194,7 +196,7 @@ export class ShoppingListGenerationService {
           onReasoningUpdate('## 📋 Formatting Shopping Lists\n\nCreating structured weekly shopping lists...', 'formatting');
         }
         const formattingModel = this.groq('llama-3.3-70b-versatile');
-        const formattingPrompt = this.buildFormattingPromptWithCosts(costSummary, weeklyOutlines, uniqueIngredients, ingredientCostsForFormatting);
+        const formattingPrompt = await this.buildFormattingPromptWithCosts(costSummary, weeklyOutlines, uniqueIngredients, ingredientCostsForFormatting);
         // Try structured output first (more reliable than text parsing)
         try {
           const shoppingListSchema = this.getShoppingListSchema();
@@ -229,7 +231,7 @@ export class ShoppingListGenerationService {
         }
       } catch (formattingError) {
         console.warn('⚠️ AI formatting failed. Falling back to deterministic shopping list formatting.', formattingError);
-        parsed = this.buildDeterministicShoppingLists(weeklyIngredients, weeklyOutlines, ingredientCostsForFormatting);
+        parsed = await this.buildDeterministicShoppingLists(weeklyIngredients, weeklyOutlines, ingredientCostsForFormatting);
       }
 
       // Validate generated structure or fallback to deterministic if missing/empty
@@ -237,7 +239,7 @@ export class ShoppingListGenerationService {
       const allWeeksEmpty = !isParsedEmpty && parsed.weeklyShoppingLists.every((w: any) => !w.categories || w.categories.length === 0);
       if (isParsedEmpty || allWeeksEmpty) {
         console.warn('⚠️ Generated shopping lists are empty; rebuilding deterministically.');
-        parsed = this.buildDeterministicShoppingLists(weeklyIngredients, weeklyOutlines, ingredientCostsForFormatting);
+        parsed = await this.buildDeterministicShoppingLists(weeklyIngredients, weeklyOutlines, ingredientCostsForFormatting);
       }
 
       console.log('✅ Shopping lists generated successfully');
@@ -285,32 +287,32 @@ export class ShoppingListGenerationService {
   /**
    * Deterministic formatter to build weekly shopping lists from computed costs
    */
-  private buildDeterministicShoppingLists(
+  private async buildDeterministicShoppingLists(
     weeklyIngredients: Map<number, Map<string, { amount: number; unit: string; meals: string[] }>>,
     weeklyOutlines: any[],
     ingredientCosts: Map<string, Map<number, { cost: number; amount: number; unit: string }>>
-  ): any {
+  ): Promise<any> {
     const weeklyShoppingLists: any[] = [];
 
     // Build per-week lists
-    weeklyOutlines.forEach((week: any) => {
+    for (const week of weeklyOutlines) {
       const weekNumber = week.weekNumber;
       const ingredientMap = weeklyIngredients.get(weekNumber) || new Map();
       const categories: Array<{ category: string; items: any[]; categoryTotal: number }> = [];
       const categoryMap = new Map<string, any[]>();
 
-      ingredientMap.forEach((data, ingredientName) => {
-        const category = this.categorizeIngredient(ingredientName);
+      for (const [ingredientName, data] of ingredientMap.entries()) {
+        const category = await this.categorizeIngredient(ingredientName);
         if (!categoryMap.has(category)) categoryMap.set(category, []);
         const weekCostInfo = ingredientCosts.get(ingredientName)?.get(weekNumber);
-        const estimatedCost = weekCostInfo?.cost ?? this.estimateCostFallback(ingredientName, data.amount, data.unit);
+        const estimatedCost = weekCostInfo?.cost ?? await this.estimateCostFallback(ingredientName, data.amount, data.unit);
         categoryMap.get(category)!.push({
           name: ingredientName,
           quantity: `${Math.round(data.amount)}${data.unit || 'g'}`,
           estimatedCost: Math.round((estimatedCost || 0) * 100) / 100,
           priority: 'medium'
         });
-      });
+      }
 
       let weekTotal = 0;
       categoryMap.forEach((items, category) => {
@@ -327,7 +329,7 @@ export class ShoppingListGenerationService {
         categories,
         weekTotal: Math.round(weekTotal * 100) / 100
       });
-    });
+    }
 
     // Build master list by aggregating across weeks
     const masterCategoryMap = new Map<string, any[]>();
@@ -357,7 +359,7 @@ export class ShoppingListGenerationService {
   }
 
   /** Estimate cost using category defaults when pricing is unknown */
-  private estimateCostFallback(ingredientName: string, amount: number, unit: string): number {
+  private async estimateCostFallback(ingredientName: string, amount: number, unit: string): Promise<number> {
     const info = this.costCalculator.getPriceInfo(ingredientName);
     if (info) {
       // Approximate based on database entry
@@ -365,7 +367,7 @@ export class ShoppingListGenerationService {
       const unitsNeeded = grams / info.weightPerUnit;
       return unitsNeeded * info.pricePerUnit;
     }
-    const category = this.categorizeIngredient(ingredientName);
+    const category = await this.categorizeIngredient(ingredientName);
     const defaults: Record<string, number> = {
       'Proteins': 12.0,
       'Grains': 3.0,
@@ -424,24 +426,79 @@ export class ShoppingListGenerationService {
         meals.forEach((meal: any) => {
           const mealName = meal.recipe?.name || meal.baseRecipe?.name || meal.name || meal.mealType || 'Unknown Meal';
           
-          // Handle multiple possible ingredient locations
+          // Handle multiple possible ingredient locations (CHECK ALL PATHS)
           let ingredients: any[] = [];
+
+          // Priority 1: meal.recipe.ingredients
           if (meal.recipe?.ingredients && Array.isArray(meal.recipe.ingredients)) {
             ingredients = meal.recipe.ingredients;
-          } else if (meal.baseRecipe?.ingredients && Array.isArray(meal.baseRecipe.ingredients)) {
+          }
+          // Priority 2: meal.baseRecipe.ingredients
+          else if (meal.baseRecipe?.ingredients && Array.isArray(meal.baseRecipe.ingredients)) {
             ingredients = meal.baseRecipe.ingredients;
-          } else if (Array.isArray(meal.ingredients)) {
+          }
+          // Priority 3: meal.recipe.baseRecipe.ingredients (nested structure)
+          else if (meal.recipe?.baseRecipe?.ingredients && Array.isArray(meal.recipe.baseRecipe.ingredients)) {
+            ingredients = meal.recipe.baseRecipe.ingredients;
+          }
+          // Priority 4: meal.ingredients (direct array)
+          else if (Array.isArray(meal.ingredients)) {
             ingredients = meal.ingredients;
           }
-          
-          // Debug logging for missing ingredients
-          if (ingredients.length === 0 && meal.recipe) {
-            console.warn(`⚠️ Meal "${mealName}" has no ingredients in recipe.baseRecipe structure:`, {
+          // Priority 5: meal.adjustedIngredients (post-adjustment)
+          else if (meal.adjustedIngredients && Array.isArray(meal.adjustedIngredients)) {
+            ingredients = meal.adjustedIngredients;
+          }
+          // Priority 6: meal.recipe.adjustedIngredients
+          else if (meal.recipe?.adjustedIngredients && Array.isArray(meal.recipe.adjustedIngredients)) {
+            ingredients = meal.recipe.adjustedIngredients;
+          }
+
+          // CRITICAL: Log missing ingredients to help debug
+          if (ingredients.length === 0) {
+            console.error(`❌ [SHOPPING LIST] Meal "${mealName}" has ZERO ingredients found! Week ${weekNumber}, Day ${dayTemplate.dayNumber}`);
+            console.error(`   Meal structure:`, {
               hasRecipe: !!meal.recipe,
               hasBaseRecipe: !!meal.baseRecipe,
               hasIngredients: !!meal.ingredients,
-              mealKeys: Object.keys(meal)
+              hasAdjustedIngredients: !!meal.adjustedIngredients,
+              'recipe.hasIngredients': !!meal.recipe?.ingredients,
+              'recipe.hasBaseRecipe': !!meal.recipe?.baseRecipe,
+              'recipe.baseRecipe.hasIngredients': !!meal.recipe?.baseRecipe?.ingredients,
+              'baseRecipe.hasIngredients': !!meal.baseRecipe?.ingredients,
+              mealKeys: Object.keys(meal),
+              recipeKeys: meal.recipe ? Object.keys(meal.recipe) : [],
+              baseRecipeKeys: meal.baseRecipe ? Object.keys(meal.baseRecipe) : []
             });
+
+            // Try to extract from ANY property that looks like ingredients
+            const allKeys = Object.keys(meal);
+            for (const key of allKeys) {
+              const value = (meal as any)[key];
+              if (Array.isArray(value) && value.length > 0 && value[0]?.name) {
+                console.warn(`   Found potential ingredients array in meal.${key}:`, value.slice(0, 3));
+                ingredients = value;
+                break;
+              }
+            }
+
+            if (meal.recipe) {
+              const recipeKeys = Object.keys(meal.recipe);
+              for (const key of recipeKeys) {
+                const value = (meal.recipe as any)[key];
+                if (Array.isArray(value) && value.length > 0 && value[0]?.name) {
+                  console.warn(`   Found potential ingredients array in meal.recipe.${key}:`, value.slice(0, 3));
+                  ingredients = value;
+                  break;
+                }
+              }
+            }
+
+            if (ingredients.length === 0) {
+              console.error(`   ❌ FAILED to find ingredients anywhere in meal object. THIS INGREDIENT WILL BE MISSING FROM SHOPPING LIST!`);
+            } else {
+              console.log(`   ✅ Recovered ${ingredients.length} ingredients from alternate path`);
+            }
           }
           
           ingredients.forEach((ingredient: any) => {
@@ -479,7 +536,44 @@ export class ShoppingListGenerationService {
         });
       });
     });
-    
+
+    // VALIDATION: Report extraction summary
+    console.log('\n' + '='.repeat(80));
+    console.log('📊 SHOPPING LIST INGREDIENT EXTRACTION SUMMARY');
+    console.log('='.repeat(80));
+
+    let totalIngredients = 0;
+    let totalMealsProcessed = 0;
+
+    weeklyIngredients.forEach((weekMap, weekNumber) => {
+      const ingredientCount = weekMap.size;
+      totalIngredients += ingredientCount;
+
+      // Count meals processed this week
+      let mealsThisWeek = 0;
+      daysByWeek.get(weekNumber)?.forEach(dayTemplate => {
+        mealsThisWeek += (dayTemplate.meals || []).length;
+      });
+      totalMealsProcessed += mealsThisWeek;
+
+      console.log(`Week ${weekNumber}: ${ingredientCount} unique ingredients extracted from ${mealsThisWeek} meals`);
+
+      // Show a few example ingredients
+      const exampleIngredients = Array.from(weekMap.keys()).slice(0, 5);
+      console.log(`   Examples: ${exampleIngredients.join(', ')}`);
+    });
+
+    console.log('─'.repeat(80));
+    console.log(`✅ TOTAL: ${totalIngredients} unique ingredients extracted from ${totalMealsProcessed} total meals`);
+    console.log('='.repeat(80) + '\n');
+
+    // CRITICAL VALIDATION: Check if extraction failed
+    if (totalIngredients === 0) {
+      console.error('❌ CRITICAL ERROR: ZERO ingredients extracted from ALL meals!');
+      console.error('   This means the shopping list will be EMPTY.');
+      console.error('   Check meal structure in phaseMealTemplates - ingredients may be in unexpected locations.');
+    }
+
     return weeklyIngredients;
   }
 
@@ -851,40 +945,40 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
   /**
    * Build prompt for Llama 4 Scout using pre-calculated costs
    */
-  private buildFormattingPromptWithCosts(
+  private async buildFormattingPromptWithCosts(
     costSummary: string,
     weeklyOutlines: any[],
     uniqueIngredients: UniqueIngredient[],
     ingredientCosts: Map<string, Map<number, { cost: number; amount: number; unit: string }>>
-  ): string {
-    return this.buildFormattingPrompt(costSummary, weeklyOutlines, uniqueIngredients, ingredientCosts);
+  ): Promise<string> {
+    return await this.buildFormattingPrompt(costSummary, weeklyOutlines, uniqueIngredients, ingredientCosts);
   }
 
   /**
    * Build prompt for Llama 4 Scout to format cost data into weekly shopping lists
    */
-  private buildFormattingPrompt(
+  private async buildFormattingPrompt(
     costReasoning: string,
     weeklyOutlines: any[],
     uniqueIngredients: UniqueIngredient[],
     weeklyCosts?: Map<string, Map<number, { cost: number; amount: number; unit: string }>>
-  ): string {
+  ): Promise<string> {
     // Create a mapping of ingredients to their weeks and categories
     const ingredientsByWeek = new Map<number, Map<string, UniqueIngredient[]>>();
-    
-    uniqueIngredients.forEach(ing => {
-      ing.usedInWeeks.forEach(weekNum => {
+
+    for (const ing of uniqueIngredients) {
+      for (const weekNum of ing.usedInWeeks) {
         if (!ingredientsByWeek.has(weekNum)) {
           ingredientsByWeek.set(weekNum, new Map());
         }
         const weekMap = ingredientsByWeek.get(weekNum)!;
-        const category = this.categorizeIngredient(ing.name);
+        const category = await this.categorizeIngredient(ing.name);
         if (!weekMap.has(category)) {
           weekMap.set(category, []);
         }
         weekMap.get(category)!.push(ing);
-      });
-    });
+      }
+    }
     
     // Build enhanced prompt with weekly cost information if available
     let costDetails = '';
@@ -1490,69 +1584,71 @@ CRITICAL:
   }
 
   /**
-   * Categorize an ingredient by name
+   * Categorize an ingredient by name using a data-driven approach:
+   * 1. Check IngredientCostCalculator's price database (already has categories for common ingredients)
+   * 2. Check AI cache for previously categorized items
+   * 3. Use AI (Groq) to categorize unknown ingredient
+   *
+   * This ensures 100% coverage for all ingredients without maintaining a separate large database.
    */
-  private categorizeIngredient(name: string): string {
-    const lowerName = name.toLowerCase();
-    
-    // Proteins
-    if (lowerName.includes('chicken') || lowerName.includes('turkey') || 
-        lowerName.includes('salmon') || lowerName.includes('cod') || 
-        lowerName.includes('tuna') || lowerName.includes('beef') || 
-        lowerName.includes('pork') || lowerName.includes('fish') ||
-        lowerName.includes('shrimp') || lowerName.includes('ground')) {
-      return 'Proteins';
+  private async categorizeIngredient(name: string): Promise<string> {
+    const lowerName = name.toLowerCase().trim();
+
+    // Step 1: Check if ingredient exists in the price database (which includes category)
+    const priceInfo = this.costCalculator.getPriceInfo(name);
+    if (priceInfo && priceInfo.category) {
+      return priceInfo.category;
     }
-    
-    // Grains
-    if (lowerName.includes('rice') || lowerName.includes('quinoa') || 
-        lowerName.includes('oats') || lowerName.includes('pasta') || 
-        lowerName.includes('bread') || lowerName.includes('noodle') ||
-        lowerName.includes('flour') || lowerName.includes('cereal')) {
-      return 'Grains';
+
+    // Step 2: Check AI cache for previously categorized items
+    if (this.ingredientCategoryCache.has(lowerName)) {
+      return this.ingredientCategoryCache.get(lowerName)!;
     }
-    
-    // Vegetables
-    if (lowerName.includes('broccoli') || lowerName.includes('spinach') || 
-        lowerName.includes('kale') || lowerName.includes('lettuce') || 
-        lowerName.includes('tomato') || lowerName.includes('pepper') || 
-        lowerName.includes('onion') || lowerName.includes('garlic') || 
-        lowerName.includes('carrot') || lowerName.includes('potato') ||
-        lowerName.includes('asparagus') || lowerName.includes('cucumber') ||
-        lowerName.includes('zucchini') || lowerName.includes('mushroom')) {
-      return 'Vegetables';
+
+    // Step 3: Use AI to categorize unknown ingredient
+    try {
+      const category = await this.categorizeIngredientWithAI(name);
+      this.ingredientCategoryCache.set(lowerName, category);
+      return category;
+    } catch (error) {
+      console.warn(`⚠️ Failed to categorize ingredient "${name}" with AI, defaulting to Oils & Condiments:`, error);
+      return 'Oils & Condiments';
     }
-    
-    // Fruits
-    if (lowerName.includes('apple') || lowerName.includes('banana') || 
-        lowerName.includes('orange') || lowerName.includes('berry') || 
-        lowerName.includes('berries') || lowerName.includes('strawberry') ||
-        lowerName.includes('blueberry') || lowerName.includes('avocado') ||
-        lowerName.includes('lemon') || lowerName.includes('lime') ||
-        lowerName.includes('grape') || lowerName.includes('melon')) {
-      return 'Fruits';
+  }
+
+  /**
+   * Use AI (Groq) to categorize an unknown ingredient
+   * Returns one of the valid ingredient categories
+   */
+  private async categorizeIngredientWithAI(name: string): Promise<string> {
+    try {
+      // Build category descriptions for prompt
+      const categoryList = INGREDIENT_CATEGORIES.map(cat =>
+        `- ${cat}: ${CATEGORY_DESCRIPTIONS[cat]}`
+      ).join('\n');
+
+      const result = await generateObject({
+        model: this.groq('llama-3.3-70b-versatile'),
+        schema: z.object({
+          category: z.enum(INGREDIENT_CATEGORIES as any),
+          reasoning: z.string().optional()
+        }),
+        prompt: `Categorize this ingredient into ONE of these categories:
+
+${categoryList}
+
+Ingredient to categorize: "${name}"
+
+Choose the MOST appropriate category. If it's a prepared/mixed item, choose based on the primary ingredient.`,
+        temperature: 0.1, // Low temperature for consistent categorization
+      });
+
+      console.log(`✅ AI categorized "${name}" as "${result.object.category}"${result.object.reasoning ? ` (Reasoning: ${result.object.reasoning})` : ''}`);
+      return result.object.category;
+    } catch (error) {
+      console.error(`❌ Failed to categorize ingredient "${name}" with AI:`, error);
+      throw error;
     }
-    
-    // Dairy & Eggs
-    if (lowerName.includes('milk') || lowerName.includes('cheese') || 
-        lowerName.includes('yogurt') || lowerName.includes('egg') || 
-        lowerName.includes('butter') || lowerName.includes('cream') ||
-        lowerName.includes('whey') || lowerName.includes('feta') ||
-        lowerName.includes('cheddar') || lowerName.includes('mozzarella')) {
-      return 'Dairy & Eggs';
-    }
-    
-    // Nuts & Seeds
-    if (lowerName.includes('almond') || lowerName.includes('walnut') || 
-        lowerName.includes('cashew') || lowerName.includes('peanut') || 
-        lowerName.includes('seed') || lowerName.includes('nut') ||
-        lowerName.includes('chia') || lowerName.includes('flax') ||
-        lowerName.includes('sunflower') || lowerName.includes('pumpkin')) {
-      return 'Nuts & Seeds';
-    }
-    
-    // Oils & Condiments (default for remaining items)
-    return 'Oils & Condiments';
   }
 
   /**
