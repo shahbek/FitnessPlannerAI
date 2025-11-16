@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
-import { useMutation } from 'convex/react';
+import { useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
-import { TokenPackageId } from '@/services/PaymentService';
+import { TokenPackageId, TOKEN_PACKAGES } from '@/services/PaymentService';
 
 interface PurchaseTokensButtonProps {
   packageId: TokenPackageId;
@@ -23,41 +23,69 @@ export function PurchaseTokensButton({
 }: PurchaseTokensButtonProps) {
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
-  const createCheckoutSession = useMutation(api.payments.createCheckoutSession);
+  const user = useQuery(api.users.getCurrentUser);
 
   const handlePurchase = async () => {
     setIsLoading(true);
     
     try {
-      // Create Stripe checkout session via Convex
-      const result = await createCheckoutSession({ packageId });
-      
-      if (!result.checkoutUrl) {
-        // Stripe key not configured or testing mode
-        if (result.requiresStripeKey) {
-          toast({
-            title: "Stripe not configured",
-            description: "Please set STRIPE_SECRET_KEY in Convex dashboard. For testing, you can manually add tokens.",
-            variant: "default",
-          });
-        } else {
-          toast({
-            title: "Checkout unavailable",
-            description: "Unable to create checkout session. Please try again later.",
-            variant: "destructive",
-          });
-        }
+      if (!user) {
+        toast({
+          title: "Sign in required",
+          description: "Please sign in before purchasing tokens.",
+          variant: "destructive",
+        });
         setIsLoading(false);
         return;
       }
 
-      // Redirect to Stripe Checkout
-      if (result.checkoutUrl) {
-        window.location.href = result.checkoutUrl;
-        // User will be redirected, so keep loading state
+      const pkg = TOKEN_PACKAGES[packageId];
+      if (!pkg) {
+        toast({
+          title: "Invalid package",
+          description: "Selected token package is not available.",
+          variant: "destructive",
+        });
+        setIsLoading(false);
         return;
       }
 
+      const paymentLinkEnvKey = `VITE_STRIPE_${packageId.toUpperCase()}_PAYMENT_LINK` as
+        | "VITE_STRIPE_STARTER_PAYMENT_LINK"
+        | "VITE_STRIPE_PROFESSIONAL_PAYMENT_LINK"
+        | "VITE_STRIPE_ENTERPRISE_PAYMENT_LINK";
+
+      const baseLink =
+        import.meta.env[paymentLinkEnvKey] ||
+        (packageId === "starter"
+          ? "https://buy.stripe.com/test_dRm9ASh183sm1Ol8x6cQU00"
+          : "");
+
+      if (!baseLink) {
+        toast({
+          title: "Payment link not configured",
+          description: "This plan's Stripe payment link is not set up yet.",
+          variant: "destructive",
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      const url = new URL(baseLink);
+
+      // Attach Convex user id so webhook can credit tokens
+      if (user._id) {
+        url.searchParams.set("client_reference_id", user._id as string);
+      }
+
+      // Optional: prefill email in Stripe checkout
+      if (user.email) {
+        url.searchParams.set("prefilled_email", user.email);
+      }
+
+      window.location.href = url.toString();
+      // User will be redirected, so keep loading state
+      return;
     } catch (error) {
       console.error("Purchase error:", error);
       toast({
@@ -87,4 +115,3 @@ export function PurchaseTokensButton({
     </Button>
   );
 }
-
