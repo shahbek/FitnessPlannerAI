@@ -19,6 +19,7 @@ import { config } from 'dotenv';
 import { IntegratedPlanGenerator } from '../../services/IntegratedPlanGenerator';
 import { UserProfile } from '../../models/UserProfile';
 import { WeeklyOutline } from '../../models/PlanModels';
+import { parseWorkoutData } from '../../utils/workoutDataParser';
 
 config();
 
@@ -183,6 +184,58 @@ async function runTests() {
       console.error('   Stack:', error instanceof Error ? error.stack : 'No stack trace');
       console.error('   Final state:', JSON.stringify(generator.getCurrentState(), null, 2));
       throw error;
+    }
+
+    // Debug: Inspect raw shopping list on the generated plan
+    if (!plan.shoppingList) {
+      console.log('   ⚠️  [SHOPPING] No shoppingList found on plan');
+    } else {
+      const weeklyLists = plan.shoppingList.weeklyShoppingLists || [];
+      const master = plan.shoppingList.masterShoppingList || {};
+      console.log('   🛒 [SHOPPING] Raw shopping list summary:', {
+        weeklyListCount: weeklyLists.length,
+        masterCategoryCount: (master.categories && master.categories.length) || 0,
+        masterTotalEstimatedCost:
+          typeof master.totalEstimatedCost === 'number'
+            ? master.totalEstimatedCost
+            : master.totalCost ?? 0,
+      });
+
+      weeklyLists.forEach((weekList: any) => {
+        console.log(
+          `   🛒 [SHOPPING] Week ${weekList.weekNumber}: ` +
+            `${(weekList.categories && weekList.categories.length) || 0} categories, ` +
+            `weekTotal=${weekList.weekTotal}`,
+        );
+      });
+
+      if (weeklyLists.length === 0) {
+        console.log(
+          '   ⚠️  [SHOPPING] weeklyShoppingLists is empty - shopping list generation likely failed and returned the empty fallback structure',
+        );
+      }
+    }
+
+    // Debug: Run parser to see what the frontend tables would receive
+    try {
+      const parsed = parseWorkoutData(plan);
+      console.log('   🛒 [SHOPPING] Parsed shopping data:', {
+        shoppingItemsCount: parsed.shoppingItems.length,
+        weeklyShoppingCount: parsed.weeklyShopping.length,
+      });
+      parsed.weeklyShopping.forEach((week) => {
+        console.log(
+          `   🛒 [SHOPPING] Parsed week ${week.weekNumber}: ` +
+            `${week.categories.length} categories, weekTotal=${week.weekTotal}`,
+        );
+      });
+      if (parsed.weeklyShopping.length === 0) {
+        console.log(
+          '   ⚠️  [SHOPPING] Parsed weeklyShopping is empty - UI shopping list table will show 0 items',
+        );
+      }
+    } catch (parseError) {
+      console.log('   ❌ [SHOPPING] parseWorkoutData failed for plan.shoppingList:', parseError);
     }
 
     // Validate plan structure (CompletePlan format)
