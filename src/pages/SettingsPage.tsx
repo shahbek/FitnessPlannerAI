@@ -41,6 +41,8 @@ interface SettingsPageProps {
 export function SettingsPage({ currentView = 'account', onViewChange }: SettingsPageProps) {
   const user = useQuery(api.users.getCurrentUser);
   const updateUserProfile = useMutation(api.users.updateUserProfile);
+  const initializeAccount = useMutation(api.accounts.initializeAccount);
+  const syncAccountEmail = useMutation(api.accounts.syncAccountEmail);
   const userAccount = useQuery(api.accounts.getUserAccount);
   const tokenUsage = useQuery(api.accounts.getTokenUsage, { limit: 100 });
   const { toast } = useToast();
@@ -48,6 +50,17 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
   const [name, setName] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // Ensure a user account exists (needed for email-based Stripe crediting)
+  useEffect(() => {
+    if (!user || currentView !== 'tokens') return;
+
+    if (userAccount === null) {
+      initializeAccount().catch(() => {});
+    } else if (userAccount && !userAccount.email && user.email) {
+      syncAccountEmail().catch(() => {});
+    }
+  }, [user, currentView, userAccount, initializeAccount, syncAccountEmail]);
 
   // Handle Stripe return URL parameters
   useEffect(() => {
