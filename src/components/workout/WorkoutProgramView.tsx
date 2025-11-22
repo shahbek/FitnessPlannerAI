@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import { useQuery } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
 import { Card, CardContent, CardHeader } from '@/components/ui/Card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -23,6 +25,12 @@ export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramVie
   const { state: sidebarState } = useSidebar();
   const [parsedData, setParsedData] = useState<ParsedWorkoutData | null>(null);
   const [activeTab, setActiveTab] = useState('comprehensive-meals');
+
+  // Extract user profile from plan data (plan-specific profile)
+  // Fallback to logged-in user's profile if plan doesn't have one
+  const planUserProfile = workoutData?.userProfile;
+  const loggedInUserProfile = useQuery(api.users.getUserProfile);
+  const userProfile = planUserProfile || loggedInUserProfile || undefined;
 
   // Parse the data when component mounts or data changes
   useEffect(() => {
@@ -109,7 +117,7 @@ export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramVie
               </TabsTrigger>
             </TabsList>
           </div>
-          
+
           <div className="mt-4 pb-32">
             <TabsContent value="comprehensive-meals" className="mt-0">
               <Card>
@@ -168,9 +176,11 @@ export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramVie
       label: 'Phases',
       icon: steppingStoolIcon,
       content: (
-        <PhasesOverview 
+        <PhasesOverview
           plan={workoutData}
           progression={parsedData.phaseProgression}
+          weeklySchedule={parsedData.weeklySchedule}
+          userProfile={userProfile || undefined}
         />
       )
     }
@@ -215,7 +225,7 @@ export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramVie
         className="w-full"
       >
         {/* Tabs container - positioned relative to plan view area, accounting for content padding */}
-        <div 
+        <div
           className="fixed bottom-8 z-50 flex justify-center pointer-events-none transition-all duration-200 px-6"
           style={{
             left: sidebarState === 'expanded' ? '16rem' : '3rem',
@@ -224,14 +234,14 @@ export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramVie
         >
           <TabsList variant="glass" className="pointer-events-auto justify-start">
             {tabs.map((tab) => (
-              <TabsTrigger 
-                key={tab.value} 
+              <TabsTrigger
+                key={tab.value}
                 value={tab.value}
                 className="flex flex-col items-center gap-0"
               >
                 {tab.icon && (
-                  <img 
-                    src={tab.icon} 
+                  <img
+                    src={tab.icon}
                     alt={tab.label}
                     className="w-9 h-9 object-contain flex-shrink-0"
                     onError={(e) => {
@@ -245,7 +255,7 @@ export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramVie
             ))}
           </TabsList>
         </div>
-        
+
         <div className="mt-4 pb-32">
           {tabs.map((tab) => (
             <TabsContent key={tab.value} value={tab.value} className="mt-0">
