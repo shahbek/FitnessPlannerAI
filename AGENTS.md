@@ -1,123 +1,84 @@
-# AGENTS.md - AI Fitness Planner Development Guide
+# AGENTS.md - Core Workflow Analysis
 
-## Test Commands
-- Run single test: `tsx src/tests/integration/FullPlanGeneration.test.ts` (or any other test file)
-- Run all tests: `npm run test:all`
-- Unit test: `npm run test:usda`
-- Integration tests: `npm run test:meal-pipeline`, `npm run test:workout-pipeline`, `npm run test:integration`, `npm run test:full-generation`
-- Type checking: `npm run type-check`
-- Linting: `npm run lint` or `npm run lint:fix`
+This document provides a technical deep-dive into the essential core workflows of the Fitness Planner AI system. It is designed to help developers and agents understand how the system delivers a sophisticated, in-depth fitness plan.
 
-## Architecture
-- **Frontend**: React + TypeScript + Vite, Tailwind CSS, shadcn/ui components
-- **Backend**: Convex (serverless backend) in `/convex` directory - handles auth, DB (mealPlans, workoutPlans, users), and payments
-- **Services**:
-  - **Meal Generation**: `BatchMealGenerator` (single AI call per week, USDA reconciliation, macro adjustment)
-  - **Workout Generation**: `WeeklyWorkoutGenerator` (single AI call per week for all 7 days, ensures exercise variation)
-  - **Plan Assembly**: `IntegratedPlanGenerator` orchestrates both meal and workout generation
-- **AI Integration**: Groq AI via `@ai-sdk/groq` for Chain-of-Thought reasoning; deterministic fallbacks when AI unavailable
-- **Data**: USDA FoodData Central API for nutrition data (USDANutritionService)
-- **Models**: `/src/models` contains UserProfile, PlanModels (CompletePlan, WeeklyOutline), ConsistentPlanModels
+## 1. Hydration Strategy & Water Intake
 
-## Workout Generation System
+The system calculates optimal water intake based on user biometrics and activity levels, ensuring users stay hydrated for peak performance.
 
-### Overview
-The workout generation system has been redesigned to generate all workouts for an entire week in a **single AI call**, ensuring proper exercise variation, preventing duplicates, and allowing for progressive programming.
+- **Logic Location**: `src/utils/planCalculations.ts` (calculation), `src/components/plan-overview/HydrationAndMealTiming.tsx` (display).
+- **Workflow**:
+    1.  **Calculation**: The system uses the user's weight and activity level to calculate a baseline daily water intake (typically ~33ml per kg of body weight).
+    2.  **Adjustments**: Adjustments are made for training days (adding 500-1000ml) to compensate for sweat loss.
+    3.  **Display**: The `HydrationAndMealTiming` component visualizes this data, providing a daily target (e.g., "3.5L") and a schedule for intake (e.g., "250ml every 1-2 hours").
+    4.  **Education**: The UI explains *why* this amount is recommended (metabolism, recovery) and the formula used.
 
-### Key Components
+## 2. Cardio Optimization
 
-1. **WeeklyWorkoutGenerator** (`src/services/WeeklyWorkoutGenerator.ts`)
-   - Generates complete 7-day workout plan in one AI call
-   - Ensures exercise variation between similar training days (e.g., two "push" days use different exercises)
-   - Validates against duplicate sessions and high similarity (>70% overlap)
-   - Supports week-to-week progression by passing previous week's sessions
+Cardio is not generic; it is tailored to the user's specific goal (fat loss vs. endurance vs. muscle gain) and schedule.
 
-2. **TrainingSplitService** (`src/services/TrainingSplitService.ts`)
-   - Determines optimal training split (upper/lower, push/pull/legs, full body, etc.)
-   - Validates structure and recovery patterns
-   - Quality scoring system (recovery, balance, structure)
+- **Logic Location**: `src/services/WeeklyWorkoutGenerator.ts`, `src/models/PlanModels.ts` (`cardioSchedule`).
+- **Workflow**:
+    1.  **Goal Analysis**: The `WeeklyWorkoutGenerator` (and associated prompt builders) analyzes the user's `primaryGoal`.
+        -   *Fat Loss*: Prescribes HIIT or moderate-intensity steady state (MISS) to maximize calorie burn while preserving muscle.
+        -   *Endurance*: Prescribes higher duration, lower intensity sessions.
+        -   *Muscle Gain*: Prescribes low-impact cardio to aid recovery without burning excessive calories needed for growth.
+    2.  **Scheduling**: Cardio sessions are integrated into the `WeeklyOutline`, ensuring they don't interfere with resistance training recovery (e.g., separating heavy leg days from intense running).
+    3.  **Output**: The plan details frequency, duration, intensity, and specific type (e.g., "30 min Zone 2 Jog").
 
-3. **SessionTemplateGenerator** (`src/services/SessionTemplateGenerator.ts`) - LEGACY
-   - ⚠️ Still exists but replaced by WeeklyWorkoutGenerator
-   - Previously generated sessions one-by-one (caused duplicates)
-   - Keep for backward compatibility if needed
+## 3. Nutrition & Macro Cycling
 
-### How It Works
+The nutrition engine goes beyond simple calorie counting, implementing macro cycling and phase-specific targets.
 
-```typescript
-// 1. Generate training split
-const trainingSplit = await trainingSplitService.determineSplit(userProfile, [weeklyOutline]);
+- **Logic Location**: `src/services/NutritionCalculationService.ts`, `src/services/BatchMealGenerator.ts`, `src/models/PlanModels.ts` (`MetabolicMetrics`, `TrainingFramework`).
+- **Workflow**:
+    1.  **TDEE & BMR**: Calculates Total Daily Energy Expenditure and Basal Metabolic Rate using validated formulas (Mifflin-St Jeor).
+    2.  **Goal Targeting**: Applies a caloric surplus (muscle gain) or deficit (fat loss) based on the user's goal and timeline.
+    3.  **Macro Split**: Determines the optimal ratio of Protein, Carbs, and Fats.
+        -   *High Protein*: Prioritized for all goals to support muscle retention/growth (typically 1.6-2.2g/kg).
+        -   *Carb Cycling*: (If enabled) Adjusts carbohydrate intake based on training days (higher carbs) vs. rest days (lower carbs) to optimize insulin sensitivity and fuel workouts.
+    4.  **Meal Generation**: `BatchMealGenerator` creates meals that strictly adhere to these macro targets, using USDA data for accuracy.
 
-// 2. Generate ALL workouts for the week in ONE AI call
-const weekSessions = await weeklyWorkoutGenerator.generateWeeklyWorkouts(
-  trainingSplit,
-  userProfile,
-  weeklyOutline,
-  { previousWeekSessions } // Optional: for week-to-week variation
-);
+## 4. Grocery List Generation
 
-// Result: Array of SessionTemplate[] with unique exercises per similar day
-```
+The system bridges the gap between planning and execution by generating a precise, cost-aware grocery list.
 
-### Benefits of Single AI Call Per Week
+- **Logic Location**: `src/services/ShoppingListGenerationService.ts`.
+- **Workflow**:
+    1.  **Ingredient Extraction**: Iterates through every meal in the generated `WeeklyOutline` and extracts ingredients from recipes.
+    2.  **Aggregation**: Sums up quantities for identical ingredients across the week (e.g., "Chicken Breast" from Monday Lunch + Wednesday Dinner).
+    3.  **Categorization**: Groups items by aisle (Produce, Meat, Dairy, etc.) for efficient shopping.
+    4.  **Cost Estimation**:
+        -   Uses a hybrid approach: checks a local database for known prices.
+        -   Uses AI (`llama-3.3-70b-versatile`) to estimate costs for unknown items based on current market rates.
+    5.  **Output**: Produces a `ShoppingList` object with estimated total cost and categorized items.
 
-1. **Full Week Context**: AI sees all 7 days at once, enabling better programming
-2. **Exercise Variation**: Automatically varies exercises between similar days (e.g., "Push Day 1" vs "Push Day 2")
-3. **No Duplicates**: Validates templateIds and exercise similarity (<70% overlap threshold)
-4. **Progressive Overload**: Passes previous week context for week-to-week variation
-5. **Better Performance**: One AI call instead of 4-6 separate calls
-6. **User Profile Awareness**: Respects equipment availability, experience level, and primary goals
+## 5. Targeted Progression (Progressive Overload)
 
-### User Profile Integration
+The workout system ensures users don't stagnate by programming week-over-week progression.
 
-The system intelligently adapts workouts based on:
+- **Logic Location**: `src/services/WeeklyWorkoutGenerator.ts`, `src/services/TrainingSplitService.ts`.
+- **Workflow**:
+    1.  **Context Awareness**: The `WeeklyWorkoutGenerator` accepts `previousWeekSessions` as input.
+    2.  **Variation & Progression**:
+        -   *Volume*: Gradually increases sets/reps over the weeks (e.g., Week 1: 3 sets -> Week 4: 4 sets).
+        -   *Intensity*: Shifts focus from "Foundation" (higher reps, lower weight) to "Strength" (lower reps, higher weight) based on the `phase`.
+        -   *Exercise Selection*: Rotates exercises to prevent accommodation while maintaining movement patterns (e.g., Barbell Bench Press -> Dumbbell Bench Press).
+    3.  **Validation**: Ensures volume (sets per muscle group) stays within optimal ranges (10-20 sets/week) to prevent overtraining.
 
-1. **Equipment Availability**:
-   - `gym_membership`: Full gym equipment (barbells, machines, cables)
-   - `home_gym`: Dumbbells, bench, pull-up bar, resistance bands
-   - `bodyweight`: Calisthenics only (NO weights or machines)
-   - `minimal_equipment`: Dumbbells and resistance bands only
+## Architecture Summary
 
-2. **Experience Level**:
-   - `beginner`: Focus on form, basic movements, machines for safety, 2-3 sets
-   - `intermediate`: Mix of compound/isolation, free weights, 3-4 sets
-   - `expert`: Advanced techniques, Olympic lifts, high volume, 4-6 sets
+-   **Frontend**: React, TypeScript, Vite, Tailwind CSS.
+-   **Backend**: Convex (Serverless).
+-   **AI**: Groq SDK (Llama 3 models) for fast, chain-of-thought reasoning.
+-   **Data**: USDA FoodData Central for nutrition.
 
-3. **Primary Goal**:
-   - `muscle_gain`: Hypertrophy rep ranges (8-12), higher volume
-   - `fat_loss`: Maintain muscle, shorter rest, circuit-style options
-   - `strength`: Heavy compounds (3-6 reps), longer rest, lower reps
-   - `endurance`: Higher reps (15-20+), shorter rest, bodyweight focus
-   - `general_fitness`: Balanced approach, moderate volume/intensity
+## Key Files Map
 
-### Validation
-
-The system includes multiple validation layers:
-- **Duplicate templateId detection**: Throws error if duplicate IDs found
-- **Exercise similarity check**: Warns if >70% overlap between similar days
-- **Volume validation**: Ensures 6+ sets per muscle group per week
-- **Structure validation**: 4-8 exercises per session, proper sets/reps/rest
-- **Equipment compliance**: Exercises must match user's available equipment
-- **Experience appropriateness**: Exercise complexity matches user level
-
-### Testing
-
-Run the integration test:
-```bash
-tsx src/tests/integration/WeeklyWorkoutGeneration.test.ts
-```
-
-Tests cover:
-- Complete week generation
-- Exercise variation between similar days
-- Unique session IDs
-- Volume distribution
-- Progressive programming across weeks
-
-## Code Style & Conventions
-- **Imports**: Use `@/*` path aliases (defined in tsconfig.json); external packages first, then relative imports
-- **TypeScript**: Strict mode enabled; use explicit types, avoid `any` (warn only); prefix unused vars with `_`
-- **Formatting**: Prettier (single quotes, 2 spaces, 80 char width, trailing commas ES5)
-- **Naming**: camelCase for variables/functions, PascalCase for types/classes/components
-- **Error Handling**: Use custom error types (e.g., NutritionError with NutritionErrorType enum)
-- **Testing**: Tests use tsx runner, dotenv for env vars (VITE_USDA_API_KEY, VITE_GROQ_API_KEY)
+| Feature | Key Files |
+| :--- | :--- |
+| **Hydration** | `src/utils/planCalculations.ts`, `HydrationAndMealTiming.tsx` |
+| **Cardio** | `src/services/WeeklyWorkoutGenerator.ts`, `PlanModels.ts` |
+| **Macros** | `src/services/NutritionCalculationService.ts`, `BatchMealGenerator.ts` |
+| **Grocery** | `src/services/ShoppingListGenerationService.ts` |
+| **Progression** | `src/services/WeeklyWorkoutGenerator.ts` |
