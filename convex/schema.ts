@@ -20,44 +20,44 @@ export default defineSchema({
     gender: v.optional(v.string()),
     height: v.optional(v.number()),
     weight: v.optional(v.number()),
-    
+
     // Fitness Goals
     primaryGoal: v.optional(v.string()),
     experienceLevel: v.optional(v.string()),
-    
+
     // Preferences
     workoutDaysPerWeek: v.optional(v.number()),
     sessionDuration: v.optional(v.number()),
     equipmentAccess: v.optional(v.array(v.string())),
-    
+
     // Dietary
     dietaryRestrictions: v.optional(v.array(v.string())),
     foodPreferences: v.optional(v.array(v.string())),
     dislikedFoods: v.optional(v.array(v.string())),
-    
+
     // Created/Updated
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_user", ["userId"]),
-  
+
   // Workout Plans
   workoutPlans: defineTable({
     userId: v.string(), // Flexible for migration
     name: v.string(),
     description: v.optional(v.string()),
-    
+
     // Store complete AI-generated plan data for UI parser
     fullPlanData: v.optional(v.any()),
-    
+
     // Plan Structure (simplified for backward compatibility)
     phases: v.any(),
-    
+
     // ✅ Metadata fields for better querying (extracted from fullPlanData)
     totalWeeks: v.optional(v.number()),
     primaryGoal: v.optional(v.string()),
     exerciseCount: v.optional(v.number()),
     mealCount: v.optional(v.number()),
-    
+
     // Weekly target macros for fast access
     weeklyTargetMacros: v.optional(v.array(v.object({
       week: v.number(),
@@ -66,7 +66,7 @@ export default defineSchema({
       carbs: v.number(),
       fat: v.number(),
     }))),
-    
+
     // Metadata
     isActive: v.boolean(),
     createdAt: v.number(),
@@ -75,19 +75,19 @@ export default defineSchema({
     .index("by_user_active", ["userId", "isActive"])
     .index("by_goal", ["primaryGoal"])
     .index("by_total_weeks", ["totalWeeks"]),
-  
+
   // Meal Plans
   mealPlans: defineTable({
     userId: v.string(), // Flexible for migration
     workoutPlanId: v.optional(v.id("workoutPlans")),
     name: v.string(),
-    
+
     // Nutritional Goals
     dailyCalories: v.number(),
     proteinGrams: v.number(),
     carbsGrams: v.number(),
     fatsGrams: v.number(),
-    
+
     // Meal Templates
     meals: v.array(v.object({
       mealNumber: v.number(),
@@ -109,7 +109,7 @@ export default defineSchema({
         }),
       })),
     })),
-    
+
     // Metadata
     isActive: v.boolean(),
     createdAt: v.number(),
@@ -117,13 +117,13 @@ export default defineSchema({
   }).index("by_user", ["userId"])
     .index("by_user_active", ["userId", "isActive"])
     .index("by_workout_plan", ["workoutPlanId"]),
-  
+
   // Shopping Lists
   shoppingLists: defineTable({
     userId: v.string(), // Flexible for migration
     mealPlanId: v.id("mealPlans"),
     weekNumber: v.number(),
-    
+
     items: v.array(v.object({
       ingredient: v.string(),
       amount: v.string(),
@@ -131,18 +131,18 @@ export default defineSchema({
       category: v.string(),
       checked: v.boolean(),
     })),
-    
+
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index("by_user", ["userId"])
     .index("by_meal_plan", ["mealPlanId"]),
-  
+
   // Progress Tracking
   workoutSessions: defineTable({
     userId: v.string(), // Flexible for migration
     workoutPlanId: v.id("workoutPlans"),
     sessionDate: v.number(),
-    
+
     exercises: v.array(v.object({
       exerciseName: v.string(),
       sets: v.array(v.object({
@@ -151,15 +151,15 @@ export default defineSchema({
         completed: v.boolean(),
       })),
     })),
-    
+
     notes: v.optional(v.string()),
     duration: v.optional(v.number()),
-    
+
     createdAt: v.number(),
   }).index("by_user", ["userId"])
     .index("by_workout_plan", ["workoutPlanId"])
     .index("by_date", ["userId", "sessionDate"]),
-  
+
   // ✅ Token System - User Accounts
   userAccounts: defineTable({
     userId: v.string(),
@@ -169,13 +169,13 @@ export default defineSchema({
     planType: v.optional(v.string()), // e.g., "free", "basic", "premium"
     lastPurchaseDate: v.optional(v.number()), // Date of last token purchase
     lastPurchaseAmount: v.optional(v.number()), // Amount of last token purchase
-    
+
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_user", ["userId"])
     .index("by_email", ["email"]),
-  
+
   // ✅ Token Usage Tracking
   tokenUsage: defineTable({
     userId: v.string(),
@@ -186,9 +186,38 @@ export default defineSchema({
     operationSteps: v.optional(v.array(v.string())), // Breakdown of steps for plan generation
     paymentId: v.optional(v.string()), // Stripe payment intent ID for token purchases
     details: v.optional(v.any()), // Additional info like plan ID, generation steps, etc.
-    
+
     createdAt: v.number(),
   }).index("by_user", ["userId"])
     .index("by_user_date", ["userId", "createdAt"])
     .index("by_status", ["status"]),
+
+  // Macro Tracking
+  macroTracking: defineTable({
+    userId: v.string(),
+    workoutPlanId: v.id("workoutPlans"),
+    date: v.number(), // Unix timestamp for the day
+    weekNumber: v.number(),
+    dayNumber: v.number(),
+    actualMacros: v.object({
+      calories: v.number(),
+      protein: v.number(),
+      carbs: v.number(),
+      fat: v.number(),
+      bodyWeight: v.number(),
+    }),
+    targetMacros: v.object({
+      calories: v.number(),
+      protein: v.number(),
+      carbs: v.number(),
+      fat: v.number(),
+    }),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_plan", ["workoutPlanId"])
+    .index("by_date", ["userId", "date"])
+    .index("by_week", ["userId", "workoutPlanId", "weekNumber"])
+    .index("by_plan_date", ["workoutPlanId", "date"]),
 });
