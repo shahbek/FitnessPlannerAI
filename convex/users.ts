@@ -33,6 +33,8 @@ export const upsertUserProfile = mutation({
     dietaryRestrictions: v.optional(v.array(v.string())),
     foodPreferences: v.optional(v.array(v.string())),
     dislikedFoods: v.optional(v.array(v.string())),
+    bodyFat: v.optional(v.number()),
+    targetBodyFat: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
@@ -84,11 +86,22 @@ export const getUserProfile = query({
   },
 });
 
-// ✅ Update user profile (Better Auth user table)
-export const updateUserProfile = mutation({
+// Generate upload URL for profile picture
+export const generateUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await authComponent.getAuthUser(ctx);
+    if (!user) {
+      throw new Error("Not authenticated");
+    }
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+// Get image URL from storage ID (helper for client-side updates)
+export const getImageUrl = mutation({
   args: {
-    name: v.optional(v.string()),
-    image: v.optional(v.string()),
+    imageStorageId: v.union(v.id("_storage"), v.null()),
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
@@ -96,15 +109,12 @@ export const updateUserProfile = mutation({
       throw new Error("Not authenticated");
     }
 
-    // Better Auth stores user info in the "user" table managed by Better Auth
-    // We need to update through Better Auth's update method
-    // For now, we'll just log it - Better Auth handles user updates through its own API
-    console.log('[updateUserProfile] Updating user:', { userId: user._id, ...args });
+    if (args.imageStorageId === null) {
+      return null;
+    }
     
-    // Note: Better Auth manages the user table directly
-    // In a real implementation, you'd use Better Auth's updateUser method
-    // For now, return success
-    return { success: true };
+    // Get the URL for the stored file
+    return await ctx.storage.getUrl(args.imageStorageId);
   },
 });
 
