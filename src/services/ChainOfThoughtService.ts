@@ -82,7 +82,7 @@ export class ChainOfThoughtService {
     // Currently supporting Groq (primary) and OpenAI (optional)
     try {
       if (modelProvider === 'openai' || endpoint?.includes('openai')) {
-        this.openai = createOpenAI({ 
+        this.openai = createOpenAI({
           apiKey,
           baseURL: endpoint || undefined,
         });
@@ -121,7 +121,7 @@ export class ChainOfThoughtService {
     if (provider === 'openai' && this.openai) {
       return this.openai(modelName || 'gpt-4o');
     }
-    
+
     // Default to Groq (primary provider)
     if (this.groq) {
       return this.groq(modelName || 'llama-3.3-70b-versatile');
@@ -151,9 +151,9 @@ export class ChainOfThoughtService {
       const result = await generateObject({
         model,
         schema,
-        prompt: this.buildCoTPrompt(prompt),
+        messages: [{ role: 'user', content: this.buildCoTPrompt(prompt) }],
         temperature: opts.temperature,
-      });
+      } as any);
 
       // Extract reasoning if available
       const reasoning: CoTReasoningResult = this.extractReasoning(
@@ -171,21 +171,20 @@ export class ChainOfThoughtService {
       // Verify result if enabled
       if (opts.enableVerification) {
         reasoning.verification = await this.verifyResult(
-          result.object,
+          result.object as T,
           schema,
           reasoning
         );
       }
 
       return {
-        result: result.object,
+        result: result.object as T,
         reasoning,
       };
     } catch (error) {
       console.error('CoT generation error:', error);
       throw new Error(
-        `Chain-of-thought generation failed: ${
-          error instanceof Error ? error.message : 'Unknown error'
+        `Chain-of-thought generation failed: ${error instanceof Error ? error.message : 'Unknown error'
         }`
       );
     }
@@ -205,9 +204,9 @@ export class ChainOfThoughtService {
     const stream = await streamObject({
       model,
       schema,
-      prompt: this.buildCoTPrompt(prompt),
+      messages: [{ role: 'user', content: this.buildCoTPrompt(prompt) }],
       temperature: opts.temperature,
-    });
+    } as any);
 
     // Transform stream to include reasoning context
     return this.transformStream(stream, opts);
@@ -342,7 +341,7 @@ Format your response with clear reasoning steps.`;
     try {
       // Validate against schema
       const validated = schema.parse(result);
-      
+
       // Check if reasoning steps are coherent
       if (reasoning.steps.length === 0) {
         return {
@@ -356,7 +355,7 @@ Format your response with clear reasoning steps.`;
       const hasCalculations = reasoning.steps.some(
         step => step.calculation || step.result
       );
-      
+
       if (!hasCalculations && reasoning.steps.length < 3) {
         return {
           passed: false,

@@ -1,6 +1,6 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { createGroq } from '@ai-sdk/groq';
-import { generateText, generateObject } from 'ai';
+import { generateText, generateObject, type CoreMessage } from 'ai';
 import { z } from 'zod';
 import {
   dynamicCalculator,
@@ -374,12 +374,12 @@ export class AISdkRagService {
       const result = await generateObject({
         model: this.getModel(),
         schema,
-        prompt,
+        messages: [{ role: 'user', content: prompt }] as CoreMessage[],
         temperature: API_CONFIG.DEFAULT_TEMPERATURE
-      });
+      } as any);
 
       console.log(`✅ Structured output successful for ${context}`);
-      return result.object;
+      return result.object as T;
 
     } catch (error) {
       console.log(`⚠️ Structured output failed for ${context}, trying fallback strategies...`);
