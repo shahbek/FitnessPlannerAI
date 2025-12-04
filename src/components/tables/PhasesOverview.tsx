@@ -20,14 +20,16 @@ interface PhasesOverviewProps {
     bodyFat?: number;
     targetBodyFat?: number;
   };
+  workoutPlanId?: string; // Convex ID for the workout plan
 }
 
-export function PhasesOverview({ plan, progression, weeklySchedule, userProfile }: PhasesOverviewProps) {
+export function PhasesOverview({ plan, progression, weeklySchedule, userProfile, workoutPlanId }: PhasesOverviewProps) {
   return (
     <EnhancedPhasesOverview
       plan={plan}
       weeklySchedule={weeklySchedule}
       userProfile={userProfile}
+      workoutPlanId={workoutPlanId}
     />
   );
 }

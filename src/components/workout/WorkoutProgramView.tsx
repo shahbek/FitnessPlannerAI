@@ -19,12 +19,13 @@ import steppingStoolIcon from '@/assets/images/3dicons/stepping_stool.png';
 interface WorkoutProgramViewProps {
   workoutData: any; // Raw JSON data from AI
   planTitle?: string;
+  workoutPlanId?: string; // Convex ID for the workout plan
 }
 
-export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramViewProps) {
-  const { state: sidebarState } = useSidebar();
+export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: WorkoutProgramViewProps) {
+  const { state: sidebarState, isMobile } = useSidebar();
   const [parsedData, setParsedData] = useState<ParsedWorkoutData | null>(null);
-  const [activeTab, setActiveTab] = useState('comprehensive-meals');
+  const [activeTab, setActiveTab] = useState('phases');
 
   // Extract user profile from plan data (plan-specific profile)
   // Fallback to logged-in user's profile if plan doesn't have one
@@ -89,8 +90,14 @@ export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramVie
 
         {/* Tabbed Content with skeleton */}
         <Tabs defaultValue="comprehensive-meals" className="w-full">
-          <div className="fixed bottom-8 z-50 flex justify-center pointer-events-none transition-all duration-200 px-6" style={{ left: '3rem', right: 0 }}>
-            <TabsList variant="glass" className="pointer-events-auto justify-start">
+          <div 
+            className="fixed bottom-8 z-50 flex justify-center items-center pointer-events-none transition-all duration-200 px-6" 
+            style={{ 
+              left: isMobile ? '0' : (sidebarState === 'expanded' ? '16rem' : '0'),
+              right: 0 
+            }}
+          >
+            <TabsList variant="glass" className="pointer-events-auto flex-shrink-0">
               <TabsTrigger value="comprehensive-meals" disabled>
                 <div className="flex flex-col items-center gap-0">
                   <Skeleton className="w-9 h-9 rounded" />
@@ -154,24 +161,6 @@ export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramVie
 
   const tabs = [
     {
-      value: 'comprehensive-meals',
-      label: 'Meals',
-      icon: mealsIcon,
-      content: <ComprehensiveMealTable data={parsedData.comprehensiveMeals} />
-    },
-    {
-      value: 'weekly-schedule',
-      label: 'Schedule',
-      icon: dumbellIcon,
-      content: <WeeklyScheduleTable data={parsedData.weeklySchedule} />
-    },
-    {
-      value: 'shopping',
-      label: 'Groceries',
-      icon: groceriesIcon,
-      content: <WeeklyShoppingTable data={parsedData.weeklyShopping} />
-    },
-    {
       value: 'phases',
       label: 'Phases',
       icon: steppingStoolIcon,
@@ -181,8 +170,27 @@ export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramVie
           progression={parsedData.phaseProgression}
           weeklySchedule={parsedData.weeklySchedule}
           userProfile={userProfile || undefined}
+          workoutPlanId={workoutPlanId}
         />
       )
+    },
+    {
+      value: 'comprehensive-meals',
+      label: 'Meals',
+      icon: mealsIcon,
+      content: <ComprehensiveMealTable data={parsedData.comprehensiveMeals} />
+    },
+    {
+      value: 'weekly-schedule',
+      label: 'Schedule',
+      icon: dumbellIcon,
+      content: <WeeklyScheduleTable data={parsedData.weeklySchedule} plan={workoutData} />
+    },
+    {
+      value: 'shopping',
+      label: 'Groceries',
+      icon: groceriesIcon,
+      content: <WeeklyShoppingTable data={parsedData.weeklyShopping} />
     }
   ];
 
@@ -226,13 +234,15 @@ export function WorkoutProgramView({ workoutData, planTitle }: WorkoutProgramVie
       >
         {/* Tabs container - positioned relative to plan view area, accounting for content padding */}
         <div
-          className="fixed bottom-8 z-50 flex justify-center pointer-events-none transition-all duration-200 px-6"
+          className="fixed bottom-8 z-50 flex justify-center items-center pointer-events-none transition-all duration-200 px-6"
           style={{
-            left: sidebarState === 'expanded' ? '16rem' : '3rem',
+            // On mobile, sidebar is a Sheet overlay, so it doesn't take space - always use left: 0
+            // On desktop with offcanvas mode: expanded = 16rem, collapsed = 0 (slides off-screen)
+            left: isMobile ? '0' : (sidebarState === 'expanded' ? '16rem' : '0'),
             right: 0,
           }}
         >
-          <TabsList variant="glass" className="pointer-events-auto justify-start">
+          <TabsList variant="glass" className="pointer-events-auto flex-shrink-0">
             {tabs.map((tab) => (
               <TabsTrigger
                 key={tab.value}
