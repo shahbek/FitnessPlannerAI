@@ -28,8 +28,8 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { cn } from '@/lib/utils';
-import { 
-  Plus, 
+import {
+  Plus,
   MoreHorizontal,
   Trash2,
   LogOut,
@@ -43,6 +43,7 @@ import logoIcon from '@/assets/logo.svg';
 import { signOut } from '@/lib/auth-client';
 import { useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
+import { useToast } from '@/components/ui/use-toast';
 import { useState } from 'react';
 
 // Interface for workout history items
@@ -66,22 +67,51 @@ interface FitnessSidebarProps {
   workoutHistory: WorkoutHistoryItem[];
 }
 
-export function FitnessSidebar({ 
-  onNewWorkout, 
-  onSelectWorkout, 
-  onDeleteWorkout, 
+export function FitnessSidebar({
+  onNewWorkout,
+  onSelectWorkout,
+  onDeleteWorkout,
   onNavigate,
   currentView = 'home',
-  selectedWorkoutId, 
-  workoutHistory 
+  selectedWorkoutId,
+  workoutHistory
 }: FitnessSidebarProps) {
+  const { toast } = useToast();
   const user = useQuery(api.users.getCurrentUser);
   const [settingsOpen, setSettingsOpen] = useState(
     currentView?.startsWith('settings') ?? false
   );
-  
+
   const handleSignOut = async () => {
-    await signOut();
+    try {
+      console.log('🚪 Signing out...');
+
+      // Attempt to sign out
+      await signOut();
+
+      console.log('✅ Signed out successfully');
+
+      // Aggressively clear local state
+      localStorage.clear();
+      sessionStorage.clear();
+
+      // Small delay to ensure server processes the request
+      setTimeout(() => {
+        // Use replace to prevent back-button navigation to authenticated state
+        window.location.replace('/');
+      }, 500);
+    } catch (error: any) {
+      console.error('❌ Sign out failed:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Sign out failed',
+        description: error.message || 'Please try clearing your browser cookies manually.',
+      });
+      // Fallback redirect even if it fails, after a longer delay to show toast
+      setTimeout(() => {
+        window.location.replace('/');
+      }, 2000);
+    }
   };
 
   const handleNavigate = (view: NavigationView) => {
@@ -113,10 +143,10 @@ export function FitnessSidebar({
           <img src={logoIcon} alt="Supercomp Logo" className="h-8 w-8" />
           <span className="font-bold text-lg font-editorial">Supercomp</span>
         </div>
-        
+
         {/* New Workout Button */}
         <div className="p-2">
-          <Button 
+          <Button
             onClick={onNewWorkout}
             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
             size="sm"
@@ -193,40 +223,50 @@ export function FitnessSidebar({
                     <SidebarMenuButton
                       onClick={() => onSelectWorkout(workout.id)}
                       isActive={selectedWorkoutId === workout.id}
-                      className="group relative"
+                      className={cn(
+                        "group relative",
+                        workout.data?.isGenerating && "animate-pulse bg-primary/5"
+                      )}
                     >
                       <div className="flex items-center justify-between w-full min-w-0">
                         <span className="text-sm font-medium truncate flex-1">
                           {workout.title}
+                          {workout.data?.isGenerating && (
+                            <span className="ml-2 text-xs text-muted-foreground font-normal italic">
+                              Generating...
+                            </span>
+                          )}
                         </span>
-                        
-                        {/* Actions Menu */}
-                        <DropdownMenu>
-                          <DropdownMenuTrigger 
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-sidebar-accent h-7 w-7 p-0 opacity-0 group-hover:opacity-100 flex-shrink-0 ml-2"
-                          >
-                            <MoreHorizontal className="h-4 w-4" />
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onDeleteWorkout(workout.id);
-                              }}
-                              className="text-destructive focus:text-destructive"
+
+                        {/* Actions Menu - Hide when generating */}
+                        {!workout.data?.isGenerating && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 hover:bg-sidebar-accent h-7 w-7 p-0 opacity-0 group-hover:opacity-100 flex-shrink-0 ml-2"
                             >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                              <MoreHorizontal className="h-4 w-4" />
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onDeleteWorkout(workout.id);
+                                }}
+                                className="text-destructive focus:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />
+                                Delete
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
                       </div>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
               })}
-              
+
               {workoutHistory.length === 0 && (
                 <div className="px-4 py-12 text-center">
                   <div className="mx-auto w-16 h-16 rounded-full bg-sidebar-accent flex items-center justify-center mb-4 opacity-50">
@@ -238,7 +278,7 @@ export function FitnessSidebar({
                   <p className="text-xs text-muted-foreground mb-4">
                     Create your first plan to get started
                   </p>
-                  <Button 
+                  <Button
                     onClick={onNewWorkout}
                     size="sm"
                     variant="outline"
