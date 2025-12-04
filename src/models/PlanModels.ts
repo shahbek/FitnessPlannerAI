@@ -214,6 +214,8 @@ export interface CompletePlan {
   phaseSessionTemplates: SessionTemplate[][];
   phaseMealTemplates: MealTemplate[][];
   dailyMealCombinations?: any[]; // Optional: for parser compatibility (converted from phaseMealTemplates)
+  phaseCardioTemplates?: any[][]; // Cardio templates by phase (Foundation, Progression, Peak)
+  weeklyCardioSchedules?: any[]; // Weekly cardio schedules with day assignments
   shoppingList: ShoppingList;
   metrics: MetabolicMetrics;
   evidenceCitations: string[];
