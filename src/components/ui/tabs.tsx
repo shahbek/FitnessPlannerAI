@@ -1,9 +1,9 @@
 import * as React from "react"
 import * as TabsPrimitive from "@radix-ui/react-tabs"
 import { useId } from "react"
-import "./Tabs.css"
+import "./tabs.css"
 
-const cn = (...classes: (string | undefined | null | false)[]) => 
+const cn = (...classes: (string | undefined | null | false)[]) =>
   classes.filter(Boolean).join(' ')
 
 const Tabs = TabsPrimitive.Root
@@ -35,7 +35,7 @@ const TabsList = React.forwardRef<
     // Find the active trigger and its parent label
     const activeTrigger = fieldsetRef.current.querySelector('[data-state="active"]')
     const activeLabel = activeTrigger?.closest('.switcher__option') as HTMLElement
-    
+
     if (activeLabel && fieldsetRef.current) {
       const fieldsetRect = fieldsetRef.current.getBoundingClientRect()
       const labelRect = activeLabel.getBoundingClientRect()
@@ -43,7 +43,7 @@ const TabsList = React.forwardRef<
       const top = labelRect.top - fieldsetRect.top
       const width = labelRect.width
       const height = labelRect.height
-      
+
       setIndicatorLeft(left)
       setIndicatorTop(top)
       setIndicatorWidth(width)
@@ -58,7 +58,7 @@ const TabsList = React.forwardRef<
     const updateActiveOption = () => {
       // Always update indicator position first
       updateIndicatorPosition()
-      
+
       const activeTab = fieldsetRef.current?.querySelector('[data-state="active"]')
       if (activeTab) {
         // Find which option/label contains the active trigger
@@ -81,22 +81,22 @@ const TabsList = React.forwardRef<
 
     // Watch for changes
     const observer = new MutationObserver(updateActiveOption)
-    
+
     if (fieldsetRef.current) {
       // Observe the fieldset container
-      observer.observe(fieldsetRef.current, { 
-        attributes: true, 
+      observer.observe(fieldsetRef.current, {
+        attributes: true,
         attributeFilter: ['data-state'],
         childList: true,
         subtree: true
       })
-      
+
       // Observe all triggers
       const triggers = fieldsetRef.current.querySelectorAll('[data-state]')
       triggers.forEach(trigger => {
-        observer.observe(trigger, { 
-          attributes: true, 
-          attributeFilter: ['data-state'] 
+        observer.observe(trigger, {
+          attributes: true,
+          attributeFilter: ['data-state']
         })
       })
     }
@@ -107,7 +107,7 @@ const TabsList = React.forwardRef<
   // Also update position on resize (only for glass variant)
   React.useEffect(() => {
     if (variant !== 'glass') return
-    
+
     const handleResize = () => {
       updateIndicatorPosition()
     }
@@ -135,33 +135,33 @@ const TabsList = React.forwardRef<
   return (
     <>
       {/* SVG Filter with Displacement Map for Liquid Glass Effect */}
-      <svg 
-        width="0" 
-        height="0" 
-        style={{ 
-          position: 'fixed', 
-          top: '0px', 
-          left: '0px', 
-          pointerEvents: 'none', 
-          zIndex: -1 
+      <svg
+        width="0"
+        height="0"
+        style={{
+          position: 'fixed',
+          top: '0px',
+          left: '0px',
+          pointerEvents: 'none',
+          zIndex: -1
         }}
         aria-hidden="true"
       >
         <defs>
           {/* Displacement Map - Creates the refraction effect at borders */}
           {/* Using a data URI approach to embed the displacement map */}
-          <filter 
-            id={filterId} 
-            filterUnits="objectBoundingBox" 
+          <filter
+            id={filterId}
+            filterUnits="objectBoundingBox"
             primitiveUnits="objectBoundingBox"
-            colorInterpolationFilters="sRGB" 
-            x="0%" 
-            y="0%" 
-            width="100%" 
+            colorInterpolationFilters="sRGB"
+            x="0%"
+            y="0%"
+            width="100%"
             height="100%"
           >
             {/* Create border-focused displacement map - strong at edges, neutral in center */}
-            <feImage 
+            <feImage
               href={`data:image/svg+xml,${encodeURIComponent(`
                 <svg width="400" height="100" xmlns="http://www.w3.org/2000/svg">
                   <defs>
@@ -210,7 +210,7 @@ const TabsList = React.forwardRef<
               preserveAspectRatio="none"
               result="borderMap"
             />
-            
+
             {/* Subtle turbulence only at edges - multiply with border map */}
             <feTurbulence
               type="fractalNoise"
@@ -220,17 +220,17 @@ const TabsList = React.forwardRef<
               result="turbulence"
             />
             <feGaussianBlur in="turbulence" stdDeviation="1.5" result="noise" />
-            
+
             {/* Combine: border map (edge-focused) with subtle noise */}
             <feComposite in="noise" in2="borderMap" operator="multiply" result="combinedMap" />
             <feGaussianBlur in="combinedMap" stdDeviation="0.8" result="displacementMap" />
-            
+
             {/* Apply displacement - reduced scale, only at edges */}
-            <feDisplacementMap 
-              in="SourceGraphic" 
-              in2="displacementMap" 
-              scale="8" 
-              xChannelSelector="R" 
+            <feDisplacementMap
+              in="SourceGraphic"
+              in2="displacementMap"
+              scale="8"
+              xChannelSelector="R"
               yChannelSelector="G"
             />
           </filter>
@@ -261,7 +261,7 @@ const TabsList = React.forwardRef<
           '--indicator-top': `${indicatorTop}px`,
           '--indicator-width': `${indicatorWidth}px`,
           '--indicator-height': `${indicatorHeight}px`,
-        } as React.CSSProperties & { 
+        } as React.CSSProperties & {
           '--indicator-left': string;
           '--indicator-top': string;
           '--indicator-width': string;
@@ -277,10 +277,10 @@ const TabsList = React.forwardRef<
         >
           {React.Children.map(children, (child, index) => {
             if (!React.isValidElement(child)) return child
-            
+
             const option = index + 1
             const isChecked = activeOption === option
-            
+
             // Clone the child and add our custom props
             return React.cloneElement(child as React.ReactElement<any>, {
               'data-c-option': option,
@@ -301,7 +301,7 @@ const TabsTrigger = React.forwardRef<
 >(({ className, children, ...props }, ref) => {
   const dataChecked = (props as any)['data-checked'] === 'true'
   const isGlassVariant = (props as any)['data-glass-variant'] === 'true'
-  
+
   // Glass variant - use label wrapper
   if (isGlassVariant) {
     return (
@@ -322,7 +322,7 @@ const TabsTrigger = React.forwardRef<
       </label>
     )
   }
-  
+
   // Default variant - standard trigger
   return (
     <TabsPrimitive.Trigger
