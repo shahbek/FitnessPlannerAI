@@ -10,4 +10,7 @@ export { EnergyBalanceVisualization } from './EnergyBalanceVisualization';
 export { BodyCompositionProjection } from './BodyCompositionProjection';
 export { WhyThisWorks } from './WhyThisWorks';
 export { HydrationAndMealTiming } from './HydrationAndMealTiming';
+export { CardioOverview } from './CardioOverview';
 export { WeeklyProgressionTimeline } from './WeeklyProgressionTimeline';
+export { MacroTrackingTable } from './MacroTrackingTable';
+export { WeighingTiming } from './WeighingTiming';

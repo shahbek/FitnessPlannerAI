@@ -1,17 +1,16 @@
-import { useMemo, useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import {
-  Award,
-  CheckCircle2, Sparkles
-} from 'lucide-react';
+import { useMemo } from 'react';
+import { Card, CardContent } from '@/components/ui/Card';
 import { extractPlanMetrics } from '@/utils/planMetricsExtractor';
-import { generatePlanOverviewExplanations, type PlanOverviewExplanation } from '@/services/PlanOverviewExplanationService';
 import { UserProfileSummary } from './UserProfileSummary';
 import { EnergyBalanceVisualization } from './EnergyBalanceVisualization';
 import { BodyCompositionProjection } from './BodyCompositionProjection';
 import { WeeklyProgressionTimeline } from './WeeklyProgressionTimeline';
 import { HydrationAndMealTiming } from './HydrationAndMealTiming';
+import { CardioOverview } from './CardioOverview';
 import { DailyMacroTrends } from './DailyMacroTrends';
+import { BMRAndMetabolicAge } from './BMRAndMetabolicAge';
+import { MacroTrackingTable } from './MacroTrackingTable';
+import { WeighingTiming } from './WeighingTiming';
 import type { PhaseProgressionRow } from '@/utils/workoutDataParser';
 
 interface EnhancedPhasesOverviewProps {
@@ -32,103 +31,97 @@ interface EnhancedPhasesOverviewProps {
     bodyFat?: number;
     targetBodyFat?: number;
   };
+  workoutPlanId?: string; // Convex ID for the workout plan
 }
 
-export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile }: EnhancedPhasesOverviewProps) {
-  const [explanations, setExplanations] = useState<PlanOverviewExplanation | null>(null);
-  const [loadingExplanations, setLoadingExplanations] = useState(false);
-
+export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile, workoutPlanId }: EnhancedPhasesOverviewProps) {
   // Extract all metrics using the unified extractor
   const metrics = useMemo(() => extractPlanMetrics(plan), [plan]);
 
-  // Generate AI explanations on mount (single call)
-  useEffect(() => {
-    if (plan && userProfile && !explanations && !loadingExplanations) {
-      setLoadingExplanations(true);
-      generatePlanOverviewExplanations(plan, userProfile)
-        .then(setExplanations)
-        .catch(err => {
-          console.error('Failed to generate explanations:', err);
-        })
-        .finally(() => setLoadingExplanations(false));
-    }
-  }, [plan, userProfile, explanations, loadingExplanations]);
+  // Generate smart summary from actual plan data (no AI call)
+  const planSummary = useMemo(() => {
+    const weeklyOutlines = plan?.weeklyOutlines || [];
+    const totalWeeks = weeklyOutlines.length;
+    const goal = userProfile?.primaryGoal?.replace(/_/g, ' ') || 'fitness';
+    const dailyDeficit = metrics.dailyDeficit || 0;
+    const weeklyWeightLoss = totalWeeks > 0 && dailyDeficit > 0 ? (dailyDeficit * 7 / 7700).toFixed(2) : 0;
+    const totalWeightLoss = totalWeeks > 0 && dailyDeficit > 0 ? ((dailyDeficit * 7 * totalWeeks) / 7700).toFixed(1) : 0;
+    const proteinPerKg = userProfile?.weight && metrics.protein > 0 ? (metrics.protein / userProfile.weight).toFixed(1) : '1.8';
+    
+    return {
+      totalWeeks,
+      goal,
+      dailyDeficit: Math.abs(dailyDeficit),
+      weeklyWeightLoss,
+      totalWeightLoss,
+      proteinPerKg,
+      trainingDays: metrics.trainingFrequency || userProfile?.workoutDaysPerWeek || 0,
+      targetCalories: metrics.targetCalories || 0,
+    };
+  }, [plan, userProfile, metrics]);
 
   return (
     <div className="space-y-6 pb-20">
       {/* Bento Grid Layout */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 auto-rows-auto">
 
-        {/* Area 1: Hero / Executive Summary (Full Width) */}
+        {/* Area 1: Executive Summary (Full Width) - Research Paper Style */}
         <div className="md:col-span-12">
-          <Card className="border-none shadow-sm overflow-hidden relative bg-gradient-to-br from-orange-50/80 via-white to-orange-50/50">
-            {/* Subtle decorative elements */}
-            <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-orange-100/30 to-transparent rounded-full blur-3xl pointer-events-none"></div>
-            <div className="absolute bottom-0 left-0 w-72 h-72 bg-gradient-to-tr from-orange-50/40 to-transparent rounded-full blur-3xl pointer-events-none"></div>
-
-            <CardContent className="relative z-10 px-8 py-12 md:px-12 md:py-16">
-              {/* Title Section */}
-              <div className="max-w-4xl space-y-5">
-                <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-orange-100/60 border border-orange-200/40">
-                  <Sparkles className="h-4 w-4 text-orange-600" />
-                  <span className="text-xs font-semibold uppercase tracking-wide text-orange-900">Executive Summary</span>
-                </div>
-
-                <h2 className="text-4xl md:text-5xl font-bold tracking-tight text-gray-900 leading-[1.1]">
-                  Your Personalized Fitness Blueprint
-                </h2>
-                <p className="text-sm md:text-xl text-gray-600 leading-relaxed font-light max-w-3xl">
-                  {explanations?.profileSummary || "Based on your unique profile, we've designed a plan that balances effective training with sustainable nutrition."}
+          <Card className="border border-slate-200 shadow-sm bg-white">
+            <CardContent className="p-8 md:p-10">
+              {/* Title */}
+              <h1 className="font-editorial text-2xl md:text-3xl font-light text-slate-900 tracking-tight mb-6">
+                Executive Summary
+              </h1>
+              
+              {/* Abstract-style paragraph with key facts in bold */}
+              <div className="prose prose-slate max-w-none">
+                <p className="text-base md:text-lg leading-relaxed text-slate-700 font-light">
+                  This <strong className="font-semibold text-slate-900">{planSummary.totalWeeks}-week</strong> personalized 
+                  fitness program is designed to support your <strong className="font-semibold text-slate-900 capitalize">{planSummary.goal}</strong> goals 
+                  through a structured approach combining nutrition and resistance training. 
+                  The plan prescribes a daily caloric intake of <strong className="font-semibold text-slate-900">{Math.round(planSummary.targetCalories)} kcal</strong>
+                  {planSummary.dailyDeficit > 0 && (
+                    <>, creating a <strong className="font-semibold text-slate-900">{planSummary.dailyDeficit} kcal</strong> daily deficit</>
+                  )}, with protein set at <strong className="font-semibold text-slate-900">{planSummary.proteinPerKg}g/kg</strong> body weight 
+                  to optimize muscle protein synthesis and preserve lean mass. 
+                  Training frequency is established at <strong className="font-semibold text-slate-900">{planSummary.trainingDays} sessions per week</strong>, 
+                  utilizing progressive overload principles across three distinct phases: Foundation, Progression, and Peak.
+                  {planSummary.dailyDeficit > 0 && planSummary.totalWeeks > 0 && (
+                    <> Based on the prescribed energy deficit, projected outcomes include approximately <strong className="font-semibold text-slate-900">{planSummary.weeklyWeightLoss} kg</strong> of 
+                    weekly weight reduction, yielding an estimated total loss of <strong className="font-semibold text-slate-900">{planSummary.totalWeightLoss} kg</strong> over 
+                    the program duration.</>
+                  )}
                 </p>
               </div>
-
-              {/* Key Metrics Grid */}
-              {metrics && metrics.hasValidMetrics && (
-                <div className="mt-12 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-5xl">
-                  {/* Daily Calories */}
-                  {metrics.targetCalories > 0 && (
-                    <div className="space-y-1.5">
-                      <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Daily Calories</div>
-                      <div className="text-3xl font-bold text-gray-900">{Math.round(metrics.targetCalories)}</div>
-                      <div className="text-xs text-gray-500">kcal</div>
-                    </div>
-                  )}
-
-                  {/* Protein */}
-                  {metrics.protein > 0 && (
-                    <div className="space-y-1.5">
-                      <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Protein</div>
-                      <div className="text-3xl font-bold text-orange-600">{Math.round(metrics.protein)}</div>
-                      <div className="text-xs text-gray-500">g/day</div>
-                    </div>
-                  )}
-
-                  {/* Training Days */}
-                  {metrics.trainingFrequency > 0 && (
-                    <div className="space-y-1.5">
-                      <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Training Days</div>
-                      <div className="text-3xl font-bold text-gray-900">{metrics.trainingFrequency}</div>
-                      <div className="text-xs text-gray-500">per week</div>
-                    </div>
-                  )}
-
-                  {/* Plan Duration */}
-                  {plan?.weeklyOutlines?.length > 0 && (
-                    <div className="space-y-1.5">
-                      <div className="text-sm font-medium text-gray-500 uppercase tracking-wide">Duration</div>
-                      <div className="text-3xl font-bold text-gray-900">{plan.weeklyOutlines.length}</div>
-                      <div className="text-xs text-gray-500">weeks</div>
-                    </div>
-                  )}
+              
+              {/* Key metrics in a subtle table format */}
+              <div className="mt-8 pt-6 border-t border-slate-100">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                  <div>
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Duration</div>
+                    <div className="text-2xl font-semibold text-slate-900">{planSummary.totalWeeks} <span className="text-base font-normal text-slate-500">weeks</span></div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Daily Intake</div>
+                    <div className="text-2xl font-semibold text-slate-900">{Math.round(planSummary.targetCalories)} <span className="text-base font-normal text-slate-500">kcal</span></div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Training</div>
+                    <div className="text-2xl font-semibold text-slate-900">{planSummary.trainingDays} <span className="text-base font-normal text-slate-500">days/week</span></div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Protein Target</div>
+                    <div className="text-2xl font-semibold text-slate-900">{planSummary.proteinPerKg} <span className="text-base font-normal text-slate-500">g/kg</span></div>
+                  </div>
                 </div>
-              )}
-
+              </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Area 2: Profile Summary (Left Column) */}
-        <div className="md:col-span-4 flex flex-col">
+        {/* Area 2: Profile Summary (Left Column, spans 2 rows) */}
+        <div className="md:col-span-4 md:row-span-2 flex flex-col">
           <Card className="h-full border-none shadow-sm bg-white/50 backdrop-blur-sm">
             <CardContent className="p-6 h-full">
               <UserProfileSummary userProfile={userProfile || {}} plan={plan} />
@@ -136,11 +129,13 @@ export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile }: En
           </Card>
         </div>
 
-        {/* Area 3: Energy Balance (Center/Right) */}
+        {/* Area 2.5: BMR & Metabolic Age (Side by side with User Profile) */}
+        <BMRAndMetabolicAge plan={plan} userProfile={userProfile} />
+
+        {/* Area 3: Energy Balance (Below BMR & Metabolic Age, spanning 8 cols) */}
         <div className="md:col-span-8 flex flex-col">
           <EnergyBalanceVisualization
             plan={plan}
-            explanation={explanations?.energyBalanceExplanation}
             userProfile={userProfile}
           />
         </div>
@@ -152,11 +147,22 @@ export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile }: En
           </div>
         )}
 
+        {/* Area 4.5: Macro Tracking Table (Full Width) - Editable */}
+        {weeklySchedule && weeklySchedule.length > 0 && (
+          <div className="md:col-span-12">
+            <MacroTrackingTable 
+              weeklyScheduleData={weeklySchedule}
+              weeklyOutlines={plan?.weeklyOutlines || []}
+              workoutPlanId={workoutPlanId}
+              userProfile={userProfile}
+            />
+          </div>
+        )}
+
         {/* Area 5: Body Composition (Full Width) */}
         <div className="md:col-span-12">
           <BodyCompositionProjection
             plan={plan}
-            explanation={explanations?.bodyCompositionExplanation}
             userProfile={userProfile}
           />
         </div>
@@ -174,30 +180,14 @@ export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile }: En
           <HydrationAndMealTiming plan={plan} userProfile={userProfile} />
         </div>
 
-        {/* Area 8: Success Factors (Half Width) */}
+        {/* Area 8: Cardio Overview (Half Width) */}
         <div className="md:col-span-6">
-          <Card className="h-full border-none shadow-sm bg-emerald-50/50">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-emerald-800">
-                <Award className="h-5 w-5" />
-                Keys to Success
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-3">
-                {explanations?.successFactors?.map((factor, idx) => (
-                  <li key={idx} className="flex items-start gap-3 text-sm text-emerald-900/80">
-                    <div className="mt-1 min-w-5">
-                      <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    </div>
-                    {factor}
-                  </li>
-                )) || (
-                    <li className="text-sm text-muted-foreground">Loading success factors...</li>
-                  )}
-              </ul>
-            </CardContent>
-          </Card>
+          <CardioOverview plan={plan} userProfile={userProfile} />
+        </div>
+
+        {/* Area 9: Weighing Timing (Half Width) */}
+        <div className="md:col-span-6">
+          <WeighingTiming plan={plan} userProfile={userProfile} />
         </div>
 
       </div>

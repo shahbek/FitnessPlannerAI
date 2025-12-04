@@ -207,13 +207,27 @@ export function UserProfileSummary({ userProfile, plan }: UserProfileSummaryProp
           ? 10 * metrics.weightKg + 6.25 * metrics.heightCm - 5 * metrics.age + 5
           : 10 * metrics.weightKg + 6.25 * metrics.heightCm - 5 * metrics.age - 161;
 
-        // Activity factor based on training days
+        // Activity factor based on experience level first, then training days
+        const experienceLevel = userProfile.experienceLevel || '';
         const trainingDays = metrics.trainingDaysPerWeek || 3;
         let activityFactor = 1.55; // Moderate default
-        if (trainingDays <= 2) activityFactor = 1.375; // Light
-        else if (trainingDays <= 3) activityFactor = 1.55; // Moderate
-        else if (trainingDays <= 5) activityFactor = 1.725; // Active
-        else activityFactor = 1.9; // Very active
+        const levelLower = experienceLevel?.toLowerCase() || '';
+        
+        if (levelLower === 'beginner' || levelLower === 'sedentary') {
+          activityFactor = 1.375; // Light activity
+        } else if (levelLower === 'intermediate' || levelLower === 'moderate') {
+          activityFactor = 1.55; // Moderate activity
+        } else if (levelLower === 'advanced' || levelLower === 'expert' || levelLower === 'active') {
+          activityFactor = 1.725; // Active
+        } else if (levelLower === 'athlete' || levelLower === 'very_active') {
+          activityFactor = 1.9; // Very active
+        } else {
+          // Fallback to training days if no valid experience level
+          if (trainingDays <= 2) activityFactor = 1.375;
+          else if (trainingDays <= 3) activityFactor = 1.55;
+          else if (trainingDays <= 5) activityFactor = 1.725;
+          else activityFactor = 1.9;
+        }
 
         const tdee = Math.round(bmr * activityFactor);
         return tdee;
@@ -299,7 +313,10 @@ export function UserProfileSummary({ userProfile, plan }: UserProfileSummaryProp
               <Target className="h-5 w-5 text-white drop-shadow-md" />
               <span className="text-xs font-bold text-orange-50 uppercase tracking-wide drop-shadow-md">Goal</span>
             </div>
-            <div className="text-2xl font-black text-white drop-shadow-lg leading-tight">
+            <div className={`font-black text-white drop-shadow-lg leading-tight ${
+              (formatGoal(userProfile?.primaryGoal)?.length || 0) > 12 ? 'text-lg' : 
+              (formatGoal(userProfile?.primaryGoal)?.length || 0) > 8 ? 'text-xl' : 'text-2xl'
+            }`}>
               {formatGoal(userProfile?.primaryGoal)}
             </div>
           </div>

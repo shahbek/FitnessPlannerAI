@@ -32,6 +32,8 @@ interface DaySchedule {
     type?: string;
     duration?: number;
     intensity?: string;
+    template?: any; // Full CardioTemplate for detailed info
+    timing?: string; // 'morning' | 'afternoon' | 'evening' | 'post_workout'
   };
 }
 
@@ -121,6 +123,15 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
     const trainingSchedule = week?.trainingSchedule || {};
     const cardioDays = trainingSchedule.cardioDays || [];
     const isCardioDay = cardioDays.includes(day);
+    
+    // Get detailed cardio schedule from plan
+    const weeklyCardioSchedules = plan?.weeklyCardioSchedules || [];
+    const weekCardioSchedule = weeklyCardioSchedules.find((s: any) => s.weekNumber === weekNumber);
+    const dayCardioSessions = weekCardioSchedule?.sessions?.filter((s: any) => 
+      s.dayName === day || s.dayNumber === (['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].indexOf(day) + 1)
+    ) || [];
+    
+    // Fallback to basic cardioSchedule if no detailed schedule
     const cardioSchedule = week?.cardioSchedule || {};
 
     const getMealTiming = (mealType: string): string => {
@@ -159,24 +170,62 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
       });
     }
 
-    if (isCardioDay) {
-      const cardioType = cardioSchedule.type || 'Cardio';
-      const cardioDuration = cardioSchedule.duration;
-      const cardioIntensity = cardioSchedule.intensity;
-      
-      const cardioTime = scheduleDay.workouts && scheduleDay.workouts.length > 0 ? '6:30 PM' : '5:30 PM';
-      
-      let cardioDetails = cardioType;
-      if (cardioDuration) cardioDetails += ` (${cardioDuration} min)`;
-      if (cardioIntensity) cardioDetails += ` - ${cardioIntensity}`;
-      
-      events.push({
-        time: cardioTime,
-        type: 'cardio',
-        emoji: '🏃',
-        label: 'Cardio',
-        details: cardioDetails
-      });
+    if (isCardioDay || dayCardioSessions.length > 0) {
+      // Use detailed cardio sessions if available
+      if (dayCardioSessions.length > 0) {
+        dayCardioSessions.forEach((session: any, idx: number) => {
+          const template = session.cardioTemplate || {};
+          const sessionName = template.name || 'Cardio Session';
+          const sessionType = template.type || 'Cardio';
+          const sessionDuration = template.durationMinutes || template.totalDurationMinutes || 30;
+          const sessionIntensity = template.intensity || 'Moderate';
+          
+          // Determine timing based on session timing or default
+          let cardioTime = '5:30 PM';
+          if (session.timing === 'morning') cardioTime = '7:00 AM';
+          else if (session.timing === 'afternoon') cardioTime = '2:00 PM';
+          else if (session.timing === 'evening') cardioTime = '6:00 PM';
+          else if (session.timing === 'post_workout') {
+            cardioTime = scheduleDay.workouts && scheduleDay.workouts.length > 0 ? '6:30 PM' : '5:30 PM';
+          }
+          
+          let cardioDetails = sessionName;
+          if (sessionType !== sessionName) cardioDetails += ` (${sessionType})`;
+          cardioDetails += ` - ${sessionDuration} min`;
+          if (sessionIntensity) cardioDetails += ` @ ${sessionIntensity}`;
+          
+          if (template.caloriesBurned) {
+            cardioDetails += ` (~${Math.round(template.caloriesBurned)} cal)`;
+          }
+          
+          events.push({
+            time: cardioTime,
+            type: 'cardio',
+            emoji: '🏃',
+            label: sessionName,
+            details: cardioDetails
+          });
+        });
+      } else {
+        // Fallback to basic cardioSchedule
+        const cardioType = cardioSchedule.type || 'Cardio';
+        const cardioDuration = cardioSchedule.duration;
+        const cardioIntensity = cardioSchedule.intensity;
+        
+        const cardioTime = scheduleDay.workouts && scheduleDay.workouts.length > 0 ? '6:30 PM' : '5:30 PM';
+        
+        let cardioDetails = cardioType;
+        if (cardioDuration) cardioDetails += ` (${cardioDuration} min)`;
+        if (cardioIntensity) cardioDetails += ` - ${cardioIntensity}`;
+        
+        events.push({
+          time: cardioTime,
+          type: 'cardio',
+          emoji: '🏃',
+          label: 'Cardio',
+          details: cardioDetails
+        });
+      }
     }
 
     events.sort((a, b) => parseTime(a.time) - parseTime(b.time));
@@ -189,7 +238,13 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
     const trainingSchedule = week.trainingSchedule || {};
     const resistanceDays = trainingSchedule.resistanceDays || [];
     const cardioDays = trainingSchedule.cardioDays || [];
-    const cardioSchedule = week.cardioSchedule || {};
+    
+    // Get detailed cardio schedule for this week
+    const weeklyCardioSchedules = plan?.weeklyCardioSchedules || [];
+    const weekCardioSchedule = weeklyCardioSchedules.find((s: any) => s.weekNumber === week.weekNumber);
+    
+    // Fallback to basic cardioSchedule
+    const cardioSchedule = week?.cardioSchedule || {};
 
     const scheduleWeek = weeklySchedule?.find((w: any) => w.weekNumber === week.weekNumber);
 
@@ -247,11 +302,28 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
       }
 
       if (isCardio) {
-        cardioDetails = {
-          type: cardioSchedule.type || 'Cardio',
-          duration: cardioSchedule.duration,
-          intensity: cardioSchedule.intensity
-        };
+        // Get detailed cardio session for this day
+        const dayCardioSession = weekCardioSchedule?.sessions?.find((s: any) => 
+          s.dayName === day || s.dayNumber === (dayIndex + 1)
+        );
+        
+        if (dayCardioSession && dayCardioSession.cardioTemplate) {
+          const template = dayCardioSession.cardioTemplate;
+          cardioDetails = {
+            type: template.name || template.type || 'Cardio',
+            duration: template.durationMinutes || template.totalDurationMinutes || 30,
+            intensity: template.intensity || 'Moderate',
+            template: template, // Store full template for tooltip
+            timing: dayCardioSession.timing
+          };
+        } else {
+          // Fallback to basic cardioSchedule
+          cardioDetails = {
+            type: cardioSchedule.type || 'Cardio',
+            duration: cardioSchedule.duration,
+            intensity: cardioSchedule.intensity
+          };
+        }
       }
 
       return {
@@ -422,13 +494,31 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                       )}
 
                       {daySchedule.cardioDetails && (
-                        <div className="space-y-0.5">
+                        <div className="space-y-1">
                           <div className="text-xs font-medium text-white">{daySchedule.cardioDetails.type}</div>
                           {daySchedule.cardioDetails.duration && (
                             <div className="text-xs text-white">Duration: {daySchedule.cardioDetails.duration} min</div>
                           )}
                           {daySchedule.cardioDetails.intensity && (
                             <div className="text-xs text-white">Intensity: {daySchedule.cardioDetails.intensity}</div>
+                          )}
+                          {daySchedule.cardioDetails.timing && (
+                            <div className="text-xs text-white/80">Timing: {daySchedule.cardioDetails.timing.replace('_', ' ')}</div>
+                          )}
+                          {daySchedule.cardioDetails.template && (
+                            <>
+                              {daySchedule.cardioDetails.template.caloriesBurned && (
+                                <div className="text-xs text-white/80">Calories: ~{Math.round(daySchedule.cardioDetails.template.caloriesBurned)} cal</div>
+                              )}
+                              {daySchedule.cardioDetails.template.targetHeartRate && (
+                                <div className="text-xs text-white/80">
+                                  HR: {daySchedule.cardioDetails.template.targetHeartRate.zone} ({daySchedule.cardioDetails.template.targetHeartRate.min}-{daySchedule.cardioDetails.template.targetHeartRate.max} bpm)
+                                </div>
+                              )}
+                              {daySchedule.cardioDetails.template.equipment && daySchedule.cardioDetails.template.equipment.length > 0 && (
+                                <div className="text-xs text-white/80">Equipment: {daySchedule.cardioDetails.template.equipment.join(', ')}</div>
+                              )}
+                            </>
                           )}
                         </div>
                       )}

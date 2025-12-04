@@ -79,9 +79,10 @@ export function BodyCompositionProjection({ plan, userProfile }: BodyComposition
       startingBodyFat,
       weeklyOutlines,
       proteinPerKg,
-      tdee
+      tdee,
+      plan // Pass plan to use detailed cardio calorie data
     );
-  }, [weeklyOutlines, startingWeight, startingBodyFat, proteinPerKg, tdee]);
+  }, [weeklyOutlines, startingWeight, startingBodyFat, proteinPerKg, tdee, plan]);
 
   if (projections.length === 0) {
     return (
