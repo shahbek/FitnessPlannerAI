@@ -42,13 +42,13 @@ export interface UsePlanGeneratorReturn {
   loading: boolean;
   error: string | null;
   progress: PlanGenerationProgress | null;
-  
+
   // Actions
   generatePlan: (userProfile: UserProfile, weeklyOutlines: WeeklyOutline[], options?: PlanGenerationOptions) => Promise<void>;
   cancelGeneration: () => void;
   clearError: () => void;
   clearPlan: () => void;
-  
+
   // Status
   isGenerating: boolean;
   canCancel: boolean;
@@ -64,11 +64,11 @@ export function usePlanGenerator(options?: { enableToasts?: boolean }): UsePlanG
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<PlanGenerationProgress | null>(null);
-  
+
   // Ref to track cancellation
   const abortControllerRef = useRef<AbortController | null>(null);
   const generatorRef = useRef<IntegratedPlanGenerator | null>(null);
-  
+
   // Toast notifications (optional)
   const { toast } = useToast();
   const enableToasts = options?.enableToasts ?? true;
@@ -90,14 +90,14 @@ export function usePlanGenerator(options?: { enableToasts?: boolean }): UsePlanG
       setLoading(true);
       setError(null);
       setPlan(null);
-      
+
       // Create abort controller for cancellation
       abortControllerRef.current = new AbortController();
-      
+
       // Initialize generator (uses environment variables)
       const generator = new IntegratedPlanGenerator();
       generatorRef.current = generator;
-      
+
       // Initial progress state
       setProgress({
         phase: 'initialization',
@@ -125,29 +125,29 @@ export function usePlanGenerator(options?: { enableToasts?: boolean }): UsePlanG
               warnings: state.warnings || [],
             };
             setProgress(progressUpdate);
-            
-            // Show toast for major phase changes
-            if (enableToasts && state.phase && state.phase !== progress?.phase) {
-              const phaseMessages: Record<string, string> = {
-                workout_planning: 'Planning your workouts...',
-                meal_planning: 'Planning your meals...',
-                verification: 'Verifying your plan...',
-              };
-              
-              if (phaseMessages[state.phase]) {
-                toast({
-                  title: phaseMessages[state.phase],
-                  description: state.currentStep || '',
-                });
-              }
-            }
+
+            // Show toast for major phase changes - REMOVED per user request
+            // if (enableToasts && state.phase && state.phase !== progress?.phase) {
+            //   const phaseMessages: Record<string, string> = {
+            //     workout_planning: 'Planning your workouts...',
+            //     meal_planning: 'Planning your meals...',
+            //     verification: 'Verifying your plan...',
+            //   };
+            //
+            //   if (phaseMessages[state.phase]) {
+            //     toast({
+            //       title: phaseMessages[state.phase],
+            //       description: state.currentStep || '',
+            //     });
+            //   }
+            // }
           },
         }
       );
 
       // Success - set final plan
       setPlan(completePlan);
-      
+
       // Final progress update
       const finalProgress: PlanGenerationProgress = {
         phase: 'complete',
@@ -164,7 +164,7 @@ export function usePlanGenerator(options?: { enableToasts?: boolean }): UsePlanG
         warnings: completePlan.validationResults?.warnings || [],
       };
       setProgress(finalProgress);
-      
+
       // Show success toast
       if (enableToasts) {
         toast({
@@ -176,7 +176,7 @@ export function usePlanGenerator(options?: { enableToasts?: boolean }): UsePlanG
 
     } catch (err: any) {
       console.error('❌ Plan generation error:', err);
-      
+
       // Handle cancellation
       if (err.name === 'AbortError' || err.message?.includes('cancelled')) {
         const cancelledProgress: PlanGenerationProgress = {
@@ -189,7 +189,7 @@ export function usePlanGenerator(options?: { enableToasts?: boolean }): UsePlanG
         };
         setProgress(cancelledProgress);
         setError('Plan generation was cancelled');
-        
+
         if (enableToasts) {
           toast({
             title: 'Generation Cancelled',
@@ -210,7 +210,7 @@ export function usePlanGenerator(options?: { enableToasts?: boolean }): UsePlanG
         };
         setError(errorMessage);
         setProgress(errorProgress);
-        
+
         // Show error toast
         if (enableToasts) {
           toast({
@@ -235,7 +235,7 @@ export function usePlanGenerator(options?: { enableToasts?: boolean }): UsePlanG
       abortControllerRef.current.abort();
       console.log('🛑 Plan generation cancelled');
     }
-    
+
     // Note: IntegratedPlanGenerator doesn't have built-in cancellation
     // This is a placeholder for future implementation
     // For now, we just set the loading state to false
@@ -275,13 +275,13 @@ export function usePlanGenerator(options?: { enableToasts?: boolean }): UsePlanG
     loading,
     error,
     progress,
-    
+
     // Actions
     generatePlan,
     cancelGeneration,
     clearError,
     clearPlan,
-    
+
     // Status
     isGenerating: loading,
     canCancel: loading && abortControllerRef.current !== null,

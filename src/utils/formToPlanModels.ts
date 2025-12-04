@@ -194,8 +194,8 @@ function calculateBaseCalories(formData: FormData): number {
   };
 
   const activity = formData.trainingDaysPerWeek <= 2 ? 'light' :
-                   formData.trainingDaysPerWeek <= 3 ? 'moderate' :
-                   formData.trainingDaysPerWeek <= 5 ? 'active' : 'very_active';
+    formData.trainingDaysPerWeek <= 3 ? 'moderate' :
+      formData.trainingDaysPerWeek <= 5 ? 'active' : 'very_active';
 
   const tdee = bmr * activityMultiplier[activity];
 
@@ -329,7 +329,7 @@ function getWeeklyVolume(daysPerWeek: number): string {
  */
 function getFocusAreas(goal: string, split: string): string[] {
   const areas: string[] = [];
-  
+
   if (goal === 'fat_loss') {
     areas.push('Fat Loss', 'Muscle Preservation');
   } else if (goal === 'muscle_gain') {
@@ -337,6 +337,6 @@ function getFocusAreas(goal: string, split: string): string[] {
   } else if (goal === 'strength') {
     areas.push('Strength', 'Power');
   }
-  
+
   return areas;
 }

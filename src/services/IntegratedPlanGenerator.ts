@@ -34,6 +34,7 @@ import { SessionTemplateGenerator } from './SessionTemplateGenerator';
 import { WorkoutVerificationService } from './WorkoutVerificationService';
 import { WeeklyWorkoutGenerator } from './WeeklyWorkoutGenerator';
 import { ShoppingListGenerationService } from './ShoppingListGenerationService';
+import { CardioGenerationService } from './CardioGenerationService';
 
 /**
  * Generation State
@@ -79,6 +80,7 @@ export class IntegratedPlanGenerator {
   private weeklyWorkoutGenerator: WeeklyWorkoutGenerator;
   private calculator: DynamicCalculator;
   private shoppingListService: ShoppingListGenerationService | null;
+  private cardioGenerationService: CardioGenerationService;
 
   // State Management
   private currentState: GenerationState;
@@ -95,7 +97,7 @@ export class IntegratedPlanGenerator {
       throw new Error('USDA_API_KEY is required. Provide it as parameter or set in environment variables (VITE_USDA_API_KEY).');
     }
     this.usdaService = new USDANutritionService(usdaKey);
-    
+
     // Initialize CoT Service - use environment config by default
     // If aiModel is provided (for backward compatibility), use it
     // Otherwise, create from environment
@@ -103,7 +105,7 @@ export class IntegratedPlanGenerator {
       this.cotService = new ChainOfThoughtService(
         aiModel ? { apiKey: aiModel } : undefined // Will use env if undefined
       );
-      
+
       // Check if AI is available
       if (!this.cotService.isAIAvailable() && env.USE_AI_FOR_MEALS) {
         console.warn('⚠️  AI service not available but USE_AI_FOR_MEALS is enabled.');
@@ -119,7 +121,7 @@ export class IntegratedPlanGenerator {
         },
       } as any;
     }
-    
+
     this.verificationService = new VerificationService();
 
     // Initialize Meal Generation Services (Optimal Batch Architecture)
@@ -139,6 +141,7 @@ export class IntegratedPlanGenerator {
     );
     this.weeklyWorkoutGenerator = new WeeklyWorkoutGenerator(this.cotService);
     this.calculator = new DynamicCalculator();
+    this.cardioGenerationService = new CardioGenerationService(this.cotService);
 
     // Initialize Shopping List Generation (uses Groq via AI API key)
     const aiKey = env.AI_API_KEY;
@@ -223,9 +226,33 @@ export class IntegratedPlanGenerator {
       );
       const sessionTemplates = sessionsByWeek[0] ?? allSessions;
 
+      // Step 2.5: Generate Cardio Templates
+      console.log('\n🏃 [PLAN GENERATION] ========================================');
+      console.log('🏃 [PLAN GENERATION] Starting Cardio Template Generation');
+      console.log('🏃 [PLAN GENERATION] ========================================');
+      this.updateState({
+        progress: 30,
+        currentStep: 'Generating cardio sessions...',
+      }, opts.onStateUpdate);
+
+      const cardioTemplates = await this.generateCardioTemplates(
+        userProfile,
+        weeklyOutlines,
+        trainingSplit
+      );
+
+      console.log('🏃 [PLAN GENERATION] Cardio generation result:');
+      console.log(`   Phase templates: ${cardioTemplates.phaseTemplates.length} phases`);
+      console.log(`   Weekly schedules: ${cardioTemplates.weeklySchedules.length} schedules`);
+      cardioTemplates.phaseTemplates.forEach((phaseTemplates, idx) => {
+        const phaseNames = ['Foundation', 'Progression', 'Peak'];
+        console.log(`   ${phaseNames[idx]}: ${phaseTemplates.length} templates`);
+      });
+      console.log('🏃 [PLAN GENERATION] ========================================\n');
+
       // Step 3: Verify Workout Plan (only if we have sessions)
       let workoutVerification: any = { success: true, sessions: sessionTemplates };
-      
+
       if (sessionTemplates.length > 0) {
         this.updateState({
           progress: 40,
@@ -267,7 +294,7 @@ export class IntegratedPlanGenerator {
       console.log('🍽️  [GENERATION] Starting meal plan generation...');
       console.log('   📊 Weekly outlines:', JSON.stringify(weeklyOutlines, null, 2));
       console.log('   🏋️  Training split:', JSON.stringify(trainingSplit, null, 2));
-      
+
       this.updateState({
         phase: 'meal_planning',
         progress: 50,
@@ -355,7 +382,8 @@ export class IntegratedPlanGenerator {
         trainingSplit,
         weeklyOutlines,
         userProfile,
-        sessionsByWeek
+        sessionsByWeek,
+        cardioTemplates
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -511,6 +539,212 @@ export class IntegratedPlanGenerator {
   }
 
   /**
+   * Generate cardio templates for all phases
+   */
+  private async generateCardioTemplates(
+    userProfile: UserProfile,
+    weeklyOutlines: WeeklyOutline[],
+    trainingSplit: TrainingSplit
+  ): Promise<{ phaseTemplates: any[][]; weeklySchedules: any[] }> {
+    console.log('🏃 [CARDIO] Starting cardio template generation...');
+    console.log('   📊 Weekly outlines count:', weeklyOutlines.length);
+    console.log('   🏋️  Training split:', trainingSplit.splitName);
+
+    try {
+      const phaseTemplates: any[][] = [];
+      const weeklySchedules: any[] = [];
+
+      // Group weeks by phase
+      const phases = ['foundation', 'progression', 'peak'] as const;
+      const resistanceDays = trainingSplit.days.filter(d => !d.isRestDay).map(d => d.dayName);
+      console.log('   📅 Resistance training days:', resistanceDays);
+
+      // Log all phases found in weekly outlines
+      const allPhases = weeklyOutlines.map(w => w.phase);
+      console.log('   📋 Phases found in weekly outlines:', allPhases);
+
+      for (const phase of phases) {
+        console.log(`\n   🔄 Processing ${phase.toUpperCase()} phase...`);
+
+        const phaseWeeks = weeklyOutlines.filter(w => {
+          const outlinePhase = w.phase?.toLowerCase() || '';
+          const targetPhase = phase.toLowerCase();
+          const matches = outlinePhase === targetPhase;
+          if (!matches) {
+            console.log(`      ⏭️  Week ${w.weekNumber}: phase "${w.phase}" doesn't match "${phase}"`);
+          }
+          return matches;
+        });
+
+        console.log(`   📊 Found ${phaseWeeks.length} weeks in ${phase} phase`);
+        if (phaseWeeks.length > 0) {
+          console.log(`      Weeks: ${phaseWeeks.map(w => w.weekNumber).join(', ')}`);
+        }
+
+        if (phaseWeeks.length === 0) {
+          console.log(`   ⏭️  Skipping ${phase} phase - no matching weeks`);
+          phaseTemplates.push([]); // Add empty array to maintain phase order
+          continue;
+        }
+
+        try {
+          console.log(`   🎯 Generating ${phase} cardio templates...`);
+          console.log(`      User profile: ${userProfile.goal}, ${userProfile.weightKg}kg, ${userProfile.workoutLevel}`);
+          console.log(`      Phase weeks: ${phaseWeeks.map(w => `Week ${w.weekNumber}`).join(', ')}`);
+
+          // Generate templates for this phase with retry logic
+          let templates: any[] = [];
+          let retryCount = 0;
+          const maxRetries = 2;
+
+          while (retryCount <= maxRetries && templates.length === 0) {
+            try {
+              if (retryCount > 0) {
+                console.log(`   🔄 Retry attempt ${retryCount} for ${phase} cardio templates...`);
+                // Wait a bit before retry
+                await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+              }
+
+              templates = await this.cardioGenerationService.generatePhaseCardioTemplates(
+                userProfile,
+                phaseWeeks,
+                phase
+              );
+
+              if (templates.length > 0) {
+                console.log(`   ✅ Generated ${templates.length} ${phase} cardio templates`);
+                templates.forEach((template, idx) => {
+                  console.log(`      Template ${idx + 1}: ${template.name} (${template.type}, ${template.durationMinutes}min)`);
+                });
+              } else {
+                console.warn(`   ⚠️  Generated 0 templates for ${phase} phase`);
+              }
+            } catch (retryError) {
+              if (retryCount < maxRetries) {
+                console.warn(`   ⚠️  Attempt ${retryCount + 1} failed, will retry...`);
+                retryCount++;
+              } else {
+                throw retryError; // Re-throw on final attempt
+              }
+            }
+          }
+
+          if (templates.length === 0) {
+            console.error(`   ❌ Failed to generate ${phase} cardio templates after ${maxRetries + 1} attempts`);
+            console.error(`   ⚠️  This phase will have empty templates - AI generation is required`);
+            // Add empty array to maintain phase order, but this will cause schedule generation to fail
+            phaseTemplates.push([]);
+            continue; // Skip to next phase
+          }
+
+          phaseTemplates.push(templates);
+
+          // Generate weekly schedules for each week in this phase
+          console.log(`   📅 Generating weekly schedules for ${phaseWeeks.length} weeks...`);
+          for (const outline of phaseWeeks) {
+            let scheduleGenerated = false;
+            let scheduleRetryCount = 0;
+            const maxScheduleRetries = 2;
+
+            while (scheduleRetryCount <= maxScheduleRetries && !scheduleGenerated) {
+              try {
+                if (scheduleRetryCount > 0) {
+                  console.log(`      🔄 Retry attempt ${scheduleRetryCount} for Week ${outline.weekNumber} schedule...`);
+                  await new Promise(resolve => setTimeout(resolve, 1000 * scheduleRetryCount));
+                }
+
+                console.log(`      🗓️  Generating schedule for Week ${outline.weekNumber}...`);
+                console.log(`         Cardio schedule in outline: ${outline.cardioSchedule?.sessions || 0} sessions, ${outline.cardioSchedule?.duration || 0}min, ${outline.cardioSchedule?.type || 'N/A'}`);
+
+                const schedule = await this.cardioGenerationService.generateWeeklyCardioSchedule(
+                  userProfile,
+                  outline,
+                  templates,
+                  resistanceDays
+                );
+
+                console.log(`      ✅ Week ${outline.weekNumber} schedule generated:`);
+                console.log(`         Sessions: ${schedule.sessions.length}`);
+                console.log(`         Total volume: ${schedule.totalWeeklyVolume.totalMinutes} min, ${schedule.totalWeeklyVolume.totalCalories} cal`);
+                schedule.sessions.forEach((session, idx) => {
+                  console.log(`         Session ${idx + 1}: ${session.dayName} - ${session.cardioTemplate.name} (${session.timing})`);
+                });
+
+                weeklySchedules.push(schedule);
+                scheduleGenerated = true;
+              } catch (scheduleError) {
+                if (scheduleRetryCount < maxScheduleRetries) {
+                  console.warn(`      ⚠️  Attempt ${scheduleRetryCount + 1} failed for Week ${outline.weekNumber}, will retry...`);
+                  scheduleRetryCount++;
+                } else {
+                  console.error(`      ❌ Failed to generate cardio schedule for Week ${outline.weekNumber} after ${maxScheduleRetries + 1} attempts:`);
+                  console.error(`         Error: ${scheduleError instanceof Error ? scheduleError.message : String(scheduleError)}`);
+                  if (scheduleError instanceof Error && scheduleError.stack) {
+                    console.error(`         Stack: ${scheduleError.stack.split('\n').slice(0, 3).join('\n')}`);
+                  }
+                  console.error(`      ⚠️  Skipping Week ${outline.weekNumber} - AI-generated schedule is required`);
+                  // Continue with other weeks instead of failing completely
+                  break;
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`   ❌ Failed to generate ${phase} cardio templates after all retries:`);
+          console.error(`      Error: ${error instanceof Error ? error.message : String(error)}`);
+          if (error instanceof Error && error.stack) {
+            console.error(`      Stack: ${error.stack.split('\n').slice(0, 5).join('\n')}`);
+          }
+          if (error instanceof Error && (error as any).cause) {
+            console.error(`      Cause: ${(error as any).cause}`);
+          }
+          console.error(`   ⚠️  This phase will have empty cardio templates - plan will use basic cardioSchedule fallback`);
+          // Add empty array to maintain phase order
+          phaseTemplates.push([]);
+        }
+      }
+
+      console.log(`\n   ✅ Cardio generation complete:`);
+      console.log(`      Phases: ${phaseTemplates.length} (${phaseTemplates.map((p, i) => `${phases[i]}: ${p.length} templates`).join(', ')})`);
+      console.log(`      Weekly schedules: ${weeklySchedules.length}`);
+      console.log(`      Total templates: ${phaseTemplates.flat().length}`);
+
+      // Check if we have any successful generations
+      const totalTemplates = phaseTemplates.flat().length;
+      const expectedWeeks = weeklyOutlines.length;
+
+      if (totalTemplates === 0 || weeklySchedules.length === 0) {
+        console.warn(`\n   ⚠️  WARNING: Cardio generation produced no templates or schedules!`);
+        console.warn(`      Templates generated: ${totalTemplates}`);
+        console.warn(`      Schedules generated: ${weeklySchedules.length}`);
+        console.warn(`      Expected weeks: ${expectedWeeks}`);
+        console.warn(`      ⚠️  System will fall back to basic cardioSchedule from weeklyOutlines`);
+        console.warn(`      This means the UI will show basic cardio info instead of detailed templates.`);
+      } else if (weeklySchedules.length < expectedWeeks) {
+        console.warn(`\n   ⚠️  WARNING: Not all weeks have detailed cardio schedules!`);
+        console.warn(`      Generated: ${weeklySchedules.length} schedules`);
+        console.warn(`      Expected: ${expectedWeeks} schedules`);
+        console.warn(`      Missing weeks: ${weeklyOutlines.filter(w =>
+          !weeklySchedules.some(s => s.weekNumber === w.weekNumber)
+        ).map(w => w.weekNumber).join(', ')}`);
+      }
+
+      return { phaseTemplates, weeklySchedules };
+    } catch (error) {
+      console.error('❌ [CARDIO] Cardio generation failed completely:');
+      console.error('   Error:', error instanceof Error ? error.message : String(error));
+      if (error instanceof Error && error.stack) {
+        console.error('   Stack:', error.stack.split('\n').slice(0, 10).join('\n'));
+      }
+      if (error instanceof Error && (error as any).cause) {
+        console.error('   Cause:', (error as any).cause);
+      }
+      console.warn('   ⚠️  Continuing without cardio templates...');
+      return { phaseTemplates: [], weeklySchedules: [] };
+    }
+  }
+
+  /**
    * Compile complete plan
    */
   private async compileCompletePlan(
@@ -526,14 +760,15 @@ export class IntegratedPlanGenerator {
     trainingSplit: any,
     weeklyOutlines: WeeklyOutline[],
     userProfile: UserProfile,
-    sessionsByWeek?: SessionTemplate[][]
+    sessionsByWeek?: SessionTemplate[][],
+    cardioTemplates?: { phaseTemplates: any[][]; weeklySchedules: any[] }
   ): Promise<CompletePlan> {
     const derivedExercises = this.buildExerciseLibraryFromSessions(
       sessionTemplates,
       userProfile
     );
     const referenceOutline = weeklyOutlines[0];
-    
+
     // Convert meal plans to MealTemplate format
     // mealPlans is an array of day objects: [{ dayNumber, dayName, meals: MealWithPortions[], totalMacros }, ...]
     // phaseMealTemplates should be MealTemplate[][] (array of arrays - one array per day/phase)
@@ -573,7 +808,7 @@ export class IntegratedPlanGenerator {
                 amount: `${ing.amount || 0}g`,
                 calories: ing.nutrition?.calories || 0, // This should be calculated calories for the amount, not per 100g
               })) || [],
-              instructions: meal.instructions || meal.reasoning 
+              instructions: meal.instructions || meal.reasoning
                 ? (meal.instructions || meal.reasoning.split('\n').filter((line: string) => line.trim()).slice(0, 5))
                 : ['Prepare ingredients as specified'],
             },
@@ -583,9 +818,9 @@ export class IntegratedPlanGenerator {
       }
       phaseMealTemplates.push(dayMealTemplates);
     });
-    
+
     console.log(`✅ Converted ${mealPlans.length} day plans to ${phaseMealTemplates.length} day arrays with ${phaseMealTemplates.reduce((sum, day) => sum + day.length, 0)} total meal templates`);
-    
+
     // Create dailyMealCombinations for the parser (it expects this format)
     const dailyMealCombinations: any[] = [];
     mealPlans.forEach((dayPlan) => {
@@ -607,13 +842,13 @@ export class IntegratedPlanGenerator {
                 amount: `${ing.amount || 0}g`,
                 calories: ing.nutrition?.calories || 0, // This should be calculated calories for the amount
               })) || [],
-              instructions: meal.instructions || meal.reasoning 
+              instructions: meal.instructions || meal.reasoning
                 ? (meal.instructions || meal.reasoning.split('\n').filter((line: string) => line.trim()).slice(0, 5))
                 : ['Prepare ingredients as specified'],
             },
           };
         });
-        
+
         dailyMealCombinations.push({
           weekNumber: dayPlan.weekNumber || 1,
           dayNumber: dayPlan.dayNumber,
@@ -701,7 +936,7 @@ export class IntegratedPlanGenerator {
       };
       shoppingListWithWeeks = shoppingList;
     }
-    
+
     return {
       // Required fields
       feasibility: {
@@ -743,6 +978,8 @@ export class IntegratedPlanGenerator {
       phaseMealTemplates: phaseMealTemplates,
       phaseSessionTemplates: sessionsByWeek && sessionsByWeek.length > 0 ? sessionsByWeek : [sessionTemplates],
       phaseExerciseLibraries: derivedExercises.length > 0 ? [derivedExercises] : [],
+      phaseCardioTemplates: cardioTemplates?.phaseTemplates || [],
+      weeklyCardioSchedules: cardioTemplates?.weeklySchedules || [],
       // Add dailyMealCombinations for parser compatibility (it expects this format)
       dailyMealCombinations,
       shoppingList: shoppingListWithWeeks as ShoppingList,

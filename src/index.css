@@ -1,8 +1,26 @@
 /* Custom Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Xanh+Mono:ital@0;1&display=swap');
+
 @font-face {
-  font-family: 'PP Editorial New';
-  src: url('/assets/fonts/PPEditorialNew-Light.ttf') format('truetype');
-  font-weight: 300;
+  font-family: 'SF Pro Rounded';
+  src: url('/assets/fonts/SF Pro Rounded - Thin.ttf') format('truetype');
+  font-weight: 100;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'SF Pro Rounded';
+  src: url('/assets/fonts/SF Pro Rounded - Semi Bold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'ITC Garamond Std';
+  src: url('/assets/fonts/itc-garamond-std.otf') format('opentype');
+  font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
@@ -15,34 +33,59 @@
 @layer base {
   :root {
     /* Custom color scheme */
-    --background: 60 9% 96%; /* lighter beige for softer look */
-    --foreground: 0 0% 0%; /* black */
-    --card: 60 9% 96%; /* lighter beige */
-    --card-foreground: 0 0% 0%; /* black */
-    --popover: 60 9% 96%; /* lighter beige */
-    --popover-foreground: 0 0% 0%; /* black */
-    --primary: 10 96% 48%; /* #f43e01 */
-    --primary-foreground: 0 0% 100%; /* white */
-    --secondary: 60 9% 90%; /* slightly darker than background */
-    --secondary-foreground: 0 0% 0%; /* black */
-    --muted: 60 9% 90%; /* slightly darker than background */
-    --muted-foreground: 0 0% 40%; /* darker gray */
-    --accent: 10 96% 48%; /* #f43e01 */
-    --accent-foreground: 0 0% 100%; /* white */
+    --background: 60 9% 96%;
+    /* lighter beige for softer look */
+    --foreground: 0 0% 0%;
+    /* black */
+    --card: 60 9% 96%;
+    /* lighter beige */
+    --card-foreground: 0 0% 0%;
+    /* black */
+    --popover: 60 9% 96%;
+    /* lighter beige */
+    --popover-foreground: 0 0% 0%;
+    /* black */
+    --primary: 10 96% 48%;
+    /* #f43e01 */
+    --primary-foreground: 0 0% 100%;
+    /* white */
+    --secondary: 60 9% 90%;
+    /* slightly darker than background */
+    --secondary-foreground: 0 0% 0%;
+    /* black */
+    --muted: 60 9% 90%;
+    /* slightly darker than background */
+    --muted-foreground: 0 0% 40%;
+    /* darker gray */
+    --accent: 10 96% 48%;
+    /* #f43e01 */
+    --accent-foreground: 0 0% 100%;
+    /* white */
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 85%; /* darker border */
-    --input: 0 0% 85%; /* darker input */
-    --ring: 10 96% 48%; /* #f43e01 */
+    --border: 0 0% 85%;
+    /* darker border */
+    --input: 0 0% 85%;
+    /* darker input */
+    --ring: 10 96% 48%;
+    /* #f43e01 */
     --radius: 0.5rem;
-    --sidebar-background: 0 0% 98%; /* #ebebe1 */
-    --sidebar-foreground: 240 5.3% 26.1%; /* black */
-    --sidebar-primary: 240 5.9% 10%; /* #f43e01 */
-    --sidebar-primary-foreground: 0 0% 98%; /* white */
-    --sidebar-accent: 240 4.8% 95.9%; /* slightly darker */
-    --sidebar-accent-foreground: 240 5.9% 10%; /* black */
-    --sidebar-border: 220 13% 91%; /* darker border */
-    --sidebar-ring: 217.2 91.2% 59.8%; /* #f43e01 */
+    --sidebar-background: 0 0% 98%;
+    /* #ebebe1 */
+    --sidebar-foreground: 240 5.3% 26.1%;
+    /* black */
+    --sidebar-primary: 240 5.9% 10%;
+    /* #f43e01 */
+    --sidebar-primary-foreground: 0 0% 98%;
+    /* white */
+    --sidebar-accent: 240 4.8% 95.9%;
+    /* slightly darker */
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    /* black */
+    --sidebar-border: 220 13% 91%;
+    /* darker border */
+    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* #f43e01 */
   }
 
   .dark {
@@ -81,6 +124,15 @@
 
   body {
     @apply bg-background text-foreground;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: 600;
   }
 }
 

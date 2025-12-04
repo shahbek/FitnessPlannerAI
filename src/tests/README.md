@@ -40,6 +40,16 @@ tsx src/tests/integration/IntegratedPlanGenerator.test.ts
 tsx src/tests/integration/FullPlanGeneration.test.ts
 ```
 
+### Manual Tests
+
+```bash
+# Test Cardio Generation (see AI-generated cardio data)
+tsx src/tests/manual/CardioGenerationDebug.ts
+
+# Test Weekly Meal Generation
+tsx src/tests/manual/WeeklyMealGenerationDebug.ts
+```
+
 ### Run All Tests
 
 ```bash
@@ -49,3 +59,28 @@ npm run test:all
 # Run a specific integration suite
 tsx src/tests/integration/IntegratedPlanGenerator.test.ts
 ```
+
+## Manual Test Details
+
+### CardioGenerationDebug.ts
+
+Tests the cardio generation system to see what data we get from AI.
+
+**Run with:**
+```bash
+tsx src/tests/manual/CardioGenerationDebug.ts
+```
+
+**What it tests:**
+- Phase-specific cardio template generation (Foundation, Progression, Peak)
+- Weekly cardio schedule generation with day assignments
+- Full data structure validation
+- Different user goals (fat loss, muscle gain)
+- Template structure details (warmup, main workout, cooldown)
+- Heart rate zones, calorie estimates, equipment requirements
+
+**Output:**
+- Detailed template information for each phase
+- Weekly schedule with day assignments
+- Validation results
+- Full data structure display
