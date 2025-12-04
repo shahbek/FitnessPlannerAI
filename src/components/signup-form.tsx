@@ -3,6 +3,8 @@ import { Button } from "@/components/ui/Button"
 import { Input } from "@/components/ui/Input"
 import { Label } from "@/components/ui/Label"
 
+import logo from "@/assets/logo.svg"
+
 export function SignupForm({
   className,
   ...props
@@ -10,6 +12,12 @@ export function SignupForm({
   return (
     <form className={cn("flex flex-col gap-6", className)} {...props}>
       <div className="flex flex-col items-center gap-2 text-center">
+        <div className="flex flex-col items-center gap-3 mb-2">
+          <img src={logo} alt="Supercomp Logo" className="w-10 h-10" />
+          <span className="text-2xl font-bold tracking-tight text-foreground font-editorial">
+            Supercomp
+          </span>
+        </div>
         <h1 className="text-2xl font-bold">Create your account</h1>
         <p className="text-balance text-sm text-muted-foreground">
           Enter your information below to create your account
