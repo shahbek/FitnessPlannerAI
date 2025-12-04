@@ -21,15 +21,28 @@ export const createAuth = (
     },
     baseURL: siteUrl,
     database: authComponent.adapter(ctx),
+    trustedOrigins: [
+      "http://localhost:3000",
+      "http://localhost:5173",
+      "https://*.ngrok-free.app", // Allow all ngrok subdomains
+      siteUrl,
+    ],
     // Configure email/password authentication
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: false,
       // Enable password reset
       sendResetPassword: async ({ user, url }) => {
-        console.log(`Password reset for ${user.email}: ${url}`);
-        // In production, send email here
-        // For development, we'll just log it
+        // TODO: Integrate with an email provider like Resend
+        // if (process.env.RESEND_API_KEY) { ... }
+
+        console.log(`\n=== PASSWORD RESET ===\nTo reset password for ${user.email}, click here:\n${url}\n======================\n`);
+      },
+    },
+    socialProviders: {
+      google: {
+        clientId: process.env.AUTH_GOOGLE_ID!,
+        clientSecret: process.env.AUTH_GOOGLE_SECRET!,
       },
     },
     plugins: [

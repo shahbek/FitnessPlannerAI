@@ -20,6 +20,8 @@ export default defineSchema({
     gender: v.optional(v.string()),
     height: v.optional(v.number()),
     weight: v.optional(v.number()),
+    bodyFat: v.optional(v.number()),
+    targetBodyFat: v.optional(v.number()),
 
     // Fitness Goals
     primaryGoal: v.optional(v.string()),
