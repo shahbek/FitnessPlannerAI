@@ -269,6 +269,18 @@ const TabsList = React.forwardRef<
           '--liquid-filter': string;
         }}
       >
+        {/* Mobile BlurView Override */}
+        <style dangerouslySetInnerHTML={{
+          __html: `
+          @media (max-width: 768px) {
+            .switcher {
+              backdrop-filter: blur(20px) !important;
+              -webkit-backdrop-filter: blur(20px) !important;
+              background: rgba(255, 255, 255, 0.15) !important;
+              border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+          }
+        `}} />
         <TabsPrimitive.List
           ref={undefined}
           className="switcher__inner"
