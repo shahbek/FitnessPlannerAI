@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { signUp } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { Label } from "@/components/ui/Label";
 import { Card } from "@/components/ui/Card";
 import { Alert } from "@/components/ui/Alert";
+
+import logo from "@/assets/logo.svg";
 
 export function SignupPage({ onSwitchToLogin }: { onSwitchToLogin: () => void }) {
   const [name, setName] = useState("");
@@ -49,13 +51,13 @@ export function SignupPage({ onSwitchToLogin }: { onSwitchToLogin: () => void })
 
     try {
       console.log('🔐 Submitting sign up with Better Auth...');
-      
+
       const result = await signUp.email({
         email,
         password,
         name,
       });
-      
+
       if (result.error) {
         // Handle specific error types
         if (result.error.message?.includes('already exists') || result.error.message?.includes('duplicate')) {
@@ -68,7 +70,7 @@ export function SignupPage({ onSwitchToLogin }: { onSwitchToLogin: () => void })
         setLoading(false);
         return;
       }
-      
+
       console.log('✅ Sign up successful!');
       // Better Auth will automatically create session
     } catch (err: any) {
@@ -80,10 +82,16 @@ export function SignupPage({ onSwitchToLogin }: { onSwitchToLogin: () => void })
 
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md p-8">
         <form className={cn("flex flex-col gap-6")} onSubmit={handleSubmit}>
           <div className="flex flex-col items-center gap-2 text-center">
+            <div className="flex flex-col items-center gap-3 mb-6">
+              <img src={logo} alt="Supercomp Logo" className="w-16 h-16" />
+              <span className="text-4xl font-bold tracking-tight text-foreground font-editorial">
+                Supercomp
+              </span>
+            </div>
             <h1 className="text-2xl font-bold">Create Your Account</h1>
             <p className="text-balance text-sm text-muted-foreground">
               Start your personalized fitness journey today

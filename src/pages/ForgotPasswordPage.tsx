@@ -22,18 +22,18 @@ export function ForgotPasswordPage({ onBackToLogin }: { onBackToLogin: () => voi
 
     try {
       console.log('🔐 Requesting password reset...');
-      
+
       const result = await forgetPassword({
         email,
         redirectTo: "/reset-password", // Where to redirect after clicking reset link
       });
-      
+
       if (result.error) {
         setError(result.error.message || "Failed to send reset email. Please try again.");
         setLoading(false);
         return;
       }
-      
+
       setSuccess(true);
       console.log('✅ Password reset email sent!');
     } catch (err: any) {
@@ -63,6 +63,13 @@ export function ForgotPasswordPage({ onBackToLogin }: { onBackToLogin: () => voi
               <p className="text-muted-foreground">
                 We've sent a password reset link to <strong>{email}</strong>
               </p>
+              {process.env.NODE_ENV === 'development' && (
+                <Alert className="mt-4 bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800">
+                  <div className="text-sm text-yellow-800 dark:text-yellow-200">
+                    <strong>Dev Mode:</strong> Check your terminal/console where you ran `npx convex dev` to see the reset link.
+                  </div>
+                </Alert>
+              )}
               <p className="text-sm text-muted-foreground mt-4">
                 Didn't receive the email? Check your spam folder or{" "}
                 <button

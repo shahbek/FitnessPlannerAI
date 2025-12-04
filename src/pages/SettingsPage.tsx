@@ -12,21 +12,20 @@ import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
+import { updateUser as updateAuthUser } from '@/lib/auth-client';
 import { 
   Save, 
   Coins, 
   TrendingUp, 
   TrendingDown, 
   Zap, 
-  Calendar, 
   Activity,
   AlertTriangle,
   CheckCircle2,
   ShoppingCart,
-  Clock,
   BarChart3,
-  Dumbbell,
-  Heart
+  Upload,
+  X
 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { PurchaseTokensButton } from '@/components/payments/PurchaseTokensButton';
@@ -40,7 +39,8 @@ interface SettingsPageProps {
 
 export function SettingsPage({ currentView = 'account', onViewChange }: SettingsPageProps) {
   const user = useQuery(api.users.getCurrentUser);
-  const updateUserProfile = useMutation(api.users.updateUserProfile);
+  const generateUploadUrl = useMutation(api.users.generateUploadUrl);
+  const getImageUrl = useMutation(api.users.getImageUrl);
   const initializeAccount = useMutation(api.accounts.initializeAccount);
   const syncAccountEmail = useMutation(api.accounts.syncAccountEmail);
   const userAccount = useQuery(api.accounts.getUserAccount);
@@ -48,8 +48,10 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
   const { toast } = useToast();
   
   const [name, setName] = useState('');
-  const [imageUrl, setImageUrl] = useState('');
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Ensure a user account exists (needed for email-based Stripe crediting)
   useEffect(() => {
@@ -133,7 +135,7 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
   useEffect(() => {
     if (user) {
       setName(user.name || '');
-      setImageUrl(user.image || '');
+      setImagePreview(user.image || null);
     }
   }, [user]);
 
@@ -153,15 +155,112 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
     );
   }
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid file type",
+        description: "Please select an image file.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Please select an image smaller than 5MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setSelectedFile(file);
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveImage = () => {
+    setSelectedFile(null);
+    // If there's a current user image, allow removing it
+    // Set to null to indicate removal
+    if (user?.image) {
+      setImagePreview(null);
+    } else {
+      setImagePreview(null);
+    }
+  };
+
   const handleSave = async () => {
     if (!user) return;
     
     setIsSaving(true);
+    setIsUploading(true);
     try {
-      await updateUserProfile({
-        name: name.trim() || undefined,
-        image: imageUrl.trim() || undefined,
-      });
+      let imageStorageId: string | undefined;
+
+      // Upload file if a new one is selected
+      if (selectedFile) {
+        try {
+          // Get upload URL
+          const uploadUrl = await generateUploadUrl();
+          
+          // Upload file
+          const result = await fetch(uploadUrl, {
+            method: "POST",
+            headers: { "Content-Type": selectedFile.type },
+            body: selectedFile,
+          });
+          
+          if (!result.ok) {
+            throw new Error("Failed to upload image");
+          }
+
+          // Get storage ID from response (Convex returns it as plain text)
+          const storageId = await result.text();
+          imageStorageId = storageId;
+        } catch (error) {
+          toast({
+            title: "Failed to upload image",
+            description: "Please try again.",
+            variant: "destructive",
+          });
+          setIsUploading(false);
+          setIsSaving(false);
+          return;
+        }
+      }
+
+      // Update profile through Better Auth
+      const updateData: { name?: string; image?: string | null } = {};
+      
+      if (name.trim()) {
+        updateData.name = name.trim();
+      }
+      
+      // Handle image update
+      if (imageStorageId) {
+        // Get URL from storage ID
+        const imageUrl = await getImageUrl({ imageStorageId: imageStorageId as any });
+        updateData.image = imageUrl;
+      } else if (imagePreview === null && user?.image && !selectedFile) {
+        // User removed the image
+        updateData.image = null;
+      }
+
+      // Update user through Better Auth HTTP API
+      await updateAuthUser(updateData);
+      
+      // Clear selected file after successful save
+      setSelectedFile(null);
       
       toast({
         title: "Profile updated",
@@ -176,6 +275,7 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
       });
     } finally {
       setIsSaving(false);
+      setIsUploading(false);
     }
   };
 
@@ -203,22 +303,53 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
           <CardContent className="space-y-6">
             {/* Profile Image */}
             <div className="flex items-center gap-6">
-              <Avatar className="h-24 w-24">
-                <AvatarImage src={imageUrl || undefined} alt={name || 'User'} />
-                <AvatarFallback className="text-2xl">
-                  {name ? getInitials(name) : 'U'}
-                </AvatarFallback>
-              </Avatar>
+              <div className="relative">
+                <Avatar className="h-24 w-24">
+                  <AvatarImage src={imagePreview || undefined} alt={name || 'User'} />
+                  <AvatarFallback className="text-2xl">
+                    {name ? getInitials(name) : 'U'}
+                  </AvatarFallback>
+                </Avatar>
+                {imagePreview && (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    size="icon"
+                    className="absolute -top-2 -right-2 h-6 w-6 rounded-full"
+                    onClick={handleRemoveImage}
+                  >
+                    <X className="h-3 w-3" />
+                  </Button>
+                )}
+              </div>
               <div className="space-y-2 flex-1">
-                <Label htmlFor="image-url">Profile Image URL</Label>
-                <Input
-                  id="image-url"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="https://example.com/image.jpg"
-                />
+                <Label htmlFor="profile-image">Profile Picture</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="profile-image"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => document.getElementById('profile-image')?.click()}
+                    disabled={isSaving || isUploading}
+                    className="gap-2"
+                  >
+                    <Upload className="h-4 w-4" />
+                    {selectedFile ? 'Change Image' : 'Upload Image'}
+                  </Button>
+                  {selectedFile && (
+                    <span className="text-sm text-muted-foreground">
+                      {selectedFile.name}
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm text-muted-foreground">
-                  Enter a URL to your profile image
+                  Upload a profile picture (max 5MB, JPG, PNG, etc.)
                 </p>
               </div>
             </div>
@@ -251,11 +382,11 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
             <div className="flex justify-end gap-2">
               <Button
                 onClick={handleSave}
-                disabled={isSaving}
+                disabled={isSaving || isUploading}
                 className="gap-2"
               >
                 <Save className="h-4 w-4" />
-                {isSaving ? 'Saving...' : 'Save Changes'}
+                {isUploading ? 'Uploading...' : isSaving ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
           </CardContent>
@@ -487,162 +618,58 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
             {/* Recent Activity */}
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Clock className="h-5 w-5" />
-                  Recent Activity
-                </CardTitle>
+                <CardTitle>Recent Activity</CardTitle>
                 <CardDescription>
-                  Your latest token transactions and operations
+                  Your latest token transactions
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {tokenUsage && tokenUsage.length > 0 ? (
-                  <div className="space-y-4">
-                    {(() => {
-                      // Group activities by date
-                      const now = Date.now();
-                      const oneDay = 24 * 60 * 60 * 1000;
-                      const oneWeek = 7 * oneDay;
-                      
-                      const grouped: Record<string, typeof tokenUsage> = {
-                        today: [],
-                        yesterday: [],
-                        thisWeek: [],
-                        older: [],
-                      };
-                      
-                      tokenUsage.slice(0, 10).forEach((usage) => {
-                        const date = usage.createdAt;
-                        const diff = now - date;
-                        
-                        if (diff < oneDay) {
-                          grouped.today.push(usage);
-                        } else if (diff < oneDay * 2) {
-                          grouped.yesterday.push(usage);
-                        } else if (diff < oneWeek) {
-                          grouped.thisWeek.push(usage);
-                        } else {
-                          grouped.older.push(usage);
-                        }
-                      });
-                      
-                      const renderActivityItem = (usage: typeof tokenUsage[0]) => {
-                        const isPurchase = usage.operationType === "token_purchase" || usage.tokensUsed > 0;
-                        const tokensDisplay = Math.abs(usage.tokensUsed);
-                        const status = (usage as any).status || "success";
-                        
-                        // Get icon and color based on operation type
-                        const getActivityIcon = () => {
-                          if (isPurchase) {
-                            return <TrendingUp className="h-4 w-4 text-green-600" />;
-                          }
-                          switch (usage.operationType) {
-                            case "plan_generation":
-                              return <Dumbbell className="h-4 w-4 text-blue-600" />;
-                            case "meal_generation":
-                              return <Heart className="h-4 w-4 text-orange-600" />;
-                            case "shopping_list":
-                              return <ShoppingCart className="h-4 w-4 text-purple-600" />;
-                            default:
-                              return <Activity className="h-4 w-4 text-primary" />;
-                          }
-                        };
-                        
-                        const getStatusBadge = () => {
-                          switch (status.toLowerCase()) {
-                            case "success":
-                              return <Badge className="bg-green-500 text-white text-xs">Success</Badge>;
-                            case "failed":
-                              return <Badge variant="destructive" className="text-xs">Failed</Badge>;
-                            case "pending":
-                              return <Badge variant="secondary" className="text-xs">Pending</Badge>;
-                            default:
-                              return null;
-                          }
-                        };
-                        
-                        return (
-                          <div
-                            key={usage._id}
-                            className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
-                          >
-                            <div className="flex items-center gap-3 flex-1">
-                              <div className="p-2 bg-muted rounded-lg">
-                                {getActivityIcon()}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <p className="font-medium">{formatOperationType(usage.operationType)}</p>
-                                  {getStatusBadge()}
-                                </div>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <Calendar className="h-3 w-3 text-muted-foreground" />
-                                  <p className="text-sm text-muted-foreground">
-                                    {new Date(usage.createdAt).toLocaleString()}
-                                  </p>
-                                </div>
-                                {(usage as any).planId && (
-                                  <p className="text-xs text-muted-foreground mt-1">
-                                    Plan ID: {(usage as any).planId}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className={`font-semibold ${isPurchase ? 'text-green-600' : 'text-destructive'}`}>
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Operation</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Tokens</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {tokenUsage.slice(0, 10).map((usage) => {
+                          const isPurchase = usage.operationType === "token_purchase" || usage.tokensUsed > 0;
+                          const tokensDisplay = Math.abs(usage.tokensUsed);
+                          const status = (usage as any).status || "success";
+                          
+                          return (
+                            <TableRow key={usage._id}>
+                              <TableCell className="text-muted-foreground">
+                                {new Date(usage.createdAt).toLocaleDateString()}
+                              </TableCell>
+                              <TableCell className="font-medium">
+                                {formatOperationType(usage.operationType)}
+                              </TableCell>
+                              <TableCell>
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                  status === 'success' ? 'bg-muted text-foreground' :
+                                  status === 'failed' ? 'bg-destructive/10 text-destructive' :
+                                  'bg-muted text-muted-foreground'
+                                }`}>
+                                  {status.charAt(0).toUpperCase() + status.slice(1)}
+                                </span>
+                              </TableCell>
+                              <TableCell className={`text-right font-medium tabular-nums ${isPurchase ? 'text-green-600' : ''}`}>
                                 {isPurchase ? '+' : '-'}{tokensDisplay.toLocaleString()}
-                              </p>
-                              <p className="text-xs text-muted-foreground">tokens</p>
-                            </div>
-                          </div>
-                        );
-                      };
-                      
-                      return (
-                        <>
-                          {grouped.today.length > 0 && (
-                            <div>
-                              <h4 className="text-sm font-semibold text-muted-foreground mb-2">Today</h4>
-                              <div className="space-y-2">
-                                {grouped.today.map(renderActivityItem)}
-                              </div>
-                            </div>
-                          )}
-                          {grouped.yesterday.length > 0 && (
-                            <div>
-                              <h4 className="text-sm font-semibold text-muted-foreground mb-2">Yesterday</h4>
-                              <div className="space-y-2">
-                                {grouped.yesterday.map(renderActivityItem)}
-                              </div>
-                            </div>
-                          )}
-                          {grouped.thisWeek.length > 0 && (
-                            <div>
-                              <h4 className="text-sm font-semibold text-muted-foreground mb-2">This Week</h4>
-                              <div className="space-y-2">
-                                {grouped.thisWeek.map(renderActivityItem)}
-                              </div>
-                            </div>
-                          )}
-                          {grouped.older.length > 0 && (
-                            <div>
-                              <h4 className="text-sm font-semibold text-muted-foreground mb-2">Older</h4>
-                              <div className="space-y-2">
-                                {grouped.older.map(renderActivityItem)}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      );
-                    })()}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
                   </div>
                 ) : (
-                  <div className="text-center py-12">
-                    <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
-                    <p className="text-muted-foreground">No token usage recorded yet</p>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Your token usage will appear here after your first operation
-                    </p>
+                  <div className="text-center py-8">
+                    <p className="text-muted-foreground">No activity recorded yet</p>
                   </div>
                 )}
               </CardContent>
@@ -723,129 +750,61 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
           <TabsContent value="history" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5" />
-                  Complete Usage History
-                </CardTitle>
+                <CardTitle>Usage History</CardTitle>
                 <CardDescription>
-                  Detailed log of all token transactions
+                  Complete log of all token transactions
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 {tokenUsage && tokenUsage.length > 0 ? (
-                  <div className="space-y-4">
-                    {/* Filters */}
-                    <div className="flex flex-wrap gap-2 items-center">
-                      <Label className="text-sm">Filter by:</Label>
-                      <select
-                        className="px-3 py-1.5 text-sm border rounded-md bg-background"
-                        onChange={(e) => {
-                          // Filter logic would go here
-                          console.log("Filter by:", e.target.value);
-                        }}
-                      >
-                        <option value="all">All Operations</option>
-                        <option value="plan_generation">Plan Generation</option>
-                        <option value="token_purchase">Token Purchase</option>
-                        <option value="meal_generation">Meal Generation</option>
-                      </select>
-                      <select
-                        className="px-3 py-1.5 text-sm border rounded-md bg-background"
-                        onChange={(e) => {
-                          // Status filter
-                          console.log("Status filter:", e.target.value);
-                        }}
-                      >
-                        <option value="all">All Status</option>
-                        <option value="success">Success</option>
-                        <option value="failed">Failed</option>
-                        <option value="pending">Pending</option>
-                      </select>
-                    </div>
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Operation</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead className="text-right">Tokens</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {tokenUsage.map((usage) => {
+                          const isPurchase = usage.operationType === "token_purchase" || usage.tokensUsed > 0;
+                          const tokensDisplay = Math.abs(usage.tokensUsed);
+                          const status = (usage as any).status || "success";
 
-                    <div className="rounded-md border">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Operation</TableHead>
-                            <TableHead>Details</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Date & Time</TableHead>
-                            <TableHead className="text-right">Tokens</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {tokenUsage.map((usage) => {
-                            const isPurchase = usage.operationType === "token_purchase" || usage.tokensUsed > 0;
-                            const tokensDisplay = Math.abs(usage.tokensUsed);
-                            const status = (usage as any).status || "success";
-                            
-                            // Get status badge
-                            const getStatusBadge = (status: string) => {
-                              switch (status.toLowerCase()) {
-                                case "success":
-                                  return <Badge className="bg-green-500 text-white">Success</Badge>;
-                                case "failed":
-                                  return <Badge variant="destructive">Failed</Badge>;
-                                case "pending":
-                                  return <Badge variant="secondary">Pending</Badge>;
-                                default:
-                                  return <Badge variant="secondary">{status}</Badge>;
-                              }
-                            };
-
-                            // Format operation steps
-                            const operationSteps = (usage as any).operationSteps || [];
-                            const detailsText = operationSteps.length > 0
-                              ? `${operationSteps.length} step${operationSteps.length !== 1 ? 's' : ''}: ${operationSteps.slice(0, 2).join(', ')}${operationSteps.length > 2 ? '...' : ''}`
-                              : usage.operationType === "token_purchase"
-                              ? `Package: ${(usage.details as any)?.packageId || 'Unknown'}`
-                              : "—";
-
-                            return (
-                              <TableRow key={usage._id}>
-                                <TableCell className="font-medium">
-                                  <div className="flex items-center gap-2">
-                                    {isPurchase ? (
-                                      <TrendingUp className="h-4 w-4 text-green-600" />
-                                    ) : (
-                                      <Activity className="h-4 w-4 text-blue-600" />
-                                    )}
-                                    {formatOperationType(usage.operationType)}
-                                  </div>
-                                  {(usage as any).planId && (
-                                    <p className="text-xs text-muted-foreground mt-1">
-                                      Plan ID: {(usage as any).planId}
-                                    </p>
-                                  )}
-                                </TableCell>
-                                <TableCell className="text-sm text-muted-foreground">
-                                  {detailsText}
-                                </TableCell>
-                                <TableCell>
-                                  {getStatusBadge(status)}
-                                </TableCell>
-                                <TableCell>
-                                  <div className="flex items-center gap-2">
-                                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                                    <span className="text-sm">
-                                      {new Date(usage.createdAt).toLocaleString()}
-                                    </span>
-                                  </div>
-                                </TableCell>
-                                <TableCell className={`text-right font-semibold ${isPurchase ? 'text-green-600' : 'text-destructive'}`}>
-                                  {isPurchase ? '+' : '-'}{tokensDisplay.toLocaleString()}
-                                </TableCell>
-                              </TableRow>
-                            );
-                          })}
-                        </TableBody>
-                      </Table>
-                    </div>
+                          return (
+                            <TableRow key={usage._id}>
+                              <TableCell className="text-muted-foreground whitespace-nowrap">
+                                {new Date(usage.createdAt).toLocaleDateString('en-US', { 
+                                  month: 'short', 
+                                  day: 'numeric',
+                                  year: 'numeric'
+                                })}
+                              </TableCell>
+                              <TableCell className="font-medium">
+                                {formatOperationType(usage.operationType)}
+                              </TableCell>
+                              <TableCell>
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                                  status === 'success' ? 'bg-muted text-foreground' :
+                                  status === 'failed' ? 'bg-destructive/10 text-destructive' :
+                                  'bg-muted text-muted-foreground'
+                                }`}>
+                                  {status.charAt(0).toUpperCase() + status.slice(1)}
+                                </span>
+                              </TableCell>
+                              <TableCell className={`text-right font-medium tabular-nums ${isPurchase ? 'text-green-600' : ''}`}>
+                                {isPurchase ? '+' : '-'}{tokensDisplay.toLocaleString()}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
                   </div>
                 ) : (
-                  <div className="text-center py-12">
-                    <Activity className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-50" />
+                  <div className="text-center py-8">
                     <p className="text-muted-foreground">No usage history available</p>
                   </div>
                 )}
