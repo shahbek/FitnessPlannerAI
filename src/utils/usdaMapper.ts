@@ -49,11 +49,11 @@ export function validateMacroValues(macros: MacroValues): MacroValidationResult 
     min: number;
     max: number;
   }> = [
-    { key: 'calories', value: calories, min: 0, max: 9000 },
-    { key: 'protein', value: protein, min: 0, max: 500 },
-    { key: 'carbs', value: carbs, min: 0, max: 1000 },
-    { key: 'fats', value: fats, min: 0, max: 500 },
-  ];
+      { key: 'calories', value: calories, min: 0, max: 9000 },
+      { key: 'protein', value: protein, min: 0, max: 500 },
+      { key: 'carbs', value: carbs, min: 0, max: 1000 },
+      { key: 'fats', value: fats, min: 0, max: 500 },
+    ];
 
   for (const check of checks) {
     const { key, value, min, max } = check;
@@ -169,13 +169,13 @@ export function extractMacrosFromUSDA(
   };
 
   const macros: MacroValues = {
-    calories: findNutrient(NUTRIENT_IDS.CALORIES),
-    protein: findNutrient(NUTRIENT_IDS.PROTEIN),
-    carbs: findNutrient(NUTRIENT_IDS.CARBS),
-    fats: findNutrient(NUTRIENT_IDS.FAT),
-    fiber: findNutrient(NUTRIENT_IDS.FIBER) || undefined,
-    sugar: findNutrient(NUTRIENT_IDS.SUGAR) || undefined,
-    sodium: findNutrient(NUTRIENT_IDS.SODIUM) || undefined,
+    calories: findNutrient(NUTRIENT_IDS.CALORIES, 'Calories'),
+    protein: findNutrient(NUTRIENT_IDS.PROTEIN, 'Protein'),
+    carbs: findNutrient(NUTRIENT_IDS.CARBS, 'Carbs'),
+    fats: findNutrient(NUTRIENT_IDS.FAT, 'Fat'),
+    fiber: findNutrient(NUTRIENT_IDS.FIBER, 'Fiber') || undefined,
+    sugar: findNutrient(NUTRIENT_IDS.SUGAR, 'Sugar') || undefined,
+    sodium: findNutrient(NUTRIENT_IDS.SODIUM, 'Sodium') || undefined,
   };
 
   if (!macros.calories || macros.calories === 0) {

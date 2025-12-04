@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Scale, Sun, Calendar, TrendingUp, AlertCircle } from 'lucide-react';
 
 interface WeighingTimingProps {
@@ -13,7 +13,7 @@ interface WeighingTimingProps {
 export function WeighingTiming({ plan, userProfile }: WeighingTimingProps) {
   const primaryGoal = userProfile?.primaryGoal || 'general_fitness';
   const isWeightLoss = primaryGoal.toLowerCase().includes('fat') || primaryGoal.toLowerCase().includes('loss');
-  
+
   // Best weighing practices
   const bestTime = {
     time: '7:00 AM',
@@ -22,7 +22,7 @@ export function WeighingTiming({ plan, userProfile }: WeighingTimingProps) {
   };
 
   const weighingFrequency = isWeightLoss ? 'Daily' : 'Weekly';
-  const frequencyReason = isWeightLoss 
+  const frequencyReason = isWeightLoss
     ? 'Daily tracking helps identify trends and maintain accountability during fat loss phases'
     : 'Weekly tracking reduces daily fluctuation noise and focuses on long-term progress';
 

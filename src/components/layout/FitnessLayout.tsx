@@ -7,7 +7,7 @@ import {
 import { FitnessSidebar } from './FitnessSidebar';
 import { ChainOfThoughtSidebar } from './ChainOfThoughtSidebar';
 import { MultistepProfileForm } from '@/components/forms/MultistepProfileForm';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/card';
 import { useAISdkRag } from '@/hooks/useAISdkRag';
 import { usePlanGenerator } from '@/hooks/usePlanGenerator';
 import { formToUserProfile, formToWeeklyOutlines } from '@/utils/formToPlanModels';

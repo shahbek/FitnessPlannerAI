@@ -84,9 +84,9 @@ export class SessionTemplateGenerator {
    * Check if AI is available for CoT generation
    */
   private isAIAvailable(): boolean {
-    return this.cotService && 
+    return !!(this.cotService &&
       typeof this.cotService.isAIAvailable === 'function' &&
-      this.cotService.isAIAvailable();
+      this.cotService.isAIAvailable());
   }
 
   /**
@@ -118,7 +118,7 @@ export class SessionTemplateGenerator {
       ...context,
       focusHistorySummary,
     };
-    
+
     const maxRetries = 2;
     let lastError: Error | undefined;
 
@@ -129,7 +129,7 @@ export class SessionTemplateGenerator {
           excludeExercises: recentExercises,
           variationSeed: variationHint,
         } as const;
-        
+
         const prompt = buildSessionTemplateCoTPrompt(
           focusForPrompt,
           trainingPhase,
@@ -198,7 +198,7 @@ export class SessionTemplateGenerator {
       if (!normalized) continue;
       if (seen.has(normalized)) continue;
       if (this.isSimilarToRecent(normalized, recentExercises)) continue;
-      
+
       seen.add(normalized);
       unique.push(exercise);
       if (unique.length === 6) break;
@@ -222,14 +222,14 @@ export class SessionTemplateGenerator {
 
   private isSimilarToRecent(exerciseName: string, recentExercises?: string[]): boolean {
     if (!recentExercises || recentExercises.length === 0) return false;
-    
+
     const normalized = this.normalizeExerciseName(exerciseName);
-    
+
     return recentExercises.some(recent => {
       const normalizedRecent = this.normalizeExerciseName(recent);
       if (normalized === normalizedRecent) return true;
-      if (normalized.length > 5 && normalizedRecent.length > 5 && 
-          (normalized.includes(normalizedRecent) || normalizedRecent.includes(normalized))) {
+      if (normalized.length > 5 && normalizedRecent.length > 5 &&
+        (normalized.includes(normalizedRecent) || normalizedRecent.includes(normalized))) {
         return true;
       }
       return false;
@@ -238,10 +238,11 @@ export class SessionTemplateGenerator {
 
   private extractRecentExercises(sessions: SessionTemplate[] | undefined, daysBack: number): string[] {
     if (!sessions || sessions.length === 0) return [];
-    
+
     return sessions
       .slice(-daysBack)
       .flatMap(s => s.structure.map(e => e.name))
+      .filter((name): name is string => !!name)
       .filter((name, idx, arr) => arr.indexOf(name) === idx);
   }
 
@@ -280,8 +281,8 @@ export class SessionTemplateGenerator {
       const musclesText =
         muscleSet.size > 0
           ? Array.from(muscleSet)
-              .map((muscle) => this.toTitleCase(muscle))
-              .join(', ')
+            .map((muscle) => this.toTitleCase(muscle))
+            .join(', ')
           : 'General focus';
 
       const exercisesText =

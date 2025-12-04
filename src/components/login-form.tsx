@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils"
 import { authClient } from "@/lib/auth-client"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/Label"
+import { Label } from "@/components/ui/label"
 
 export function LoginForm({
   className,

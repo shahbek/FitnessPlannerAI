@@ -4,7 +4,7 @@
  * Trigger component for generating fitness plans using IntegratedPlanGenerator
  */
 
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/ui/button';
 import { Loader2, Sparkles } from 'lucide-react';
 
 interface PlanGenerationButtonProps {
@@ -22,8 +22,21 @@ export function PlanGenerationButton({
   disabled = false,
   variant = 'default',
   size = 'default',
+  children,
   className = '',
-}: PlanGenerationButtonProps) {
+}: PlanGenerationButtonProps & { children?: React.ReactNode }) {
+  const content = children || (loading ? (
+    <>
+      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+      Generating...
+    </>
+  ) : (
+    <>
+      <Sparkles className="mr-2 h-4 w-4" />
+      Generate Plan
+    </>
+  ));
+
   return (
     <Button
       onClick={onClick}
@@ -32,17 +45,7 @@ export function PlanGenerationButton({
       size={size}
       className={className}
     >
-      {loading ? (
-        <>
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-          Generating...
-        </>
-      ) : (
-        <>
-          <Sparkles className="mr-2 h-4 w-4" />
-          Generate Plan
-        </>
-      )}
+      {content}
     </Button>
   );
 }

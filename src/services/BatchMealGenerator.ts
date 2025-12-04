@@ -172,10 +172,10 @@ export class BatchMealGenerator {
     }
   ): Promise<MealWithUSDA[][]> {
     console.log('🚀 [BATCH] Starting optimal batch meal generation...');
-    
+
     // Store meal frequency for use in adjustment calculations
     this.currentMealFrequency = userProfile.mealFrequency || 4;
-    
+
     // Log weekly targets structure
     console.log('📊 [BATCH] Weekly Targets Object:', JSON.stringify(weeklyOutline, null, 2));
     console.log('📊 [BATCH] Daily Targets:', {
@@ -192,7 +192,7 @@ export class BatchMealGenerator {
       trainingDays: weeklyOutline.trainingSchedule.resistanceDays,
       restDays: weeklyOutline.trainingSchedule.restDays,
     });
-    
+
     // Calculate and log day-by-day targets
     const dayTargets = trainingSplit.days.map((day: any, index: number) => {
       const dayMacros = this.calculateDayMacros(weeklyOutline, day.isRestDay);
@@ -204,7 +204,7 @@ export class BatchMealGenerator {
       };
     });
     console.log('📊 [BATCH] Day-by-Day Macro Targets:', dayTargets);
-    
+
     // Step 1: Generate all meals with single AI call
     options?.onProgress?.('Generating all meals with AI...', 10);
     const aiGeneratedMeals = await this.generateWithAI(
@@ -213,7 +213,7 @@ export class BatchMealGenerator {
       trainingSplit
     );
     console.log(`✅ [BATCH] AI generated ${aiGeneratedMeals.weeklyMeals.length} days of meals`);
-    
+
     // Validate meal variety (check for duplicate meal names within same day)
     this.validateMealVariety(aiGeneratedMeals);
 
@@ -437,7 +437,7 @@ export class BatchMealGenerator {
   ): Promise<BatchMealGeneration> {
     // Check if AI is available
     const isAIAvailable = this.cotService.isAIAvailable && this.cotService.isAIAvailable();
-    
+
     if (!isAIAvailable) {
       throw new Error('AI service (Groq) is required for meal generation. Please ensure VITE_GROQ_API_KEY is set.');
     }
@@ -463,10 +463,10 @@ export class BatchMealGenerator {
   private validateMealVariety(meals: BatchMealGeneration): void {
     const issues: string[] = [];
     const globalMealNames = new Map<string, { dayNumber: number; dayName: string; mealType: string }[]>();
-    
+
     meals.weeklyMeals.forEach(day => {
       const mealNames = new Map<string, string[]>(); // mealName -> mealTypes
-      
+
       day.meals.forEach(meal => {
         const normalizedName = meal.mealName.toLowerCase().trim();
         if (!globalMealNames.has(normalizedName)) {
@@ -477,13 +477,13 @@ export class BatchMealGenerator {
           dayName: day.dayName,
           mealType: meal.mealType,
         });
-        
+
         if (!mealNames.has(normalizedName)) {
           mealNames.set(normalizedName, []);
         }
         mealNames.get(normalizedName)!.push(meal.mealType);
       });
-      
+
       // Check for duplicates
       mealNames.forEach((mealTypes, mealName) => {
         if (mealTypes.length > 1) {
@@ -506,7 +506,7 @@ export class BatchMealGenerator {
         );
       }
     });
-    
+
     if (issues.length > 0) {
       console.warn(`\n⚠️  [BATCH] MEAL VARIETY ISSUES DETECTED (non-blocking):`);
       issues.forEach(issue => console.warn(`  - ${issue}`));
@@ -1073,7 +1073,7 @@ Examples of how to interpret preferences:
    */
   private extractUniqueIngredients(result: BatchMealGeneration): string[] {
     const ingredientSet = new Set<string>();
-    
+
     result.weeklyMeals.forEach(day => {
       day.meals.forEach(meal => {
         meal.ingredients.forEach(ing => {
@@ -1163,14 +1163,14 @@ Examples of how to interpret preferences:
           console.warn(`⚠️  [BATCH] Exhausted USDA candidates for ${ingredient}`);
           return { ingredient, data: null };
         }
-        
+
         // Log raw USDA data for comparison
         console.log(`\n🔬 [BATCH] RAW USDA DATA for "${ingredient}":`);
         console.log(`  FDC ID: ${foodDetails.fdcId}`);
         console.log(`  Description: ${foodDetails.description || 'N/A'}`);
         console.log(`  Data Type: ${foodDetails.dataType || 'N/A'}`);
         console.log(`  Total Nutrients: ${foodDetails.nutrients?.length || 0}`);
-        
+
         // Log key nutrient IDs and values (raw from USDA)
         const keyNutrientIds = {
           CALORIES: 1008,
@@ -1180,10 +1180,10 @@ Examples of how to interpret preferences:
           FIBER: 1079,
           SUGAR: 2000,
         };
-        
+
         console.log(`  Raw Nutrient Values (from USDA API):`);
         Object.entries(keyNutrientIds).forEach(([name, id]) => {
-          const nutrient = foodDetails.nutrients?.find(n => n.nutrientId === id);
+          const nutrient = foodDetails.nutrients?.find((n: any) => n.nutrientId === id);
           if (nutrient) {
             const value = (nutrient as any).value ?? (nutrient as any).amount ?? 0;
             const unit = nutrient.unitName || (nutrient as any).unit || 'N/A';
@@ -1192,23 +1192,23 @@ Examples of how to interpret preferences:
             console.log(`    ${name} (ID ${id}): NOT FOUND`);
           }
         });
-        
+
         // Log full nutrients array (first 10 for brevity)
         if (foodDetails.nutrients && foodDetails.nutrients.length > 0) {
           console.log(`  Sample Nutrients (first 10):`);
-          foodDetails.nutrients.slice(0, 10).forEach((n, i) => {
+          foodDetails.nutrients.slice(0, 10).forEach((n: any, i: number) => {
             const value = (n as any).value ?? (n as any).amount ?? 0;
             const unit = n.unitName || (n as any).unit || '';
             console.log(`    [${i}] ID: ${n.nutrientId}, Name: ${n.nutrientName || 'N/A'}, Value: ${value} ${unit}`);
           });
         }
-        
+
         const nutrition = extractMacrosFromUSDA(foodDetails.nutrients || [], {
           foodName: foodDetails.description || ingredient,
           fdcId: foodDetails.fdcId,
           debug: true, // Enable detailed extraction logging
         });
-        
+
         console.log(`  Extracted Macros (per 100g):`, {
           calories: nutrition.calories,
           protein: nutrition.protein + 'g',
@@ -1293,13 +1293,13 @@ Examples of how to interpret preferences:
           // Log detailed ingredient calculation (once per unique ingredient)
           if (!loggedIngredients.has(normalized)) {
             loggedIngredients.add(normalized);
-            
+
             // Calculate expected values manually for verification
             const expectedCalories = (data.nutrition.calories * ing.amount) / 100;
             const expectedProtein = (data.nutrition.protein * ing.amount) / 100;
             const expectedCarbs = (data.nutrition.carbs * ing.amount) / 100;
             const expectedFats = (data.nutrition.fats * ing.amount) / 100;
-            
+
             console.log(`\n🔍 [BATCH] CALCULATION VERIFICATION for "${ing.name}":`);
             console.log(`  Amount: ${ing.amount}g`);
             console.log(`  Per 100g (from USDA):`, {
@@ -1368,7 +1368,7 @@ Examples of how to interpret preferences:
   ): MacroValues {
     // Get meal calorie distribution percentage
     const mealDistribution = this.getMealCalorieDistribution(mealFrequency, dayTargets.calories);
-    
+
     // Determine calorie percentage for this meal type
     let caloriePercentage = 0;
     if (mealType === 'breakfast') {
@@ -1382,7 +1382,7 @@ Examples of how to interpret preferences:
       const snackCal = mealDistribution.snacks?.[0] || (dayTargets.calories * 0.10);
       caloriePercentage = snackCal / dayTargets.calories;
     }
-    
+
     // Apply same percentage to all macros (proportional distribution)
     return {
       calories: Math.round(dayTargets.calories * caloriePercentage),
@@ -2046,7 +2046,7 @@ Examples of how to interpret preferences:
         );
       }
       adjustedMeals.push(...adjustedDayMeals);
-      
+
       // Log final day totals
       const dayTotals = adjustedDayMeals.reduce(
         (sum, meal) => ({
@@ -2057,7 +2057,7 @@ Examples of how to interpret preferences:
         }),
         { calories: 0, protein: 0, carbs: 0, fats: 0 }
       );
-      
+
       console.log(`📊 [BATCH] Day ${dayNum} Final Totals:`, {
         target: dayTargets,
         actual: dayTotals,

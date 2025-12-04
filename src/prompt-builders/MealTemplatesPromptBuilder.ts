@@ -1,7 +1,7 @@
 // Phase 8: Meal Templates Prompt Builder
 // Builds context-aware prompts for meal template generation
 
-import { UserProfile } from '@/types';
+import { UserProfile } from '@/models/UserProfile';
 import { DietaryConstraints } from '@/utils/dietaryConstraints';
 import { PlanningMetrics } from '@/services/aiSdkRagService';
 
@@ -17,7 +17,8 @@ export class MealTemplatesPromptBuilder {
     const week1Calories = metrics.macros.calories;
     const week8Calories = Math.round(metrics.macros.calories - 200);
     const week16Calories = Math.round(metrics.macros.calories - 400);
-    
+
+    const frequency = mealFrequency || 3;
     return `
 Generate meal templates for "${preferences}":
 
@@ -28,9 +29,9 @@ ADJUSTED MACRO TARGETS:
 ${nutritionStrategy?.adjustedMacros ? JSON.stringify(nutritionStrategy.adjustedMacros) : JSON.stringify(metrics.macros)}
 
 MEAL STRUCTURE:
-- Frequency: ${mealFrequency} meals/day
-- Average per meal: ${Math.round(metrics.macros.calories / mealFrequency)} cal
-- Protein per meal: ~${Math.round(metrics.macros.protein / mealFrequency)}g
+- Frequency: ${frequency} meals/day
+- Average per meal: ${Math.round(metrics.macros.calories / frequency)} cal
+- Protein per meal: ~${Math.round(metrics.macros.protein / frequency)}g
 
 TRAINING CONTEXT:
 - Training days: ${trainingDaysPerWeek} days/week
@@ -43,8 +44,8 @@ Create templates for 3 phases:
 2. **Progression** (weeks 6-11): ${week8Calories} cal/day  
 3. **Peak** (weeks 12-16): ${week16Calories} cal/day
 
-For each phase, provide ${mealFrequency} meal templates:
-${this.formatMealStructure(mealFrequency)}
+For each phase, provide ${frequency} meal templates:
+${this.formatMealStructure(frequency)}
 
 STRICT REQUIREMENTS:
 ❌ DO NOT include any foods from the exclude list
@@ -70,7 +71,7 @@ Return structured meal templates with detailed recipes and macros.
     if (constraints.include.includes('all_foods') && constraints.exclude.length === 0) {
       return `- Dietary preference: Flexible (no restrictions)`;
     }
-    
+
     return `
 ✅ MUST INCLUDE ONLY:
 ${constraints.include.map(item => `   - ${this.formatFoodCategory(item)}`).join('\n')}

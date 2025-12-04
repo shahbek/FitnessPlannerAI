@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
@@ -159,11 +159,10 @@ export function WhyThisWorks({ plan, userProfile }: WhyThisWorksProps) {
         {reasons.map((reason, idx) => (
           <div
             key={idx}
-            className={`rounded-lg p-4 border-2 ${
-              reason.validated
+            className={`rounded-lg p-4 border-2 ${reason.validated
                 ? 'bg-green-50 border-green-200'
                 : 'bg-yellow-50 border-yellow-200'
-            }`}
+              }`}
           >
             <div className="flex items-start gap-3">
               <div className="flex-shrink-0 mt-0.5">

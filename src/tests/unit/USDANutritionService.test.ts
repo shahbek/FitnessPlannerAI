@@ -33,7 +33,7 @@ async function runTests() {
   // Helper function to find a food item with nutrients
   async function findFoodWithNutrients(searchQuery: string): Promise<number | null> {
     const searchResults = await service.searchFood(searchQuery);
-    
+
     for (const result of searchResults) {
       try {
         const food = await service.getFoodDetails(result.fdcId);
@@ -44,7 +44,7 @@ async function runTests() {
         continue;
       }
     }
-    
+
     return null;
   }
 
@@ -55,7 +55,7 @@ async function runTests() {
       passed++;
     } catch (error: any) {
       console.error(`❌ ${name}`);
-      
+
       // Better error logging for NutritionError objects
       if (error && typeof error === 'object') {
         if (error.type) {
@@ -157,6 +157,9 @@ async function runTests() {
       }
     }
 
+    if (!food) {
+      throw new Error('Food not found');
+    }
     if (!food.fdcId || food.fdcId !== fdcId) {
       throw new Error('Wrong FDC ID returned');
     }
@@ -234,12 +237,12 @@ async function runTests() {
     // Try multiple common foods to find one with nutrients
     const testQueries = ['chicken breast', 'apple', 'banana', 'rice', 'egg'];
     let testFdcId: number | null = null;
-    
+
     for (const query of testQueries) {
       testFdcId = await findFoodWithNutrients(query);
       if (testFdcId) break;
     }
-    
+
     if (!testFdcId) {
       throw new Error('Could not find any food item with nutrients for caching test');
     }
@@ -272,16 +275,16 @@ async function runTests() {
     // Try multiple common foods to find one with nutrients
     const testQueries = ['chicken breast', 'apple', 'banana', 'rice', 'egg'];
     let testFdcId: number | null = null;
-    
+
     for (const query of testQueries) {
       testFdcId = await findFoodWithNutrients(query);
       if (testFdcId) break;
     }
-    
+
     if (!testFdcId) {
       throw new Error('Could not find any food item with nutrients');
     }
-    
+
     await service.getFoodDetails(testFdcId);
     const statsBefore = service.getCacheStats();
 

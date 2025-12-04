@@ -12,6 +12,7 @@ import {
   buildMealPrompt,
   type UserProfile as PromptUserProfile,
 } from '@/utils/promptBuilder';
+import { UserProfile } from '@/models/UserProfile';
 import { validateMealCompliance } from '@/utils/mealValidator';
 import { NutritionalResearchService } from './NutritionalResearchService';
 import { MealGenerationService } from './MealGenerationService';
@@ -57,26 +58,9 @@ const API_CONFIG = {
 // TYPE DEFINITIONS - Replace 'any' with proper interfaces
 // ============================================================================
 
-interface UserProfile {
-  age: number;
-  sex: string;
-  weightKg: number;
-  heightCm: number;
-  bodyFat?: number;
-  targetBf?: number;
-  activityLevel: string;
-  goal: string;
-  timelineWeeks: number;
-  trainingDaysPerWeek: number;
-  workoutLevel: string;
-  workoutSplit: string;
-  equipment: string;
-  mealFrequency: number;
-  preferences?: any;
-  schedule?: string;
-}
 
-interface PlanningMetrics {
+
+export interface PlanningMetrics {
   bmr: CalculationResult;
   tdee: CalculationResult;
   bmi?: CalculationResult;
@@ -274,24 +258,24 @@ export class AISdkRagService {
   // Constructor - Initialize AI providers and services
   // -------------------------------------------------------------------------
   constructor(
-    apiKey: string, 
-    endpoint: string, 
+    apiKey: string,
+    endpoint: string,
     modelName: string = 'llama-3.3-70b-versatile',
     onProgressUpdate?: ProgressCallback
   ) {
     this.modelName = modelName;
     this.onProgressUpdate = onProgressUpdate;
-    
+
     console.log('🔧 Initializing AI SDK RAG Service:', { endpoint, modelName });
-    
+
     // Initialize knowledge base asynchronously
     this.knowledgeReady = researchKnowledgeBase.initialize().catch(err => {
       console.error('Failed to initialize research knowledge base:', err);
     });
-    
+
     // Validate and clean API key
     const cleanApiKey = this.validateAndCleanApiKey(apiKey);
-    
+
     // Initialize appropriate provider based on endpoint
     if (endpoint.includes('groq.com') || endpoint === 'groq') {
       this.initializeGroqProvider(cleanApiKey);
@@ -312,7 +296,7 @@ export class AISdkRagService {
   private initializeGroqProvider(apiKey: string): void {
     this.groq = createGroq({ apiKey });
     console.log('✅ Groq provider initialized');
-    
+
     // Groq-specific services for advanced features
     this.mealGenerationService = new MealGenerationService(apiKey);
     this.shoppingListGenerationService = new ShoppingListGenerationService(apiKey);
@@ -340,15 +324,15 @@ export class AISdkRagService {
    */
   private validateAndCleanApiKey(apiKey: string): string {
     const trimmed = apiKey.trim();
-    
+
     if (!trimmed) {
       throw new Error('Invalid API key: empty or whitespace only');
     }
-    
+
     if (trimmed.length < API_CONFIG.MIN_KEY_LENGTH) {
       throw new Error(`Invalid API key: must be at least ${API_CONFIG.MIN_KEY_LENGTH} characters`);
     }
-    
+
     console.log('🔑 API key validated');
     return trimmed;
   }
@@ -386,31 +370,31 @@ export class AISdkRagService {
     try {
       // Strategy 1: Try structured output first (most reliable)
       console.log(`🔄 Attempting structured output for ${context}...`);
-      
+
       const result = await generateObject({
         model: this.getModel(),
         schema,
         prompt,
         temperature: API_CONFIG.DEFAULT_TEMPERATURE
       });
-      
+
       console.log(`✅ Structured output successful for ${context}`);
       return result.object;
-      
+
     } catch (error) {
       console.log(`⚠️ Structured output failed for ${context}, trying fallback strategies...`);
-      
+
       // Strategy 2: Try to extract from error object (AI SDK sometimes includes data)
       const extractedFromError = this.tryExtractFromError(error);
       if (extractedFromError) {
         console.log(`✅ Extracted data from error for ${context}`);
         return extractedFromError;
       }
-      
+
       // Strategy 3: Fallback to text generation with JSON parsing
       try {
         console.log(`🔄 Attempting text generation fallback for ${context}...`);
-        
+
         const textResult = await generateText({
           model: this.getModel(),
           prompt: prompt + '\n\nIMPORTANT: Return ONLY valid JSON. No markdown, no explanation.',
@@ -423,7 +407,7 @@ export class AISdkRagService {
           console.log(`✅ Successfully parsed JSON from text response for ${context}`);
           return parsed;
         }
-        
+
       } catch (textError) {
         console.error(`❌ Text generation also failed for ${context}:`, textError);
       }
@@ -442,7 +426,7 @@ export class AISdkRagService {
    */
   private tryExtractFromError(error: unknown): any | null {
     const errorObj = error as any;
-    
+
     // Check error.data or error.cause
     const potentialData = errorObj?.data || errorObj?.cause;
     if (potentialData && typeof potentialData === 'object') {
@@ -451,7 +435,7 @@ export class AISdkRagService {
         return potentialData;
       }
     }
-    
+
     // Try to extract from error message
     const errorMessage = error instanceof Error ? error.message : String(error);
     if (errorMessage.includes('Value:') || errorMessage.includes('{')) {
@@ -460,7 +444,7 @@ export class AISdkRagService {
         return extracted;
       }
     }
-    
+
     return null;
   }
 
@@ -469,13 +453,13 @@ export class AISdkRagService {
    */
   private hasExpectedStructure(obj: any): boolean {
     if (!obj || typeof obj !== 'object') return false;
-    
+
     // Check for common structure patterns
     const patterns = [
       'weeklyOutlines', 'exercises', 'sessions', 'meals',
       'isFeasible', 'trainingApproach', 'nutritionApproach'
     ];
-    
+
     return patterns.some(pattern => pattern in obj);
   }
 
@@ -492,7 +476,7 @@ export class AISdkRagService {
         // Continue to next strategy
       }
     }
-    
+
     // Strategy 2: Markdown code block
     const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
     if (codeBlockMatch) {
@@ -502,7 +486,7 @@ export class AISdkRagService {
         // Continue to next strategy
       }
     }
-    
+
     // Strategy 3: JSON array (wrap if needed)
     const arrayMatch = text.match(/\[[\s\S]*\]/);
     if (arrayMatch) {
@@ -520,7 +504,7 @@ export class AISdkRagService {
         // All strategies failed
       }
     }
-    
+
     return null;
   }
 
@@ -533,7 +517,7 @@ export class AISdkRagService {
    */
   private async ensureKnowledgeBaseReady(): Promise<void> {
     await this.knowledgeReady;
-    
+
     if (!researchKnowledgeBase.isReady()) {
       console.warn('Knowledge base not ready after initialization, retrying...');
       await researchKnowledgeBase.initialize();
@@ -544,12 +528,12 @@ export class AISdkRagService {
    * Search knowledge base for relevant research facts
    */
   private async searchKnowledgeBase(
-    query: string, 
-    category?: string, 
+    query: string,
+    category?: string,
     minConfidence = API_CONFIG.MIN_CONFIDENCE_SCORE
   ): Promise<ResearchFact[]> {
     await this.ensureKnowledgeBaseReady();
-    
+
     return researchKnowledgeBase
       .searchFacts(query, category, minConfidence)
       .slice(0, API_CONFIG.KNOWLEDGE_BASE_MAX_RESULTS);
@@ -562,9 +546,9 @@ export class AISdkRagService {
     if (!facts.length) {
       return 'No specific research citations available. Using evidence-based defaults.';
     }
-    
+
     return facts
-      .map(fact => 
+      .map(fact =>
         `• ${fact.content}\n` +
         `  Source: ${fact.source} (confidence ${Math.round(fact.confidence * 100)}%)`
       )
@@ -629,34 +613,34 @@ export class AISdkRagService {
 
     // Calculate Basal Metabolic Rate using Katch-McArdle equation
     const bmr = await dynamicCalculator.calculateBMR(userProfile);
-    
+
     // Calculate Total Daily Energy Expenditure based on activity level
     const tdee = await dynamicCalculator.calculateTDEE(userProfile, bmr.value);
-    
+
     // Calculate Body Mass Index for health reference
     const bmi = await dynamicCalculator.calculateBMI(userProfile);
-    
+
     // Calculate macro targets (protein, carbs, fat) based on goals
     const macros = await dynamicCalculator.calculateMacroTargets(
       userProfile,
       tdee.value,
       userProfile.goal
     );
-    
+
     // Calculate safe fat loss rate based on body composition
     const fatLoss = await dynamicCalculator.calculateFatLossRate(userProfile);
-    
+
     // Calculate optimal training volume (sets per muscle group)
     const trainingVolume = await dynamicCalculator.calculateTrainingVolume(
       userProfile,
       userProfile.goal
     );
-    
+
     // Calculate daily water requirements
     const water = await dynamicCalculator.calculateWaterRequirement(userProfile);
 
     console.log('✅ Planning metrics computed successfully');
-    
+
     return { bmr, tdee, bmi, macros, fatLoss, trainingVolume, water };
   }
 
@@ -670,10 +654,10 @@ export class AISdkRagService {
    */
   async generateFeasibilityAssessment(userProfile: UserProfile): Promise<FeasibilityResult> {
     console.log('📊 Assessing goal feasibility...');
-    
+
     // Compute deterministic metrics first to ground the assessment
     const metrics = await this.computePlanningMetrics(userProfile);
-    
+
     // Search for relevant research on goal feasibility
     const relevantKnowledge = await this.searchKnowledgeBase(
       `${userProfile.goal} ${userProfile.workoutLevel} ${userProfile.timelineWeeks} weeks`,
@@ -683,15 +667,15 @@ export class AISdkRagService {
     // Calculate evidence-based feasibility thresholds
     const maxSafeFatLoss = userProfile.weightKg * FAT_LOSS_LIMITS.MAX_SAFE_WEEKLY_PERCENTAGE;
     const currentFatLossTarget = userProfile.weightKg * FAT_LOSS_LIMITS.TARGET_WEEKLY_PERCENTAGE;
-    const bodyFatToLose = userProfile.bodyFat 
-      ? userProfile.bodyFat - (userProfile.targetBf || 15) 
+    const bodyFatToLose = userProfile.bodyFat
+      ? userProfile.bodyFat - (userProfile.targetBf || 15)
       : 0;
-    
+
     // Calculate minimum safe timeline
-    const minWeeksForGoal = bodyFatToLose > 0 
-      ? Math.ceil(bodyFatToLose / maxSafeFatLoss) 
+    const minWeeksForGoal = bodyFatToLose > 0
+      ? Math.ceil(bodyFatToLose / maxSafeFatLoss)
       : 4; // Minimum 4 weeks for any fitness goal
-    
+
     const isTimelineRealistic = userProfile.timelineWeeks >= minWeeksForGoal;
 
     const prompt = `
@@ -733,12 +717,12 @@ Provide evidence-based assessment with specific calculations.
       prompt,
       'feasibility assessment'
     );
-    
+
     // Add evidence limits to result
     return {
       ...result,
       alternativeTimeline: `${minWeeksForGoal} weeks`,
-      optimisticOutlook: isTimelineRealistic 
+      optimisticOutlook: isTimelineRealistic
         ? `With ${userProfile.timelineWeeks} weeks of consistent effort, you can safely achieve significant progress!`
         : `A safe ${minWeeksForGoal}-week timeline will help you achieve sustainable results!`,
       evidenceLimits: {
@@ -762,11 +746,11 @@ Provide evidence-based assessment with specific calculations.
    * Includes training schedule, nutrition targets, and cardio protocols
    */
   async generateDetailedWeeklyOutlines(
-    userProfile: UserProfile, 
+    userProfile: UserProfile,
     metrics: PlanningMetrics
   ): Promise<any[]> {
     console.log('📅 Creating detailed weekly outlines...');
-    
+
     // Search for relevant research on progression and periodization
     const nutritionKnowledge = await this.searchKnowledgeBase(
       `${userProfile.goal} fat loss progression weekly targets macro cycling cardio`,
@@ -784,12 +768,12 @@ Provide evidence-based assessment with specific calculations.
     const bfToLose = currentBF - targetBF;
     const totalWeeks = userProfile.timelineWeeks;
     const weeklyBFReduction = bfToLose / totalWeeks;
-    
+
     // Calculate progressive calorie deficit
     const startingDeficit = metrics.tdee.value * CALORIC_DEFICIT_RANGES.MODERATE_START;
     const maxDeficit = metrics.tdee.value * CALORIC_DEFICIT_RANGES.MODERATE_MAX;
-    const deficitIncrease = totalWeeks > 1 
-      ? (maxDeficit - startingDeficit) / (totalWeeks - 1) 
+    const deficitIncrease = totalWeeks > 1
+      ? (maxDeficit - startingDeficit) / (totalWeeks - 1)
       : 0;
 
     const prompt = `
@@ -800,7 +784,7 @@ USER PROFILE:
 - Timeline: ${totalWeeks} weeks (${weeklyBFReduction.toFixed(2)}% BF reduction/week)
 - Weight: ${userProfile.weightKg}kg
 - Training: ${userProfile.trainingDaysPerWeek} days/week
-- Meals: ${userProfile.mealFrequency} per day
+- Meals: ${userProfile.mealFrequency || 3} per day
 ${userProfile.schedule ? `- Schedule: ${userProfile.schedule}` : ''}
 
 SCIENTIFIC CALCULATIONS:
@@ -849,7 +833,7 @@ CRITICAL: Generate outlines for ALL ${totalWeeks} weeks, numbered 1 through ${to
     const weekNumbers = result.weeklyOutlines.map(w => w.weekNumber).sort((a, b) => a - b);
     const missingWeeks = Array.from({ length: totalWeeks }, (_, i) => i + 1)
       .filter(week => !weekNumbers.includes(week));
-    
+
     if (missingWeeks.length > 0) {
       throw new Error(
         `Missing weekly outlines for weeks: ${missingWeeks.join(', ')}. ` +
@@ -870,11 +854,11 @@ CRITICAL: Generate outlines for ALL ${totalWeeks} weeks, numbered 1 through ${to
    * Creates a high-level plan with periodization strategies
    */
   async generatePhaseAwareFramework(
-    userProfile: UserProfile, 
+    userProfile: UserProfile,
     metrics: PlanningMetrics
   ): Promise<any> {
     console.log('🎯 Generating phase-aware strategic framework...');
-    
+
     // Search for relevant training and nutrition research
     const trainingKnowledge = await this.searchKnowledgeBase(
       `${userProfile.workoutSplit} ${userProfile.workoutLevel} periodization phases`,
@@ -948,10 +932,10 @@ Return structured JSON with planName and phase-specific strategies.
     metrics: PlanningMetrics
   ): Promise<any[]> {
     console.log('💪 Building phase-specific exercise libraries...');
-    
+
     const split = framework?.trainingApproach?.split || userProfile.workoutSplit;
     const equipment = userProfile.equipment;
-    
+
     // Search for relevant exercise research
     const relevantKnowledge = await this.searchKnowledgeBase(
       `${equipment} ${split} exercises progression`,
@@ -1031,7 +1015,7 @@ CRITICAL: Cover all major muscle groups: chest, back, legs, shoulders, arms, cor
     weeklyOutlines?: any[]
   ): Promise<any[]> {
     console.log('📅 Creating phase-specific session templates...');
-    
+
     // Validate we have exercises to work with
     if (!exerciseLibraries || exerciseLibraries.length === 0) {
       throw new Error('Cannot generate session templates without exercise libraries.');
@@ -1040,10 +1024,10 @@ CRITICAL: Cover all major muscle groups: chest, back, legs, shoulders, arms, cor
     const split = framework?.trainingApproach?.split || userProfile.workoutSplit;
     const frequency = framework?.trainingApproach?.frequencyPerWeek || userProfile.trainingDaysPerWeek;
     const duration = framework?.trainingApproach?.sessionDurationMinutes || 60;
-    
+
     // Organize exercises by phase based on ID prefixes
     const exercisesByPhase = this.organizeExercisesByPhase(exerciseLibraries);
-    
+
     // Search for session structure research
     const relevantKnowledge = await this.searchKnowledgeBase(
       `${split} session structure volume progression`,
@@ -1051,7 +1035,10 @@ CRITICAL: Cover all major muscle groups: chest, back, legs, shoulders, arms, cor
     );
 
     // Calculate sessions needed per phase
-    const sessionsPerPhase = this.calculateSessionsForSplit(split, frequency);
+    const sessionsPerWeek = this.calculateSessionsForSplit(
+      userProfile.workoutSplit,
+      userProfile.trainingDaysPerWeek
+    );
 
     const prompt = `
 You are an expert strength coach creating phase-specific workout sessions.
@@ -1067,19 +1054,19 @@ ${userProfile.schedule ? `- Available times: ${userProfile.schedule}` : ''}
 AVAILABLE EXERCISES BY PHASE:
 
 FOUNDATION PHASE (${exercisesByPhase.foundation.length} exercises):
-${exercisesByPhase.foundation.map(ex => 
-  `- ${ex.exerciseId}: ${ex.name} (${ex.muscleGroups?.join(', ')})`
-).join('\n')}
+${exercisesByPhase.foundation.map(ex =>
+      `- ${ex.exerciseId}: ${ex.name} (${ex.muscleGroups?.join(', ')})`
+    ).join('\n')}
 
 PROGRESSION PHASE (${exercisesByPhase.progression.length} exercises):
-${exercisesByPhase.progression.map(ex => 
-  `- ${ex.exerciseId}: ${ex.name} (${ex.muscleGroups?.join(', ')})`
-).join('\n')}
+${exercisesByPhase.progression.map(ex =>
+      `- ${ex.exerciseId}: ${ex.name} (${ex.muscleGroups?.join(', ')})`
+    ).join('\n')}
 
 PEAK PHASE (${exercisesByPhase.peak.length} exercises):
-${exercisesByPhase.peak.map(ex => 
-  `- ${ex.exerciseId}: ${ex.name} (${ex.muscleGroups?.join(', ')})`
-).join('\n')}
+${exercisesByPhase.peak.map(ex =>
+      `- ${ex.exerciseId}: ${ex.name} (${ex.muscleGroups?.join(', ')})`
+    ).join('\n')}
 
 RESEARCH CONTEXT:
 ${this.formatFacts(relevantKnowledge)}
@@ -1087,21 +1074,21 @@ ${this.formatFacts(relevantKnowledge)}
 ${weeklyOutlines ? `WEEKLY SCHEDULES:\n${this.formatWeeklySchedules(weeklyOutlines)}` : ''}
 
 YOUR TASK:
-Create ${sessionsPerPhase} session templates PER PHASE (${sessionsPerPhase * 3} total):
+Create ${sessionsPerWeek} session templates PER PHASE (${sessionsPerWeek * 3} total):
 
-1. FOUNDATION PHASE (${sessionsPerPhase} templates):
+1. FOUNDATION PHASE (${sessionsPerWeek} templates):
    - Use ONLY Foundation exercises (F1, F2, etc.)
    - Template IDs: foundation_day1, foundation_day2, etc.
-   - Lower intensity (60-70%), higher reps (8-12), longer rest (90-120s)
-   - Focus on form and movement patterns
+   - Low intensity (50-60%), higher reps (12-15), longer rest (90s)
+   - Focus on form and stability
 
-2. PROGRESSION PHASE (${sessionsPerPhase} templates):
+2. PROGRESSION PHASE (${sessionsPerWeek} templates):
    - Use Progression exercises (can include Foundation)
    - Template IDs: progression_day1, progression_day2, etc.
    - Moderate intensity (70-80%), moderate reps (6-10), moderate rest (60-90s)
    - Focus on progressive overload
 
-3. PEAK PHASE (${sessionsPerPhase} templates):
+3. PEAK PHASE (${sessionsPerWeek} templates):
    - Use Peak exercises (can include Progression)
    - Template IDs: peak_day1, peak_day2, etc.
    - High intensity (80-90%), lower reps (4-8), shorter rest (45-60s)
@@ -1114,7 +1101,17 @@ Each session must:
 - Use valid exercise IDs from the lists above
 - Include sets, reps, rest periods, and notes
 
-CRITICAL: Generate ALL ${sessionsPerPhase * 3} session templates.
+Generate exactly ${sessionsPerWeek} unique workout sessions.
+Each session must have a unique focus and exercise selection.
+
+SESSION REQUIREMENTS:
+1. Generate ${sessionsPerWeek} distinct sessions
+2. Each session duration: ${userProfile.trainingDaysPerWeek > 4 ? '45-60' : '60-75'} minutes
+3. Include warm-up and cool-down for each
+4. Ensure progressive overload opportunities
+
+RETURN FORMAT:
+Return a JSON object with a "sessions" array containing exactly ${sessionsPerWeek} session objects.
 `;
 
     const result = await this.generateWithFallback<{ sessions: any[] }>(
@@ -1154,16 +1151,16 @@ CRITICAL: Generate ALL ${sessionsPerPhase * 3} session templates.
   } {
     const byPhase = {
       foundation: exercises.filter(ex => ex.exerciseId?.startsWith('F')),
-      progression: exercises.filter(ex => 
+      progression: exercises.filter(ex =>
         ex.exerciseId?.startsWith('P') && !ex.exerciseId?.startsWith('Pe')
       ),
       peak: exercises.filter(ex => ex.exerciseId?.startsWith('Pe'))
     };
 
     // If no phase-specific exercises, distribute evenly
-    if (byPhase.foundation.length === 0 && 
-        byPhase.progression.length === 0 && 
-        byPhase.peak.length === 0) {
+    if (byPhase.foundation.length === 0 &&
+      byPhase.progression.length === 0 &&
+      byPhase.peak.length === 0) {
       const third = Math.floor(exercises.length / 3);
       byPhase.foundation = exercises.slice(0, third);
       byPhase.progression = exercises.slice(third, third * 2);
@@ -1178,7 +1175,7 @@ CRITICAL: Generate ALL ${sessionsPerPhase * 3} session templates.
    */
   private calculateSessionsForSplit(split: string, frequency: number): number {
     const lowerSplit = split.toLowerCase();
-    
+
     // Different splits have different session needs
     if (lowerSplit.includes('full_body') || lowerSplit === 'full_body') {
       return frequency; // Usually 3 sessions
@@ -1192,7 +1189,7 @@ CRITICAL: Generate ALL ${sessionsPerPhase * 3} session templates.
     if (lowerSplit.includes('bodypart') || lowerSplit.includes('bro')) {
       return frequency; // Usually 4-6 sessions
     }
-    
+
     return frequency; // Default to frequency
   }
 
@@ -1205,15 +1202,15 @@ CRITICAL: Generate ALL ${sessionsPerPhase * 3} session templates.
     peak: number;
   } {
     return {
-      foundation: sessions.filter(s => 
+      foundation: sessions.filter(s =>
         s.templateId?.toLowerCase().includes('foundation') ||
         s.name?.toLowerCase().includes('foundation')
       ).length,
-      progression: sessions.filter(s => 
+      progression: sessions.filter(s =>
         s.templateId?.toLowerCase().includes('progression') ||
         s.name?.toLowerCase().includes('progression')
       ).length,
-      peak: sessions.filter(s => 
+      peak: sessions.filter(s =>
         s.templateId?.toLowerCase().includes('peak') ||
         s.name?.toLowerCase().includes('peak')
       ).length
@@ -1247,7 +1244,7 @@ Week ${week.weekNumber} (${week.phase}):
     weeklyOutlines?: any[]
   ): Promise<any[][]> {
     console.log('🍽️ Designing phase-specific meal templates...');
-    
+
     if (!weeklyOutlines || weeklyOutlines.length === 0) {
       console.warn('⚠️ No weekly outlines provided for meal generation');
       return [];
@@ -1272,14 +1269,14 @@ Week ${week.weekNumber} (${week.phase}):
     // Generate meals for each phase separately
     for (const [phaseName, phaseWeeks] of Object.entries(phases)) {
       if (phaseWeeks.length === 0) continue;
-      
+
       const phaseCombinations = await this.generatePhaseMealCombinations(
         userProfile,
         metrics,
         phaseWeeks,
         phaseName
       );
-      
+
       allCombinations.push(...phaseCombinations);
     }
 
@@ -1296,7 +1293,7 @@ Week ${week.weekNumber} (${week.phase}):
       `✅ Generated ${allCombinations.length} total meal combinations ` +
       `across ${Object.keys(combinationsByWeek).length} weeks`
     );
-    
+
     return Object.values(combinationsByWeek);
   }
 
@@ -1311,7 +1308,7 @@ Week ${week.weekNumber} (${week.phase}):
     phaseName: string
   ): Promise<any[]> {
     console.log(`🧠 Generating ${phaseName} phase meals...`);
-    
+
     // Try Groq's advanced meal generation if available
     if (this.mealGenerationService) {
       try {
@@ -1354,7 +1351,7 @@ Week ${week.weekNumber} (${week.phase}):
     }
 
     console.log(`🔬 Using Groq Mixtral for ${phaseName} phase meals...`);
-    
+
     const weeklyTemplates = await this.mealGenerationService.generateMealTemplatesWithGroq({
       userProfile,
       metrics,
@@ -1364,11 +1361,11 @@ Week ${week.weekNumber} (${week.phase}):
         this.emitProgressWithReasoning(
           'meals',
           mode === 'thinking' ? 40 : mode === 'formatting' ? 60 : 80,
-          mode === 'thinking' 
+          mode === 'thinking'
             ? 'Analyzing nutrition requirements...'
             : mode === 'formatting'
-            ? 'Creating structured output...'
-            : 'Meal generation complete',
+              ? 'Creating structured output...'
+              : 'Meal generation complete',
           reasoning,
           mode
         );
@@ -1377,7 +1374,7 @@ Week ${week.weekNumber} (${week.phase}):
 
     // Convert weekly templates to daily combinations format
     const dailyCombinations: any[] = [];
-    
+
     weeklyTemplates.forEach((template: any) => {
       // Create 7 daily combinations (one per day) using same meals
       for (let dayNumber = 1; dayNumber <= 7; dayNumber++) {
@@ -1397,7 +1394,7 @@ Week ${week.weekNumber} (${week.phase}):
       `✅ Generated ${dailyCombinations.length} daily combinations ` +
       `for ${phaseName} phase`
     );
-    
+
     return dailyCombinations;
   }
 
@@ -1411,17 +1408,18 @@ Week ${week.weekNumber} (${week.phase}):
     phaseName: string
   ): Promise<any[]> {
     console.log(`📝 Using standard generation for ${phaseName} phase meals...`);
-    
+
     // Build comprehensive meal prompt with constraints
     const promptProfile: PromptUserProfile = {
       ...userProfile,
       preferences: userProfile.preferences ?? 'Flexible (no restrictions)',
+      mealFrequency: userProfile.mealFrequency || 3,
     };
 
     const prompt = buildMealPrompt(promptProfile, metrics) + `
 
 ${phaseName.toUpperCase()} PHASE - WEEKLY OUTLINES:
-${phaseWeeks.map(week => `
+${phaseWeeks.map((week: any) => `
 Week ${week.weekNumber} (${week.phase}):
 - Daily Calories: ${week.dailyTargets.calories} kcal
 - Daily Protein: ${week.dailyTargets.protein}g (${week.dailyTargets.proteinPerKg}g/kg)
@@ -1434,16 +1432,16 @@ CRITICAL REQUIREMENTS:
 Generate weekly meal templates for ALL ${phaseWeeks.length} weeks where meals 
 sum to EXACT daily calorie targets.
 
-MEAL FREQUENCY: ${userProfile.mealFrequency} meals/day
-
-For EACH of the ${phaseWeeks.length} weeks:
-1. Generate exactly ${userProfile.mealFrequency} unique meals
-2. All meals must sum to EXACTLY the daily calorie target (±${VALIDATION_TOLERANCES.CALORIE_PERCENTAGE * 100}%)
-3. Protein, carbs, and fat must also match daily targets
-4. Each week must have unique weekNumber
-
-CALORIE DISTRIBUTION PER MEAL TYPE:
-${this.buildMealDistribution(userProfile.mealFrequency, phaseWeeks[0]?.dailyTargets?.calories || 2000)}
+MEAL FREQUENCY: ${userProfile.mealFrequency || 3} meals/day
+ 
+ For EACH of the ${phaseWeeks.length} weeks:
+ 1. Generate exactly ${userProfile.mealFrequency || 3} unique meals
+ 2. All meals must sum to EXACTLY the daily calorie target (±${VALIDATION_TOLERANCES.CALORIE_PERCENTAGE * 100}%)
+ 3. Protein, carbs, and fat must also match daily targets
+ 4. Each week must have unique weekNumber
+ 
+ CALORIE DISTRIBUTION PER MEAL TYPE:
+ ${this.buildMealDistribution(userProfile.mealFrequency || 3, phaseWeeks[0]?.dailyTargets?.calories || 2000)}
 
 NUTRITIONAL ACCURACY REQUIREMENTS:
 - Research ACTUAL data from USDA FoodData Central
@@ -1507,9 +1505,9 @@ ALL ${phaseWeeks.length} weeks.
     };
 
     const distribution = distributions[mealFrequency] || distributions[4];
-    
+
     return Object.entries(distribution)
-      .map(([meal, percentage]) => 
+      .map(([meal, percentage]) =>
         `- ${meal}: ${(percentage * 100).toFixed(0)}% (~${Math.round(dailyCalories * percentage)} cal)`
       )
       .join('\n');
@@ -1551,7 +1549,7 @@ ALL ${phaseWeeks.length} weeks.
     templates.forEach(template => {
       const expectedMeals = userProfile.mealFrequency;
       const actualMeals = template.meals?.length || 0;
-      
+
       if (actualMeals !== expectedMeals) {
         throw new Error(
           `Week ${template.weekNumber} has ${actualMeals} meals, ` +
@@ -1566,11 +1564,11 @@ ALL ${phaseWeeks.length} weeks.
           (sum: number, meal: any) => sum + (meal.calories || 0),
           0
         ) || 0;
-        
+
         const targetCalories = weekOutline.dailyTargets.calories;
         const caloriesDiff = Math.abs(totalCalories - targetCalories);
         const tolerance = targetCalories * VALIDATION_TOLERANCES.CALORIE_PERCENTAGE;
-        
+
         if (caloriesDiff > tolerance) {
           throw new Error(
             `Week ${template.weekNumber} meals total ${totalCalories} cal, ` +
@@ -1584,11 +1582,11 @@ ALL ${phaseWeeks.length} weeks.
           (sum: number, meal: any) => sum + (meal.protein || 0),
           0
         ) || 0;
-        
+
         const targetProtein = weekOutline.dailyTargets.protein;
         const proteinDiff = Math.abs(totalProtein - targetProtein);
         const proteinTolerance = targetProtein * VALIDATION_TOLERANCES.PROTEIN_PERCENTAGE;
-        
+
         if (proteinDiff > proteinTolerance) {
           throw new Error(
             `Week ${template.weekNumber} meals total ${totalProtein}g protein, ` +
@@ -1607,15 +1605,15 @@ ALL ${phaseWeeks.length} weeks.
    */
   private validateNutritionalAccuracy(templates: any[]): void {
     console.log('🔬 Validating nutritional accuracy...');
-    
+
     const allMeals = templates.flatMap(template => template.meals || []);
-    
+
     allMeals.forEach(meal => {
       if (meal && meal.recipe?.ingredients) {
         const ingredientValidation = NutritionalResearchService.validateIngredientData(
           meal.recipe.ingredients
         );
-        
+
         if (!ingredientValidation.isValid) {
           console.warn(
             `⚠️ Meal "${meal.recipe.name}" has ingredient issues:`,
@@ -1624,7 +1622,7 @@ ALL ${phaseWeeks.length} weeks.
         }
 
         const macroValidation = NutritionalResearchService.validateMealMacros(meal);
-        
+
         if (!macroValidation.isValid) {
           console.warn(
             `⚠️ Meal "${meal.recipe.name}" has macro calculation issues:`,
@@ -1644,8 +1642,8 @@ ALL ${phaseWeeks.length} weeks.
     metrics: PlanningMetrics
   ): void {
     console.log('✅ Validating dietary compliance...');
-    
-    const allMeals = templates.flatMap(template => 
+
+    const allMeals = templates.flatMap(template =>
       template.meals?.map((meal: any) => meal) || []
     );
 
@@ -1660,7 +1658,7 @@ ALL ${phaseWeeks.length} weeks.
 
     if (!validation.isCompliant) {
       console.warn('⚠️ Meal compliance violations:', validation.violations);
-      
+
       // Only throw if violations are critical
       if (validation.requiresRegeneration) {
         throw new Error(
@@ -1676,7 +1674,7 @@ ALL ${phaseWeeks.length} weeks.
    */
   private convertToDailyCombinations(weeklyTemplates: any[]): any[] {
     const dailyCombinations: any[] = [];
-    
+
     weeklyTemplates.forEach(template => {
       // Create 7 daily combinations (one for each day) using same meals
       for (let dayNumber = 1; dayNumber <= 7; dayNumber++) {
@@ -1717,7 +1715,7 @@ ALL ${phaseWeeks.length} weeks.
 
     try {
       console.log('🛒 Generating shopping lists with Groq cost estimation...');
-      
+
       const result = await this.shoppingListGenerationService.generateShoppingListsWithGroq({
         phaseMealTemplates,
         weeklyOutlines,
@@ -1726,17 +1724,17 @@ ALL ${phaseWeeks.length} weeks.
           this.emitProgressWithReasoning(
             'shopping',
             mode === 'thinking' ? 80 : mode === 'formatting' ? 85 : 90,
-            mode === 'thinking' 
+            mode === 'thinking'
               ? '💰 Analyzing ingredient costs...'
               : mode === 'formatting'
-              ? '📋 Creating shopping lists...'
-              : '✅ Shopping lists complete',
+                ? '📋 Creating shopping lists...'
+                : '✅ Shopping lists complete',
             reasoning,
             mode
           );
         }
       });
-      
+
       return result;
     } catch (error) {
       console.error('❌ Shopping list generation failed:', error);
@@ -2047,7 +2045,7 @@ ALL ${phaseWeeks.length} weeks.
   private validateTimeline(feasibility: any, userProfile: UserProfile): any {
     const isRealistic = feasibility.isFeasible;
     const evidenceLimits = feasibility.evidenceLimits;
-    
+
     return {
       isValid: isRealistic,
       evidenceBasedTimeline: evidenceLimits?.minWeeksRequired || userProfile.timelineWeeks,
@@ -2103,7 +2101,7 @@ ALL ${phaseWeeks.length} weeks.
         warnings: ['Evidence citations not available']
       };
     }
-    
+
     return {
       isValid: citations.length > 0,
       citationCount: citations.length,
@@ -2119,7 +2117,7 @@ ALL ${phaseWeeks.length} weeks.
     const expectedWeeks = userProfile.timelineWeeks;
     const outlineWeeks = plan.weeklyOutlines?.length || 0;
     const mealWeeks = new Set<number>();
-    
+
     // Collect all week numbers from meal templates
     plan.phaseMealTemplates?.flat().forEach((weekTemplate: any) => {
       if (weekTemplate.weekNumber) {
@@ -2128,26 +2126,26 @@ ALL ${phaseWeeks.length} weeks.
     });
 
     const issues: string[] = [];
-    
+
     if (outlineWeeks !== expectedWeeks) {
       issues.push(
         `Weekly outlines count (${outlineWeeks}) doesn't match ` +
         `timeline (${expectedWeeks} weeks)`
       );
     }
-    
+
     if (mealWeeks.size !== expectedWeeks) {
       issues.push(
         `Meal templates cover ${mealWeeks.size} weeks, ` +
         `expected ${expectedWeeks} weeks`
       );
     }
-    
+
     const missingMealWeeks = Array.from(
       { length: expectedWeeks },
       (_, i) => i + 1
     ).filter(week => !mealWeeks.has(week));
-    
+
     if (missingMealWeeks.length > 0) {
       issues.push(`Missing meal templates for weeks: ${missingMealWeeks.join(', ')}`);
     }
@@ -2170,16 +2168,16 @@ ALL ${phaseWeeks.length} weeks.
   ): any {
     const issues: string[] = [];
     const allMealTemplates = phaseMealTemplates?.flat() || [];
-    
+
     allMealTemplates.forEach((weekTemplate: any) => {
       if (!weekTemplate.meals || weekTemplate.meals.length === 0) {
         issues.push(`Week ${weekTemplate.weekNumber}: No meals generated`);
         return;
       }
-      
+
       weekTemplate.meals.forEach((meal: any, mealIdx: number) => {
         const mealIssues: string[] = [];
-        
+
         if (!meal.recipe?.name) mealIssues.push('missing name');
         if (!meal.calories || meal.calories === 0) mealIssues.push('calories = 0');
         if (!meal.protein || meal.protein === 0) mealIssues.push('protein = 0');
@@ -2189,7 +2187,7 @@ ALL ${phaseWeeks.length} weeks.
         if (!meal.recipe?.instructions || meal.recipe.instructions.length === 0) {
           mealIssues.push('no instructions');
         }
-        
+
         if (mealIssues.length > 0) {
           issues.push(
             `Week ${weekTemplate.weekNumber}, Meal ${mealIdx + 1}: ` +
@@ -2219,7 +2217,7 @@ ALL ${phaseWeeks.length} weeks.
   ): any {
     const issues: string[] = [];
     const expectedWeeks = weeklyOutlines.length;
-    
+
     if (!shoppingList) {
       issues.push('Shopping list not generated');
       return {
@@ -2229,37 +2227,37 @@ ALL ${phaseWeeks.length} weeks.
         warnings: issues
       };
     }
-    
+
     const shoppingWeeks = shoppingList.weeklyShoppingLists?.length || 0;
-    
+
     if (shoppingWeeks !== expectedWeeks) {
       issues.push(
         `Shopping list has ${shoppingWeeks} weeks, ` +
         `expected ${expectedWeeks} weeks`
       );
     }
-    
+
     if (shoppingList.weeklyShoppingLists) {
       const weekNumbers = shoppingList.weeklyShoppingLists
         .map((list: any) => list.weekNumber)
         .sort((a: number, b: number) => a - b);
-      
+
       const expectedWeekNumbers = weeklyOutlines
         .map((week: any) => week.weekNumber)
         .sort((a: number, b: number) => a - b);
-      
+
       const missingWeeks = expectedWeekNumbers.filter(
         (week: number) => !weekNumbers.includes(week)
       );
-      
+
       const extraWeeks = weekNumbers.filter(
         (week: number) => !expectedWeekNumbers.includes(week)
       );
-      
+
       if (missingWeeks.length > 0) {
         issues.push(`Missing shopping lists for weeks: ${missingWeeks.join(', ')}`);
       }
-      
+
       if (extraWeeks.length > 0) {
         issues.push(`Extra shopping lists for weeks: ${extraWeeks.join(', ')}`);
       }
@@ -2278,7 +2276,7 @@ ALL ${phaseWeeks.length} weeks.
    */
   private collectAllCitations(metrics: PlanningMetrics, _framework: any): string[] {
     const citations = new Set<string>();
-    
+
     // Collect citations from all metric calculations
     Object.values(metrics).forEach((metric: any) => {
       if (metric?.source) {

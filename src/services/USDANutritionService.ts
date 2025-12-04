@@ -158,7 +158,7 @@ export class USDANutritionService {
       if (error && typeof error === 'object' && 'type' in error) {
         throw error; // Re-throw NutritionError
       }
-      
+
       // Capture more error details
       let errorMessage = 'Unknown error';
       if (error instanceof Error) {
@@ -168,7 +168,7 @@ export class USDANutritionService {
       } else if (error) {
         errorMessage = String(error);
       }
-      
+
       throw this.createError(
         NutritionErrorType.NETWORK_ERROR,
         `Failed to search for food: ${errorMessage}`,
@@ -300,10 +300,10 @@ export class USDANutritionService {
     }
 
     const preferredFoods = data.foods.filter((food) =>
-      CONFIG.DATA_TYPE_PRIORITY.includes(food.dataType)
+      CONFIG.DATA_TYPE_PRIORITY.includes(food.dataType as any)
     );
     const otherNonBrandedFoods = data.foods.filter(
-      (food) => !CONFIG.DATA_TYPE_PRIORITY.includes(food.dataType)
+      (food) => !CONFIG.DATA_TYPE_PRIORITY.includes(food.dataType as any)
     );
 
     const orderedFoods = [...preferredFoods, ...otherNonBrandedFoods];
@@ -352,7 +352,7 @@ export class USDANutritionService {
       // Check for nutrients - handle different response formats
       // Some foods use "foodNutrients" instead of "nutrients"
       let rawNutrients = food.nutrients || food.foodNutrients || [];
-      
+
       // If nutrients array exists but is empty, or if it's in a different structure
       if (!rawNutrients || rawNutrients.length === 0) {
         const errorMessage = `Food data for FDC ID ${fdcId} (${food.description || food.lowercaseDescription || 'unknown'}) has no nutrients`;
@@ -373,7 +373,7 @@ export class USDANutritionService {
         if (nut.nutrientId !== undefined) {
           return nut;
         }
-        
+
         // Handle nested format
         if (nut.nutrient && nut.nutrient.id) {
           return {
@@ -383,7 +383,7 @@ export class USDANutritionService {
             value: nut.amount ?? nut.value ?? 0,
           };
         }
-        
+
         // Fallback: try to extract from any structure
         return {
           nutrientId: nut.nutrientId ?? nut.id ?? nut.nutrient?.id ?? 0,
@@ -412,7 +412,7 @@ export class USDANutritionService {
       if (error && typeof error === 'object' && 'type' in error) {
         throw error;
       }
-      
+
       // Capture more error details
       let errorMessage = 'Unknown error';
       if (error instanceof Error) {
@@ -422,7 +422,7 @@ export class USDANutritionService {
       } else if (error) {
         errorMessage = String(error);
       }
-      
+
       throw this.createError(
         NutritionErrorType.NETWORK_ERROR,
         `Failed to get food details: ${errorMessage}`,
@@ -624,7 +624,7 @@ export class USDANutritionService {
         console.error(`Fetch error (attempt ${attempt}): ${error.message}`);
         console.error(`URL: ${url}`);
       }
-      
+
       if (attempt < CONFIG.RETRY_ATTEMPTS) {
         await this.sleep(CONFIG.RETRY_DELAY * attempt);
         return this.fetchWithRetry(url, options, attempt + 1);

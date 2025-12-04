@@ -1,7 +1,7 @@
 // Phase 4: Exercise Library Prompt Builder
 // Builds context-aware prompts for exercise library generation
 
-import { UserProfile } from '@/types';
+import { UserProfile } from '@/models/UserProfile';
 
 export class ExerciseLibraryPromptBuilder {
   static buildPrompt(

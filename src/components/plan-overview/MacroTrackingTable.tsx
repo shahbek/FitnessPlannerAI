@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import {
   Table,
   TableBody,
@@ -8,7 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/Tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
@@ -300,7 +300,7 @@ export function MacroTrackingTable({
       const rows: MacroRow[] = (week.days || []).map((day: any) => {
         const m = day.dailyMacros || {};
         const dayDate = getDateForDay(week.weekNumber || idx + 1, day.dayNumber);
-        
+
         // Find saved data for this day
         const savedEntry = savedTrackingData?.find(
           (entry: any) =>
@@ -437,7 +437,7 @@ export function MacroTrackingTable({
             i === rowIndex ? { ...row, [columnId]: value } : row
           );
           const updatedRow = updated[rowIndex];
-          
+
           // Auto-save to database
           if (updatedRow && updatedRow.date && workoutPlanId) {
             debouncedSave(
@@ -459,10 +459,10 @@ export function MacroTrackingTable({
               }
             );
           }
-          
+
           return updated;
         });
-        
+
         const row = data[rowIndex];
         if (row && onMacroUpdate) {
           onMacroUpdate(selectedWeek, row.dayNumber, columnId, value);
@@ -547,7 +547,7 @@ export function MacroTrackingTable({
                       const isLast = idx === hg.headers.length - 1;
                       // Add border if: it's day, or it's not a value column (and not last)
                       const shouldHaveBorder = (h.id === 'day' || (!isValue && !isLast)) && !isLast;
-                      
+
                       return (
                         <TableHead
                           key={h.id}
@@ -579,7 +579,7 @@ export function MacroTrackingTable({
                       const isLast = idx === row.getVisibleCells().length - 1;
                       // Add border if: it's day, or it's not a value column (and not last)
                       const shouldHaveBorder = (cell.column.id === 'day' || (!isValue && !isLast)) && !isLast;
-                      
+
                       return (
                         <TableCell
                           key={cell.id}

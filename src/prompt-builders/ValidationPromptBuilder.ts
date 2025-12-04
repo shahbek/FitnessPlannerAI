@@ -1,7 +1,7 @@
 // Phase 10: Validation Prompt Builder
 // Builds context-aware prompts for plan validation and consistency checking
 
-import { UserProfile } from '@/types';
+import { UserProfile } from '@/models/UserProfile';
 import { DietaryConstraints } from '@/utils/dietaryConstraints';
 
 export class ValidationPromptBuilder {

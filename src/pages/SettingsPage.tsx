@@ -1,24 +1,24 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/Label';
+import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/Progress';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/Alert';
+import { Progress } from '@/components/ui/progress';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Separator } from '@/components/ui/separator';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { updateUser as updateAuthUser } from '@/lib/auth-client';
-import { 
-  Save, 
-  Coins, 
-  TrendingUp, 
-  TrendingDown, 
-  Zap, 
+import {
+  Save,
+  Coins,
+  TrendingUp,
+  TrendingDown,
+  Zap,
   Activity,
   AlertTriangle,
   CheckCircle2,
@@ -46,7 +46,7 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
   const userAccount = useQuery(api.accounts.getUserAccount);
   const tokenUsage = useQuery(api.accounts.getTokenUsage, { limit: 100 });
   const { toast } = useToast();
-  
+
   const [name, setName] = useState('');
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -58,9 +58,9 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
     if (!user || currentView !== 'tokens') return;
 
     if (userAccount === null) {
-      initializeAccount().catch(() => {});
+      initializeAccount().catch(() => { });
     } else if (userAccount && !userAccount.email && user.email) {
-      syncAccountEmail().catch(() => {});
+      syncAccountEmail().catch(() => { });
     }
   }, [user, currentView, userAccount, initializeAccount, syncAccountEmail]);
 
@@ -111,19 +111,19 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
 
     // Filter and calculate only USAGE (negative tokens), not purchases
     const usageOnly = tokenUsage.filter(u => u.tokensUsed < 0);
-    
+
     const today = Math.abs(usageOnly
       .filter(u => now - u.createdAt < oneDay)
       .reduce((sum, u) => sum + Math.abs(u.tokensUsed), 0));
-    
+
     const thisWeek = Math.abs(usageOnly
       .filter(u => now - u.createdAt < oneWeek)
       .reduce((sum, u) => sum + Math.abs(u.tokensUsed), 0));
-    
+
     const thisMonth = Math.abs(usageOnly
       .filter(u => now - u.createdAt < oneMonth)
       .reduce((sum, u) => sum + Math.abs(u.tokensUsed), 0));
-    
+
     const total = Math.abs(usageOnly.reduce((sum, u) => sum + Math.abs(u.tokensUsed), 0));
     const daysWithUsage = Math.max(1, Math.ceil((now - Math.min(...usageOnly.map(u => u.createdAt))) / oneDay));
     const averagePerDay = total / daysWithUsage;
@@ -201,7 +201,7 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
 
   const handleSave = async () => {
     if (!user) return;
-    
+
     setIsSaving(true);
     setIsUploading(true);
     try {
@@ -212,14 +212,14 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
         try {
           // Get upload URL
           const uploadUrl = await generateUploadUrl();
-          
+
           // Upload file
           const result = await fetch(uploadUrl, {
             method: "POST",
             headers: { "Content-Type": selectedFile.type },
             body: selectedFile,
           });
-          
+
           if (!result.ok) {
             throw new Error("Failed to upload image");
           }
@@ -241,11 +241,11 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
 
       // Update profile through Better Auth
       const updateData: { name?: string; image?: string | null } = {};
-      
+
       if (name.trim()) {
         updateData.name = name.trim();
       }
-      
+
       // Handle image update
       if (imageStorageId) {
         // Get URL from storage ID
@@ -258,10 +258,10 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
 
       // Update user through Better Auth HTTP API
       await updateAuthUser(updateData);
-      
+
       // Clear selected file after successful save
       setSelectedFile(null);
-      
+
       toast({
         title: "Profile updated",
         description: "Your changes have been saved successfully.",
@@ -407,30 +407,30 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
 
     // Token packages - 90% profit margin pricing
     const tokenPackages = [
-      { 
-        id: 'starter', 
-        name: 'Starter', 
-        tokens: 700, 
-        price: 10.00, 
+      {
+        id: 'starter',
+        name: 'Starter',
+        tokens: 700,
+        price: 10.00,
         popular: false,
         plans: 7,
         description: 'Perfect for trying out the service'
       },
-      { 
-        id: 'professional', 
-        name: 'Professional', 
-        tokens: 2000, 
-        price: 25.00, 
+      {
+        id: 'professional',
+        name: 'Professional',
+        tokens: 2000,
+        price: 25.00,
         popular: true,
         plans: 20,
         bonus: '20% bonus',
         description: 'Best value for regular users'
       },
-      { 
-        id: 'enterprise', 
-        name: 'Enterprise', 
-        tokens: 4500, 
-        price: 50.00, 
+      {
+        id: 'enterprise',
+        name: 'Enterprise',
+        tokens: 4500,
+        price: 50.00,
         popular: false,
         plans: 45,
         bonus: '29% bonus',
@@ -482,7 +482,7 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Low Token Balance</AlertTitle>
             <AlertDescription>
-              You have {dummyTokenBalance.toLocaleString()} tokens remaining. 
+              You have {dummyTokenBalance.toLocaleString()} tokens remaining.
               Consider purchasing more tokens to continue using the service.
             </AlertDescription>
           </Alert>
@@ -584,9 +584,9 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
                       <TrendingUp className="h-4 w-4 text-green-600" />
                     </div>
                     <p className="text-2xl font-bold">{usageStats.thisWeek.toLocaleString()}</p>
-                    <Progress 
-                      value={Math.min((usageStats.thisWeek / 1000) * 100, 100)} 
-                      className="h-2" 
+                    <Progress
+                      value={Math.min((usageStats.thisWeek / 1000) * 100, 100)}
+                      className="h-2"
                     />
                   </div>
                   <div className="space-y-2">
@@ -595,9 +595,9 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
                       <Activity className="h-4 w-4 text-blue-600" />
                     </div>
                     <p className="text-2xl font-bold">{usageStats.thisMonth.toLocaleString()}</p>
-                    <Progress 
-                      value={Math.min((usageStats.thisMonth / 5000) * 100, 100)} 
-                      className="h-2" 
+                    <Progress
+                      value={Math.min((usageStats.thisMonth / 5000) * 100, 100)}
+                      className="h-2"
                     />
                   </div>
                   <div className="space-y-2">
@@ -606,9 +606,9 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
                       <TrendingDown className="h-4 w-4 text-purple-600" />
                     </div>
                     <p className="text-2xl font-bold">{usageStats.total.toLocaleString()}</p>
-                    <Progress 
-                      value={Math.min((usageStats.total / dummyTotalPurchased) * 100, 100)} 
-                      className="h-2" 
+                    <Progress
+                      value={Math.min((usageStats.total / dummyTotalPurchased) * 100, 100)}
+                      className="h-2"
                     />
                   </div>
                 </div>
@@ -640,7 +640,7 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
                           const isPurchase = usage.operationType === "token_purchase" || usage.tokensUsed > 0;
                           const tokensDisplay = Math.abs(usage.tokensUsed);
                           const status = (usage as any).status || "success";
-                          
+
                           return (
                             <TableRow key={usage._id}>
                               <TableCell className="text-muted-foreground">
@@ -650,11 +650,10 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
                                 {formatOperationType(usage.operationType)}
                               </TableCell>
                               <TableCell>
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                  status === 'success' ? 'bg-muted text-foreground' :
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${status === 'success' ? 'bg-muted text-foreground' :
                                   status === 'failed' ? 'bg-destructive/10 text-destructive' :
-                                  'bg-muted text-muted-foreground'
-                                }`}>
+                                    'bg-muted text-muted-foreground'
+                                  }`}>
                                   {status.charAt(0).toUpperCase() + status.slice(1)}
                                 </span>
                               </TableCell>
@@ -693,11 +692,10 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
                   {tokenPackages.map((pkg) => (
                     <Card
                       key={pkg.id}
-                      className={`relative border-2 transition-all hover:shadow-lg ${
-                        pkg.popular 
-                          ? 'border-primary bg-primary/5' 
-                          : 'border-border'
-                      }`}
+                      className={`relative border-2 transition-all hover:shadow-lg ${pkg.popular
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border'
+                        }`}
                     >
                       {pkg.popular && (
                         <div className="absolute -top-3 left-1/2 -translate-x-1/2">
@@ -776,8 +774,8 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
                           return (
                             <TableRow key={usage._id}>
                               <TableCell className="text-muted-foreground whitespace-nowrap">
-                                {new Date(usage.createdAt).toLocaleDateString('en-US', { 
-                                  month: 'short', 
+                                {new Date(usage.createdAt).toLocaleDateString('en-US', {
+                                  month: 'short',
                                   day: 'numeric',
                                   year: 'numeric'
                                 })}
@@ -786,11 +784,10 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
                                 {formatOperationType(usage.operationType)}
                               </TableCell>
                               <TableCell>
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                                  status === 'success' ? 'bg-muted text-foreground' :
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${status === 'success' ? 'bg-muted text-foreground' :
                                   status === 'failed' ? 'bg-destructive/10 text-destructive' :
-                                  'bg-muted text-muted-foreground'
-                                }`}>
+                                    'bg-muted text-muted-foreground'
+                                  }`}>
                                   {status.charAt(0).toUpperCase() + status.slice(1)}
                                 </span>
                               </TableCell>
@@ -827,11 +824,10 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
               <CardContent>
                 <div className="space-y-4">
                   {operationCosts.map((cost, index) => (
-                    <div 
-                      key={index} 
-                      className={`flex items-center justify-between p-4 border rounded-lg ${
-                        cost.isComplete ? 'bg-primary/5 border-primary/20' : ''
-                      }`}
+                    <div
+                      key={index}
+                      className={`flex items-center justify-between p-4 border rounded-lg ${cost.isComplete ? 'bg-primary/5 border-primary/20' : ''
+                        }`}
                     >
                       <div className="flex-1">
                         <div className="flex items-center gap-2">
@@ -852,9 +848,9 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
                     </div>
                   ))}
                 </div>
-                
+
                 <Separator className="my-6" />
-                
+
                 <div className="bg-muted/50 p-4 rounded-lg">
                   <h4 className="font-semibold mb-2 flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4 text-green-600" />

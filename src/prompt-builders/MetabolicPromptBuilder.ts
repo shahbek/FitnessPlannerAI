@@ -1,7 +1,7 @@
 // Phase 2: Metabolic Calculations Prompt Builder
 // Builds context-aware prompts for BMR/TDEE/macro calculations
 
-import { UserProfile } from '@/types';
+import { UserProfile } from '@/models/UserProfile';
 import { DietaryConstraints } from '@/utils/dietaryConstraints';
 import { PlanningMetrics } from '@/services/aiSdkRagService';
 
@@ -13,15 +13,17 @@ export class MetabolicPromptBuilder {
     metrics: PlanningMetrics
   ): string {
     const { age, sex, weightKg, heightCm, bodyFat, workoutLevel, trainingDaysPerWeek, workoutSplit } = userProfile;
-    const lbm = weightKg * (1 - bodyFat / 100);
-    
+    // Default to 20% if body fat is not provided
+    const currentBf = bodyFat || 20;
+    const lbm = weightKg * (1 - currentBf / 100);
+
     return `
 Calculate evidence-based metabolic metrics:
 
 USER DATA:
 - Age: ${age}, Sex: ${sex}
 - Weight: ${weightKg}kg, Height: ${heightCm}cm
-- Body Fat: ${bodyFat}%
+- Body Fat: ${currentBf}% ${!bodyFat ? '(estimated)' : ''}
 - LBM: ${lbm.toFixed(1)}kg (calculated)
 
 ACTIVITY:
@@ -31,8 +33,8 @@ ACTIVITY:
 
 DIETARY CONSTRAINTS:
 ${this.formatConstraints(dietaryConstraints)}
-${dietaryConstraints.macroAdjustments.carbs === 'minimize' ? 
-  '⚠️ NOTE: Carnivore diet - carbs will be <5g, adjust macros accordingly' : ''}
+${dietaryConstraints.macroAdjustments.carbs === 'minimize' ?
+        '⚠️ NOTE: Carnivore diet - carbs will be <5g, adjust macros accordingly' : ''}
 
 FEASIBILITY RESULTS:
 - Target weekly fat loss: ${feasibility.evidenceLimits?.maxFatLossPerWeek || 0.5}kg
@@ -61,7 +63,7 @@ Cite all formulas and sources.
     if (constraints.include.includes('all_foods') && constraints.exclude.length === 0) {
       return `- Dietary preference: Flexible (no restrictions)`;
     }
-    
+
     return `
 - MUST INCLUDE: ${constraints.include.join(', ')}
 - MUST EXCLUDE: ${constraints.exclude.join(', ')}

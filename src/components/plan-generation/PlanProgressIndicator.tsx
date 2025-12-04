@@ -4,9 +4,9 @@
  * Displays real-time progress updates during plan generation
  */
 
-import { Progress } from '@/components/ui/Progress';
-import { Card } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
+import { Progress } from '@/components/ui/progress';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { PlanGenerationProgress } from '@/hooks/usePlanGenerator';
 

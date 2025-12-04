@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
-import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { parseWorkoutData, ParsedWorkoutData } from '@/utils/workoutDataParser';
 import { PhaseProgressionTable } from '@/components/tables/PhaseProgressionTable';
@@ -90,11 +90,11 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
 
         {/* Tabbed Content with skeleton */}
         <Tabs defaultValue="comprehensive-meals" className="w-full">
-          <div 
-            className="fixed bottom-8 z-50 flex justify-center items-center pointer-events-none transition-all duration-200 px-6" 
-            style={{ 
+          <div
+            className="fixed bottom-8 z-50 flex justify-center items-center pointer-events-none transition-all duration-200 px-6"
+            style={{
               left: isMobile ? '0' : (sidebarState === 'expanded' ? '16rem' : '0'),
-              right: 0 
+              right: 0
             }}
           >
             <TabsList variant="glass" className="pointer-events-auto flex-shrink-0">

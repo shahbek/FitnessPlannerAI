@@ -12,7 +12,7 @@ import { PlanErrorDisplay } from './PlanErrorDisplay';
 import { PlanReasoningDisplay } from './PlanReasoningDisplay';
 import { UserProfile } from '@/models/UserProfile';
 import { WeeklyOutline } from '@/models/PlanModels';
-import { Card } from '@/components/ui/Card';
+import { Card } from '@/components/ui/card';
 import React, { useEffect } from 'react';
 
 interface PlanGenerationPanelProps {

@@ -95,6 +95,7 @@ export function formToUserProfile(formData: FormData): UserProfile {
     workoutSplit: splitMap[formData.workoutSplit] || 'upper_lower',
     trainingDaysPerWeek: formData.trainingDaysPerWeek,
     equipment: equipmentMap[formData.equipment] || 'gym_membership',
+    activityLevel,
     schedule: formData.schedule,
   };
 }

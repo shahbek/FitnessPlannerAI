@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/card';
 import { extractPlanMetrics } from '@/utils/planMetricsExtractor';
 import { UserProfileSummary } from './UserProfileSummary';
 import { EnergyBalanceVisualization } from './EnergyBalanceVisualization';
@@ -47,7 +47,7 @@ export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile, work
     const weeklyWeightLoss = totalWeeks > 0 && dailyDeficit > 0 ? (dailyDeficit * 7 / 7700).toFixed(2) : 0;
     const totalWeightLoss = totalWeeks > 0 && dailyDeficit > 0 ? ((dailyDeficit * 7 * totalWeeks) / 7700).toFixed(1) : 0;
     const proteinPerKg = userProfile?.weight && metrics.protein > 0 ? (metrics.protein / userProfile.weight).toFixed(1) : '1.8';
-    
+
     return {
       totalWeeks,
       goal,
@@ -73,28 +73,28 @@ export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile, work
               <h1 className="font-editorial text-2xl md:text-3xl font-light text-slate-900 tracking-tight mb-6">
                 Executive Summary
               </h1>
-              
+
               {/* Abstract-style paragraph with key facts in bold */}
               <div className="prose prose-slate max-w-none">
                 <p className="text-base md:text-lg leading-relaxed text-slate-700 font-light">
-                  This <strong className="font-semibold text-slate-900">{planSummary.totalWeeks}-week</strong> personalized 
-                  fitness program is designed to support your <strong className="font-semibold text-slate-900 capitalize">{planSummary.goal}</strong> goals 
-                  through a structured approach combining nutrition and resistance training. 
+                  This <strong className="font-semibold text-slate-900">{planSummary.totalWeeks}-week</strong> personalized
+                  fitness program is designed to support your <strong className="font-semibold text-slate-900 capitalize">{planSummary.goal}</strong> goals
+                  through a structured approach combining nutrition and resistance training.
                   The plan prescribes a daily caloric intake of <strong className="font-semibold text-slate-900">{Math.round(planSummary.targetCalories)} kcal</strong>
                   {planSummary.dailyDeficit > 0 && (
                     <>, creating a <strong className="font-semibold text-slate-900">{planSummary.dailyDeficit} kcal</strong> daily deficit</>
-                  )}, with protein set at <strong className="font-semibold text-slate-900">{planSummary.proteinPerKg}g/kg</strong> body weight 
-                  to optimize muscle protein synthesis and preserve lean mass. 
-                  Training frequency is established at <strong className="font-semibold text-slate-900">{planSummary.trainingDays} sessions per week</strong>, 
+                  )}, with protein set at <strong className="font-semibold text-slate-900">{planSummary.proteinPerKg}g/kg</strong> body weight
+                  to optimize muscle protein synthesis and preserve lean mass.
+                  Training frequency is established at <strong className="font-semibold text-slate-900">{planSummary.trainingDays} sessions per week</strong>,
                   utilizing progressive overload principles across three distinct phases: Foundation, Progression, and Peak.
                   {planSummary.dailyDeficit > 0 && planSummary.totalWeeks > 0 && (
-                    <> Based on the prescribed energy deficit, projected outcomes include approximately <strong className="font-semibold text-slate-900">{planSummary.weeklyWeightLoss} kg</strong> of 
-                    weekly weight reduction, yielding an estimated total loss of <strong className="font-semibold text-slate-900">{planSummary.totalWeightLoss} kg</strong> over 
-                    the program duration.</>
+                    <> Based on the prescribed energy deficit, projected outcomes include approximately <strong className="font-semibold text-slate-900">{planSummary.weeklyWeightLoss} kg</strong> of
+                      weekly weight reduction, yielding an estimated total loss of <strong className="font-semibold text-slate-900">{planSummary.totalWeightLoss} kg</strong> over
+                      the program duration.</>
                   )}
                 </p>
               </div>
-              
+
               {/* Key metrics in a subtle table format */}
               <div className="mt-8 pt-6 border-t border-slate-100">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
@@ -150,7 +150,7 @@ export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile, work
         {/* Area 4.5: Macro Tracking Table (Full Width) - Editable */}
         {weeklySchedule && weeklySchedule.length > 0 && (
           <div className="md:col-span-12">
-            <MacroTrackingTable 
+            <MacroTrackingTable
               weeklyScheduleData={weeklySchedule}
               weeklyOutlines={plan?.weeklyOutlines || []}
               workoutPlanId={workoutPlanId}

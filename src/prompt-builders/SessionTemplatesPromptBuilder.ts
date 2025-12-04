@@ -1,7 +1,7 @@
 // Phase 6: Session Templates Prompt Builder
 // Builds context-aware prompts for detailed session template generation
 
-import { UserProfile } from '@/types';
+import { UserProfile } from '@/models/UserProfile';
 import { DietaryConstraints } from '@/utils/dietaryConstraints';
 import { PlanningMetrics } from '@/services/aiSdkRagService';
 

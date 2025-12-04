@@ -458,7 +458,7 @@ export class LinearProgrammingOptimizer {
    * Ensure we always have tolerance values for every macro
    */
   private normalizeTolerance(targets: OptimizationTargets): MacroTolerance {
-    const supplied = targets.tolerance ?? {};
+    const supplied = (targets.tolerance ?? {}) as Partial<MacroTolerance>;
     const normalized = {
       calories: supplied.calories ?? Math.max(DEFAULT_TOLERANCE.calories, targets.calories * 0.03),
       protein: supplied.protein ?? Math.max(DEFAULT_TOLERANCE.protein, targets.protein * 0.03),

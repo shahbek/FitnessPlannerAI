@@ -1,7 +1,7 @@
 // Phase 3: Training Framework Prompt Builder
 // Builds context-aware prompts for training framework design
 
-import { UserProfile } from '@/types';
+import { UserProfile } from '@/models/UserProfile';
 import { DietaryConstraints } from '@/utils/dietaryConstraints';
 import { PlanningMetrics } from '@/services/aiSdkRagService';
 

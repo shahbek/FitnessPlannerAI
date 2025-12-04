@@ -4,9 +4,9 @@
  * Displays errors from plan generation in a user-friendly way
  */
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/Alert';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { AlertCircle, X } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
+import { Button } from '@/components/ui/button';
 
 interface PlanErrorDisplayProps {
   error: string | null;

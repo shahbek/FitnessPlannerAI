@@ -3,7 +3,7 @@
 
 export enum ActivityLevel {
   SEDENTARY = "sedentary",
-  LIGHT = "light", 
+  LIGHT = "light",
   MODERATE = "moderate",
   ACTIVE = "active",
   VERY_ACTIVE = "very_active"
@@ -11,7 +11,7 @@ export enum ActivityLevel {
 
 export enum GoalType {
   FAT_LOSS = "fat_loss",
-  MUSCLE_GAIN = "muscle_gain", 
+  MUSCLE_GAIN = "muscle_gain",
   RECOMP = "body_recomposition",
   MAINTENANCE = "maintenance",
   PERFORMANCE = "athletic_performance"
@@ -24,7 +24,7 @@ export interface PhysicalStats {
   heightCm: number;
   weightKg: number;
   bodyFatPercentage?: number;
-  
+
   /** Calculated fields */
   bmi: number;
   leanBodyMassKg?: number;
@@ -37,13 +37,13 @@ export interface TrainingHistory {
   trainingStyle: string[]; // ["strength", "cardio", "sports", "none"]
   experienceLevel?: 'beginner' | 'intermediate' | 'expert';
   preferredSplit?: string;
-  
+
   /** Current capabilities */
   canDoPushups: boolean;
   canDoPullups: boolean;
   hasGymAccess: boolean;
   hasEquipment: string[]; // ["barbell", "dumbbells", "bands", "none"]
-  
+
   injuriesOrLimitations: string[];
 }
 
@@ -52,11 +52,11 @@ export interface LifestyleFactors {
   activityLevel: ActivityLevel;
   averageSleepHours: number;
   stressLevel: number; // 1-10 scale
-  
+
   /** Schedule constraints */
   availableTrainingTimeMinutes: number;
   availableMealPrepTimeMinutes: number;
-  
+
   /** Work/life */
   jobType: string; // "sedentary", "active", "manual_labor"
   shiftWork: boolean;
@@ -69,7 +69,7 @@ export interface DietaryPreferences {
   foodsToAvoid: string[];
   preferredMealCount: number; // Meals per day
   preferredCuisines: string[]; // ["italian", "asian", "mexican", "mediterranean", "flexible"]
-  
+
   cookingSkill: 'beginner' | 'intermediate' | 'advanced';
   budgetLevel: 'low' | 'medium' | 'high';
 }
@@ -77,15 +77,15 @@ export interface DietaryPreferences {
 export interface Goal {
   /** What the candidate wants to achieve */
   goalType: GoalType;
-  
+
   /** Specific targets */
   targetWeightKg?: number;
   targetBodyFatPercentage?: number;
   targetMuscleGainKg?: number;
-  
+
   /** Timeline */
   desiredTimelineWeeks: number;
-  
+
   /** Motivation and context */
   motivation: string; // Free text explaining why
   previousAttempts: string[]; // What they've tried before
@@ -101,7 +101,7 @@ export interface MedicalHistory {
 
 export interface CandidateProfile {
   /** Complete candidate profile for AI analysis */
-  
+
   // Core data
   physicalStats: PhysicalStats;
   trainingHistory: TrainingHistory;
@@ -109,12 +109,12 @@ export interface CandidateProfile {
   dietaryPreferences: DietaryPreferences;
   goal: Goal;
   medicalHistory: MedicalHistory;
-  
+
   // Metadata
   profileId: string;
   createdAt: string;
   lastUpdated: string;
-  
+
   /** Profile completeness scoring */
   completenessScore: number; // 0-100%
   missingFields: string[];
@@ -157,6 +157,7 @@ export class CandidateProfileBuilder {
         foodAllergies: [],
         foodsToAvoid: [],
         preferredMealCount: 3,
+        preferredCuisines: [],
         cookingSkill: 'intermediate',
         budgetLevel: 'medium'
       },
@@ -187,7 +188,7 @@ export class CandidateProfileBuilder {
   } {
     const requiredFields = [
       'physicalStats.age',
-      'physicalStats.sex', 
+      'physicalStats.sex',
       'physicalStats.heightCm',
       'physicalStats.weightKg',
       'trainingHistory.yearsTraining',
@@ -235,19 +236,19 @@ export class ProfileValidator {
     // Physical stats validation
     if (profile.physicalStats) {
       const { age, heightCm, weightKg, bodyFatPercentage } = profile.physicalStats;
-      
+
       if (age < 13 || age > 100) {
         errors.push('Age must be between 13 and 100 years');
       }
-      
+
       if (heightCm < 100 || heightCm > 250) {
         errors.push('Height must be between 100 and 250 cm');
       }
-      
+
       if (weightKg < 30 || weightKg > 300) {
         errors.push('Weight must be between 30 and 300 kg');
       }
-      
+
       if (bodyFatPercentage && (bodyFatPercentage < 3 || bodyFatPercentage > 50)) {
         warnings.push('Body fat percentage seems unusual - please verify');
       }
@@ -256,11 +257,11 @@ export class ProfileValidator {
     // Training history validation
     if (profile.trainingHistory) {
       const { yearsTraining, currentTrainingDaysPerWeek } = profile.trainingHistory;
-      
+
       if (yearsTraining < 0 || yearsTraining > 50) {
         errors.push('Years of training must be between 0 and 50');
       }
-      
+
       if (currentTrainingDaysPerWeek < 0 || currentTrainingDaysPerWeek > 7) {
         errors.push('Training days per week must be between 0 and 7');
       }
@@ -269,15 +270,15 @@ export class ProfileValidator {
     // Lifestyle validation
     if (profile.lifestyle) {
       const { averageSleepHours, stressLevel, availableTrainingTimeMinutes } = profile.lifestyle;
-      
+
       if (averageSleepHours < 4 || averageSleepHours > 12) {
         warnings.push('Sleep hours seem unusual - please verify');
       }
-      
+
       if (stressLevel < 1 || stressLevel > 10) {
         errors.push('Stress level must be between 1 and 10');
       }
-      
+
       if (availableTrainingTimeMinutes < 15) {
         warnings.push('Very limited training time - consider adjusting schedule');
       }
@@ -286,21 +287,21 @@ export class ProfileValidator {
     // Goal validation
     if (profile.goal) {
       const { goalType, desiredTimelineWeeks, targetWeightKg, targetBodyFatPercentage } = profile.goal;
-      
+
       if (desiredTimelineWeeks < 1 || desiredTimelineWeeks > 104) {
         errors.push('Timeline must be between 1 and 104 weeks (2 years)');
       }
-      
+
       if (goalType === GoalType.FAT_LOSS && targetWeightKg && profile.physicalStats) {
         const currentWeight = profile.physicalStats.weightKg;
         const weightLoss = currentWeight - targetWeightKg;
         const weeklyLoss = weightLoss / desiredTimelineWeeks;
-        
+
         if (weeklyLoss > 1.0) {
           warnings.push('Target weight loss rate exceeds 1kg/week - may be unsafe');
         }
       }
-      
+
       if (goalType === GoalType.MUSCLE_GAIN && profile.goal.targetMuscleGainKg) {
         const weeklyGain = profile.goal.targetMuscleGainKg / desiredTimelineWeeks;
         if (weeklyGain > 0.5) {

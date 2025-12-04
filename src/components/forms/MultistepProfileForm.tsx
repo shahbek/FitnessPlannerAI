@@ -1,18 +1,18 @@
 import { useState } from 'react';
-import { Card } from '@/components/ui/Card';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/Label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/Select';
-import { Textarea } from '@/components/ui/TextArea';
-import { Progress } from '@/components/ui/Progress';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { Progress } from '@/components/ui/progress';
 import { DEFAULT_FORM_STATE } from '@/constants';
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  User, 
-  Target, 
-  Dumbbell, 
+import {
+  ChevronLeft,
+  ChevronRight,
+  User,
+  Target,
+  Dumbbell,
   Heart,
   CheckCircle
 } from 'lucide-react';
@@ -25,18 +25,18 @@ interface FormData {
   weightKg: number;
   bodyFat?: number;
   targetBf?: number;
-  
+
   // Goals and Timeline
   primaryGoal: string;
   timelineWeeks: number;
   trainingDaysPerWeek: number;
   workoutLevel: string;
-  
+
   // Training Preferences
   workoutSplit: string;
   equipment: string;
   schedule: string;
-  
+
   // Nutrition
   preferences: string;
   mealFrequency?: number;
@@ -140,7 +140,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   className="font-mono"
                 />
               </div>
-              
+
               <div>
                 <Label htmlFor="sex">Sex *</Label>
                 <Select value={formData.sex} onValueChange={(value) => updateFormData('sex', value)}>
@@ -154,7 +154,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div>
                 <Label htmlFor="heightCm">Height (cm) *</Label>
                 <Input
@@ -166,7 +166,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   className="font-mono"
                 />
               </div>
-              
+
               <div>
                 <Label htmlFor="weightKg">Weight (kg) *</Label>
                 <Input
@@ -201,7 +201,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div>
                 <Label htmlFor="timelineWeeks">Timeline (weeks) *</Label>
                 <Input
@@ -221,7 +221,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                 />
                 <p className="text-xs text-muted-foreground mt-1">Maximum 24 weeks</p>
               </div>
-              
+
               <div>
                 <Label htmlFor="trainingDaysPerWeek">Training Days/Week *</Label>
                 <Input
@@ -235,7 +235,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   className="font-mono"
                 />
               </div>
-              
+
               <div>
                 <Label htmlFor="workoutLevel">Experience Level *</Label>
                 <Select value={formData.workoutLevel} onValueChange={(value) => updateFormData('workoutLevel', value)}>
@@ -266,7 +266,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   className="font-mono"
                 />
               </div>
-              
+
               <div>
                 <Label htmlFor="targetBf">Target Body Fat %</Label>
                 <Input
@@ -303,7 +303,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div>
                 <Label htmlFor="equipment">Available Equipment *</Label>
                 <Select value={formData.equipment} onValueChange={(value) => updateFormData('equipment', value)}>
@@ -348,11 +348,11 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                 rows={4}
               />
             </div>
-            
+
             <div>
               <Label htmlFor="mealFrequency">Preferred Meal Frequency</Label>
-              <Select 
-                value={formData.mealFrequency?.toString()} 
+              <Select
+                value={formData.mealFrequency?.toString()}
                 onValueChange={(value) => updateFormData('mealFrequency', parseInt(value))}
               >
                 <SelectTrigger>
@@ -407,14 +407,14 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
               const isActive = currentStep === step.id;
               const isCompleted = currentStep > step.id;
               const Icon = step.icon;
-              
+
               return (
                 <div key={step.id} className="flex flex-col items-center">
                   <div className={`
                     w-8 h-8 rounded-full flex items-center justify-center border-2 transition-colors
-                    ${isActive ? 'border-primary bg-primary text-primary-foreground' : 
-                      isCompleted ? 'border-primary bg-primary text-primary-foreground' : 
-                      'border-muted-foreground text-muted-foreground'}
+                    ${isActive ? 'border-primary bg-primary text-primary-foreground' :
+                      isCompleted ? 'border-primary bg-primary text-primary-foreground' :
+                        'border-muted-foreground text-muted-foreground'}
                   `}>
                     <Icon className="h-4 w-4" />
                   </div>

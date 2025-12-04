@@ -3,9 +3,9 @@ import { forgetPassword } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/Label";
-import { Card } from "@/components/ui/Card";
-import { Alert } from "@/components/ui/Alert";
+import { Label } from "@/components/ui/label";
+import { Card } from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
 import { ArrowLeft, CheckCircle2 } from "lucide-react";
 
 export function ForgotPasswordPage({ onBackToLogin }: { onBackToLogin: () => void }) {

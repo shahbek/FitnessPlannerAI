@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Droplet, Clock, Coffee, Sun, Sunset, Moon } from 'lucide-react';
 import { calculateWaterIntake } from '@/utils/planCalculations';
 

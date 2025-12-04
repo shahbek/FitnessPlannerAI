@@ -16,7 +16,7 @@ interface FluidGlassCursorProps {
   anisotropy?: number;
 }
 
-function CursorMesh({ 
+function CursorMesh({
   scale = 0.12,
   ior = 1.15,
   thickness = 2,
@@ -24,7 +24,7 @@ function CursorMesh({
   anisotropy = 0.1,
 }: FluidGlassCursorProps) {
   const meshRef = useRef<THREE.Mesh>(null);
-  const buffer = useFBO({ multisample: true, samples: 8 });
+  const buffer = useFBO({ samples: 8 });
   const { viewport, gl, camera, size, scene } = useThree();
   const pointerRef = useRef({ x: 0, y: 0 });
 
@@ -98,7 +98,7 @@ export function FluidGlassCursor(props: FluidGlassCursorProps = {}) {
   useEffect(() => {
     // Ensure we're on the client side
     setMounted(true);
-    
+
     // Hide default cursor
     document.body.style.cursor = 'none';
 

@@ -227,7 +227,7 @@ export class ConsistentPlanGenerationService {
     const planId = generatePlanId();
     const plan: ConsistentPlan = {
       planId,
-      userId: userProfile.userId || 'unknown',
+      userId: 'unknown', // UserProfile doesn't have userId
       weeks: [],
       validationResults: {
         overallConfidence: 0,
@@ -287,19 +287,15 @@ export class ConsistentPlanGenerationService {
       };
 
       // Convert meal templates to days
-      // phaseMealTemplates is an array of arrays: [phase1Days[], phase2Days[], ...]
-      // Each day template has: { weekNumber, dayNumber, meals: [...] }
-      const allDayTemplates = completePlan.phaseMealTemplates?.flat() || [];
-      const weekDayTemplates = allDayTemplates.filter(
-        (day: any) => day.weekNumber === outline.weekNumber
-      );
+      // phaseMealTemplates is an array of arrays: [day1Meals[], day2Meals[], ...]
+      // We assume phaseMealTemplates corresponds to the days in the week
+      const allDayTemplates = completePlan.phaseMealTemplates || [];
 
       // Create 7 days for the week
       for (let dayNumber = 1; dayNumber <= 7; dayNumber++) {
         const dayId = generateDayId(weekId);
-        const dayTemplate = weekDayTemplates.find(
-          (d: any) => d.dayNumber === dayNumber
-        );
+        // dayTemplate is an array of meals for the day
+        const dayTemplate = allDayTemplates[dayNumber - 1] as any[];
 
         const day: ConsistentDay = {
           dayId,
@@ -310,8 +306,8 @@ export class ConsistentPlanGenerationService {
         };
 
         // Convert meals from day template
-        if (dayTemplate?.meals) {
-          for (const mealTemplate of dayTemplate.meals) {
+        if (Array.isArray(dayTemplate)) {
+          for (const mealTemplate of dayTemplate) {
             const mealId = generateMealId(dayId);
             const meal: ConsistentMeal = {
               mealId,
@@ -329,23 +325,23 @@ export class ConsistentPlanGenerationService {
               traceabilityHash: '',
               recipe: {
                 name: mealTemplate.recipe?.name || mealTemplate.baseRecipe?.name || mealTemplate.name || 'Unknown Meal',
-                instructions: mealTemplate.recipe?.instructions || 
-                             mealTemplate.baseRecipe?.instructions || 
-                             mealTemplate.cookingInstructions || 
-                             []
+                instructions: mealTemplate.recipe?.instructions ||
+                  mealTemplate.baseRecipe?.instructions ||
+                  mealTemplate.cookingInstructions ||
+                  []
               }
             };
 
             // Convert ingredients
-            const ingredients = mealTemplate.recipe?.ingredients || 
-                               mealTemplate.baseRecipe?.ingredients || 
-                               mealTemplate.ingredients || 
-                               [];
+            const ingredients = mealTemplate.recipe?.ingredients ||
+              mealTemplate.baseRecipe?.ingredients ||
+              mealTemplate.ingredients ||
+              [];
 
             for (const ingredientTemplate of ingredients) {
               const ingredientId = generateIngredientId(mealId);
               const normalizedName = normalizeIngredientName(ingredientTemplate.name || '');
-              
+
               // Parse amount (e.g., "100g" -> 100)
               const amountStr = ingredientTemplate.amount || '0';
               const amountMatch = amountStr.match(/(\d+\.?\d*)/);
@@ -419,7 +415,7 @@ export class ConsistentPlanGenerationService {
         for (const meal of day.meals) {
           for (const ingredient of meal.ingredients) {
             const normalized = ingredient.normalizedName;
-            
+
             if (!ingredientMap.has(normalized)) {
               ingredientMap.set(normalized, {
                 ingredient,
@@ -444,7 +440,7 @@ export class ConsistentPlanGenerationService {
 
       for (const [normalizedName, entry] of ingredientMap.entries()) {
         const category = this.categorizeIngredient(entry.ingredient.name);
-        
+
         if (!categories.has(category)) {
           categories.set(category, []);
         }
@@ -483,25 +479,25 @@ export class ConsistentPlanGenerationService {
    */
   private categorizeIngredient(name: string): string {
     const lower = name.toLowerCase();
-    
+
     if (lower.includes('chicken') || lower.includes('turkey') || lower.includes('salmon') ||
-        lower.includes('beef') || lower.includes('pork') || lower.includes('fish')) {
+      lower.includes('beef') || lower.includes('pork') || lower.includes('fish')) {
       return 'Proteins';
     }
     if (lower.includes('rice') || lower.includes('quinoa') || lower.includes('oats') ||
-        lower.includes('pasta') || lower.includes('bread')) {
+      lower.includes('pasta') || lower.includes('bread')) {
       return 'Grains';
     }
     if (lower.includes('broccoli') || lower.includes('spinach') || lower.includes('kale') ||
-        lower.includes('carrot') || lower.includes('pepper') || lower.includes('tomato')) {
+      lower.includes('carrot') || lower.includes('pepper') || lower.includes('tomato')) {
       return 'Vegetables';
     }
     if (lower.includes('apple') || lower.includes('banana') || lower.includes('berry') ||
-        lower.includes('avocado')) {
+      lower.includes('avocado')) {
       return 'Fruits';
     }
     if (lower.includes('milk') || lower.includes('cheese') || lower.includes('yogurt') ||
-        lower.includes('egg')) {
+      lower.includes('egg')) {
       return 'Dairy & Eggs';
     }
     if (lower.includes('almond') || lower.includes('walnut') || lower.includes('seed')) {

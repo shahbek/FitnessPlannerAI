@@ -119,7 +119,7 @@ async function runTests() {
     console.log('\n🔍 [TEST] Starting plan generation test...');
     console.log(`   📝 User Profile:`, JSON.stringify(userProfile, null, 2));
     console.log(`   📝 Weekly Outlines:`, JSON.stringify(weeklyOutlines, null, 2));
-    
+
     // Create generator using BatchMealGenerator (optimal architecture)
     // Pass USDA key explicitly since env.ts may not work correctly in test environment
     console.log('🔍 [TEST] Creating IntegratedPlanGenerator...');
@@ -132,7 +132,7 @@ async function runTests() {
     }
     const generator = new IntegratedPlanGenerator(USDA_API_KEY);
     console.log('✅ [TEST] Generator created successfully');
-    
+
     // Track state updates with detailed logging
     const stateUpdates: any[] = [];
     const onStateUpdate = (state: any) => {
@@ -155,7 +155,7 @@ async function runTests() {
     console.log('   - useUSDAAPI: true');
     console.log('   - useCoT: false (deterministic for workouts, batch for meals)');
     console.log('   - enableCorrections: true');
-    
+
     let plan;
     try {
       console.log('🚀 [TEST] Calling generator.generatePlan()...');
@@ -163,10 +163,10 @@ async function runTests() {
         userProfile,
         weeklyOutlines,
         {
-        useUSDAAPI: true,
-        useCoT: false, // Force deterministic (rule-based splits, no AI)
-        enableCorrections: true,
-        onStateUpdate,
+          useUSDAAPI: true,
+          useCoT: false, // Force deterministic (rule-based splits, no AI)
+          enableCorrections: true,
+          onStateUpdate,
         }
       );
       console.log('✅ [TEST] Plan generation completed successfully');
@@ -190,28 +190,22 @@ async function runTests() {
     if (!plan.shoppingList) {
       console.log('   ⚠️  [SHOPPING] No shoppingList found on plan');
     } else {
-      const weeklyLists = plan.shoppingList.weeklyShoppingLists || [];
-      const master = plan.shoppingList.masterShoppingList || {};
+      const categories = plan.shoppingList.categories || [];
       console.log('   🛒 [SHOPPING] Raw shopping list summary:', {
-        weeklyListCount: weeklyLists.length,
-        masterCategoryCount: (master.categories && master.categories.length) || 0,
-        masterTotalEstimatedCost:
-          typeof master.totalEstimatedCost === 'number'
-            ? master.totalEstimatedCost
-            : master.totalCost ?? 0,
+        categoryCount: categories.length,
+        totalEstimatedCost: plan.shoppingList.totalEstimatedCost || 0,
       });
 
-      weeklyLists.forEach((weekList: any) => {
+      categories.forEach((cat: any) => {
         console.log(
-          `   🛒 [SHOPPING] Week ${weekList.weekNumber}: ` +
-            `${(weekList.categories && weekList.categories.length) || 0} categories, ` +
-            `weekTotal=${weekList.weekTotal}`,
+          `   🛒 [SHOPPING] Category ${cat.category}: ` +
+          `${(cat.items && cat.items.length) || 0} items`
         );
       });
 
-      if (weeklyLists.length === 0) {
+      if (categories.length === 0) {
         console.log(
-          '   ⚠️  [SHOPPING] weeklyShoppingLists is empty - shopping list generation likely failed and returned the empty fallback structure',
+          '   ⚠️  [SHOPPING] categories is empty - shopping list generation likely failed',
         );
       }
     }
@@ -226,7 +220,7 @@ async function runTests() {
       parsed.weeklyShopping.forEach((week) => {
         console.log(
           `   🛒 [SHOPPING] Parsed week ${week.weekNumber}: ` +
-            `${week.categories.length} categories, weekTotal=${week.weekTotal}`,
+          `${week.categories.length} categories, weekTotal=${week.weekTotal}`,
         );
       });
       if (parsed.weeklyShopping.length === 0) {
@@ -247,7 +241,7 @@ async function runTests() {
     if (!plan.phaseSessionTemplates || plan.phaseSessionTemplates.length === 0) {
       throw new Error('No workouts generated - workout generation pipeline failed');
     }
-    
+
     // Should have 7 session templates (one for each day, including rest days)
     if (plan.phaseSessionTemplates.length !== 7) {
       console.log(`   ⚠️  Warning: Expected 7 session templates, got ${plan.phaseSessionTemplates.length}`);
@@ -271,20 +265,20 @@ async function runTests() {
         console.log(`   ⚠️  Day ${dayIndex + 1} has no meals (USDA lookup may have failed)`);
       }
     });
-    
+
     // At least 2 out of 7 days should have meals (very lenient for USDA API failures)
     // This test focuses on validating the pipeline structure, not USDA data accuracy
     if (daysWithMeals < 2) {
       throw new Error(`Only ${daysWithMeals} out of 7 days have meals - meal generation pipeline may be broken`);
     }
-    
+
     console.log(`   ${daysWithMeals} out of 7 days have meals (USDA API may have rate limits or failures)`);
 
     // Should have workouts for training days (if workouts were generated)
     if (plan.phaseSessionTemplates && plan.phaseSessionTemplates.length > 0) {
       const trainingDays = weeklyOutline.trainingSchedule.resistanceDays.length;
       const workoutCount = plan.phaseSessionTemplates.filter((w: any) => !w.isRestDay).length;
-      
+
       if (workoutCount < trainingDays) {
         console.log(`   ⚠️  Warning: Expected ${trainingDays} workouts, got ${workoutCount}`);
       }
@@ -302,7 +296,7 @@ async function runTests() {
       throw new Error('USDA_API_KEY not found');
     }
     const generator = new IntegratedPlanGenerator(USDA_API_KEY);
-    
+
     // Check if AI is available
     const state = generator.getCurrentState();
     const aiAvailable = state.warnings?.some((w: string) => w.includes('AI')) === false;
@@ -378,7 +372,7 @@ async function runTests() {
         console.log(`   ⚠️  Day ${dayIndex + 1}: No meals found`);
         return;
       }
-      
+
       const dayTotal = dayMeals.reduce((sum, meal) => {
         return {
           calories: sum.calories + (meal.totalCalories || meal.totalMacros?.calories || 0),
@@ -415,7 +409,7 @@ async function runTests() {
       throw new Error('USDA_API_KEY not found');
     }
     const generator = new IntegratedPlanGenerator(USDA_API_KEY);
-    
+
     // Try with invalid weekly outline (should still work or fail gracefully)
     const invalidOutline = {
       ...weeklyOutline,

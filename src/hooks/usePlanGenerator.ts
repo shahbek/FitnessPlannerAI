@@ -160,8 +160,8 @@ export function usePlanGenerator(options?: { enableToasts?: boolean }): UsePlanG
           `Generated ${completePlan.phaseSessionTemplates?.length || 0} workout sessions`,
           'All components validated and ready!',
         ],
-        errors: completePlan.validationResults?.errors || [],
-        warnings: completePlan.validationResults?.warnings || [],
+        errors: completePlan.validationResults?.violations || [],
+        warnings: completePlan.validationResults?.macroConsistency?.deviations || [],
       };
       setProgress(finalProgress);
 

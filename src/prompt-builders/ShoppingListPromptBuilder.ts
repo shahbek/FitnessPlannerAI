@@ -1,7 +1,7 @@
 // Phase 9: Shopping List Prompt Builder
 // Builds context-aware prompts for shopping list generation
 
-import { UserProfile } from '@/types';
+import { UserProfile } from '@/models/UserProfile';
 
 export class ShoppingListPromptBuilder {
   static buildPrompt(

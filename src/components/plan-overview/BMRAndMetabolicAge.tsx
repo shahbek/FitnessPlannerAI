@@ -9,6 +9,8 @@ interface BMRAndMetabolicAgeProps {
     height?: number;
     weight?: number;
     bodyFat?: number;
+    experienceLevel?: string;
+    workoutDaysPerWeek?: number;
   };
 }
 
@@ -92,7 +94,7 @@ function calculateMetabolicAge(
 } {
   // Calculate expected BMR for chronological age
   const expectedBMR = calculateExpectedBMRForAge(chronologicalAge, weight, height, gender);
-  
+
   // Calculate BMR difference
   const bmrDifference = actualBMR - expectedBMR;
   const percentDifference = (bmrDifference / expectedBMR) * 100;
@@ -100,16 +102,16 @@ function calculateMetabolicAge(
   // Estimate metabolic age by finding the age where expected BMR matches actual BMR
   // BMR decreases approximately 1-2% per decade after age 30
   // We'll use a linear approximation: BMR ≈ base - (age - 30) * 0.01 * base (for age > 30)
-  
+
   let metabolicAge = chronologicalAge;
-  
+
   if (Math.abs(percentDifference) > 2) {
     // If BMR is significantly different, estimate metabolic age
     // For every 1% difference, approximate 1 year difference in metabolic age
     // This is a simplified model - actual metabolic aging is more complex
     const ageAdjustment = percentDifference / 1.5; // 1.5% per year after 30 is a reasonable estimate
     metabolicAge = Math.round(chronologicalAge - ageAdjustment);
-    
+
     // Clamp to reasonable range (15-80 years)
     metabolicAge = Math.max(15, Math.min(80, metabolicAge));
   }
@@ -173,11 +175,11 @@ export function BMRAndMetabolicAge({ plan, userProfile }: BMRAndMetabolicAgeProp
   // Calculate estimated TDEE using experience level OR training days
   const experienceLevel = planUserProfile?.experienceLevel || userProfile?.experienceLevel || planUserProfile?.workoutLevel || '';
   const trainingDays = planUserProfile?.workoutDaysPerWeek || userProfile?.workoutDaysPerWeek || 3;
-  
+
   // Determine activity factor based on experience level first, then fall back to training days
   let activityFactor = 1.55; // Default moderate
   const levelLower = experienceLevel?.toLowerCase() || '';
-  
+
   if (levelLower === 'beginner' || levelLower === 'sedentary') {
     activityFactor = 1.375; // Light activity
   } else if (levelLower === 'intermediate' || levelLower === 'moderate') {
@@ -193,11 +195,11 @@ export function BMRAndMetabolicAge({ plan, userProfile }: BMRAndMetabolicAgeProp
     else if (trainingDays <= 5) activityFactor = 1.725;
     else activityFactor = 1.9;
   }
-  
+
   const estimatedTDEE = Math.round(bmr * activityFactor);
 
   // Determine gradient colors based on method for BMR
-  const bmrGradient = method === 'katch-mcardle' 
+  const bmrGradient = method === 'katch-mcardle'
     ? 'from-indigo-400 via-purple-500 to-pink-600'
     : 'from-blue-400 via-cyan-500 to-teal-600';
 
@@ -224,7 +226,7 @@ export function BMRAndMetabolicAge({ plan, userProfile }: BMRAndMetabolicAgeProp
             <div className="text-xs font-semibold text-white/80 uppercase tracking-wide drop-shadow-md opacity-90">
               {method === 'katch-mcardle' ? 'Katch-McArdle Formula' : 'Mifflin-St Jeor Formula'}
             </div>
-            
+
             {/* Additional Info Section */}
             <div className="mt-6 pt-6 border-t border-white/20">
               <div className="text-xs text-white/70 mb-2 uppercase tracking-wide">Estimated TDEE</div>
@@ -265,7 +267,7 @@ export function BMRAndMetabolicAge({ plan, userProfile }: BMRAndMetabolicAgeProp
                 <span>Matches Chronological Age</span>
               )}
             </div>
-            
+
             {/* Additional Info Section */}
             <div className="mt-6 pt-6 border-t border-white/20">
               <div className="text-xs text-white/70 mb-2 uppercase tracking-wide">Chronological Age</div>

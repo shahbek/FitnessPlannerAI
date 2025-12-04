@@ -1,18 +1,18 @@
 'use client';
 
-import { Badge } from '@repo/shadcn-ui/components/ui/badge';
+import { Badge } from '@/components/ui/badge';
 import {
   Carousel,
   CarouselContent,
   CarouselItem,
   type CarouselApi,
-} from '@repo/shadcn-ui/components/ui/carousel';
+} from '@/components/ui/carousel';
 import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
-} from '@repo/shadcn-ui/components/ui/hover-card';
-import { cn } from '@repo/shadcn-ui/lib/utils';
+} from '@/components/ui/hover-card';
+import { cn } from '@/lib/utils';
 import { ArrowLeftIcon, ArrowRightIcon } from 'lucide-react';
 import { type ComponentProps, useCallback, useEffect, useState, useRef, createContext, useContext } from 'react';
 
@@ -99,13 +99,13 @@ export const InlineCitationCarousel = ({
   ...props
 }: InlineCitationCarouselProps) => {
   const [api, setApi] = useState<CarouselApi>();
-  
+
   return (
     <CarouselApiContext.Provider value={api}>
-      <Carousel 
-        className={cn('w-full', className)} 
+      <Carousel
+        className={cn('w-full', className)}
         setApi={setApi}
-        {...props} 
+        {...props}
       >
         {children}
       </Carousel>

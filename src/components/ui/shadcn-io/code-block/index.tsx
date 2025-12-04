@@ -466,7 +466,6 @@ export const CodeBlockCopyButton = ({
 
   if (asChild) {
     return cloneElement(children as ReactElement, {
-      // @ts-expect-error - we know this is a button
       onClick: copyToClipboard,
     });
   }
@@ -587,7 +586,7 @@ export const CodeBlockContent = ({
     const loadHighlightedCode = async () => {
       try {
         const { codeToHtml } = await import('shiki');
-        
+
         const html = await codeToHtml(children, {
           lang: language,
           themes: {

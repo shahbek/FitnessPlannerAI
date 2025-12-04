@@ -28,29 +28,29 @@ export const CodeBlockContent = async ({
 }: CodeBlockContentProps) => {
   const html = syntaxHighlighting
     ? await codeToHtml(children as string, {
-        lang: language ?? 'typescript',
-        themes: themes ?? {
-          light: 'vitesse-light',
-          dark: 'vitesse-dark',
-        },
-        transformers: [
-          transformerNotationDiff({
-            matchAlgorithm: 'v3',
-          }),
-          transformerNotationHighlight({
-            matchAlgorithm: 'v3',
-          }),
-          transformerNotationWordHighlight({
-            matchAlgorithm: 'v3',
-          }),
-          transformerNotationFocus({
-            matchAlgorithm: 'v3',
-          }),
-          transformerNotationErrorLevel({
-            matchAlgorithm: 'v3',
-          }),
-        ],
-      })
+      lang: language ?? 'typescript',
+      themes: themes ?? {
+        light: 'vitesse-light',
+        dark: 'vitesse-dark',
+      },
+      transformers: [
+        transformerNotationDiff({
+          matchAlgorithm: 'v3',
+        }),
+        transformerNotationHighlight({
+          matchAlgorithm: 'v3',
+        }),
+        transformerNotationWordHighlight({
+          matchAlgorithm: 'v3',
+        }),
+        transformerNotationFocus({
+          matchAlgorithm: 'v3',
+        }),
+        transformerNotationErrorLevel({
+          matchAlgorithm: 'v3',
+        }),
+      ] as any,
+    })
     : children;
 
   return (

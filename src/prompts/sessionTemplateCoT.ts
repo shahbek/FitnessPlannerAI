@@ -21,14 +21,14 @@ export function buildSessionTemplateCoTPrompt(
   trainingPhase: string, // e.g., 'foundation', 'progression', 'peak'
   userLevel: 'beginner' | 'intermediate' | 'expert',
   targetVolume?: {
-    setsPerMuscle?: number;
+    setsPerMuscle?: Record<string, number>;
     totalSets?: number;
   },
   context?: SessionTemplateContext,
   promptOptions?: SessionTemplatePromptOptions
 ): string {
   const targetVolumeInfo = targetVolume
-    ? `\nTarget volume:\n- Sets per muscle: ${targetVolume.setsPerMuscle || 'varies'}\n- Total sets: ${targetVolume.totalSets || 'varies'}`
+    ? `\nTarget volume:\n- Sets per muscle: ${targetVolume.setsPerMuscle ? JSON.stringify(targetVolume.setsPerMuscle) : 'varies'}\n- Total sets: ${targetVolume.totalSets || 'varies'}`
     : '';
 
   const metricsInfo = context?.userMetrics

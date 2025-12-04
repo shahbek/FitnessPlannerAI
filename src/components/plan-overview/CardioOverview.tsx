@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Activity, Heart, Zap } from 'lucide-react';
 
 interface CardioOverviewProps {
@@ -12,16 +12,16 @@ interface CardioOverviewProps {
 
 export function CardioOverview({ plan, userProfile }: CardioOverviewProps) {
   // Try multiple possible data paths
-  const weeklyCardioSchedules = 
+  const weeklyCardioSchedules =
     Array.isArray(plan?.weeklyCardioSchedules) ? plan.weeklyCardioSchedules :
-    Array.isArray(plan?.fullPlanData?.weeklyCardioSchedules) ? plan.fullPlanData.weeklyCardioSchedules :
-    [];
-    
-  const phaseCardioTemplates = 
+      Array.isArray(plan?.fullPlanData?.weeklyCardioSchedules) ? plan.fullPlanData.weeklyCardioSchedules :
+        [];
+
+  const phaseCardioTemplates =
     Array.isArray(plan?.phaseCardioTemplates) ? plan.phaseCardioTemplates :
-    Array.isArray(plan?.fullPlanData?.phaseCardioTemplates) ? plan.fullPlanData.phaseCardioTemplates :
-    [];
-  
+      Array.isArray(plan?.fullPlanData?.phaseCardioTemplates) ? plan.fullPlanData.phaseCardioTemplates :
+        [];
+
   // No cardio data available
   if (weeklyCardioSchedules.length === 0 && phaseCardioTemplates.flat().length === 0) {
     return (
@@ -43,19 +43,19 @@ export function CardioOverview({ plan, userProfile }: CardioOverviewProps) {
       </Card>
     );
   }
-  
+
   // Calculate PLAN-WIDE averages (not just Week 1)
   const planStats = React.useMemo(() => {
     let totalSessions = 0;
     let totalMinutes = 0;
     let totalCalories = 0;
     let weeksWithData = 0;
-    
+
     weeklyCardioSchedules.forEach((week: any) => {
       if (week.sessions && week.sessions.length > 0) {
         weeksWithData++;
         totalSessions += week.sessions.length;
-        
+
         week.sessions.forEach((session: any) => {
           const template = session.cardioTemplate || session;
           totalMinutes += template.durationMinutes || 0;
@@ -68,13 +68,13 @@ export function CardioOverview({ plan, userProfile }: CardioOverviewProps) {
         totalCalories += week.totalWeeklyVolume.totalCalories || 0;
       }
     });
-    
+
     const avgSessionsPerWeek = weeksWithData > 0 ? Math.round(totalSessions / weeksWithData) : 0;
     const avgMinutesPerWeek = weeksWithData > 0 ? Math.round(totalMinutes / weeksWithData) : 0;
     const avgCaloriesPerWeek = weeksWithData > 0 ? Math.round(totalCalories / weeksWithData) : 0;
     const avgCaloriesPerSession = totalSessions > 0 ? Math.round(totalCalories / totalSessions) : 0;
     const avgDurationPerSession = totalSessions > 0 ? Math.round(totalMinutes / totalSessions) : 30;
-    
+
     return {
       totalWeeks: weeksWithData,
       avgSessionsPerWeek,
@@ -85,11 +85,11 @@ export function CardioOverview({ plan, userProfile }: CardioOverviewProps) {
       totalPlanCalories: totalCalories,
     };
   }, [weeklyCardioSchedules]);
-  
+
   // Get ALL unique cardio types across the entire plan
   const allCardioTypes = React.useMemo(() => {
     const types = new Set<string>();
-    
+
     // From weekly schedules
     weeklyCardioSchedules.forEach((week: any) => {
       (week.sessions || []).forEach((session: any) => {
@@ -97,20 +97,20 @@ export function CardioOverview({ plan, userProfile }: CardioOverviewProps) {
         if (template.type) types.add(template.type);
       });
     });
-    
+
     // From phase templates
     phaseCardioTemplates.flat().forEach((template: any) => {
       if (template.type) types.add(template.type);
     });
-    
+
     return Array.from(types);
   }, [weeklyCardioSchedules, phaseCardioTemplates]);
-  
+
   // Get primary cardio info (most common type/intensity)
   const primaryCardio = React.useMemo(() => {
     const typeCount: Record<string, number> = {};
     const intensityCount: Record<string, number> = {};
-    
+
     weeklyCardioSchedules.forEach((week: any) => {
       (week.sessions || []).forEach((session: any) => {
         const template = session.cardioTemplate || session;
@@ -122,28 +122,28 @@ export function CardioOverview({ plan, userProfile }: CardioOverviewProps) {
         }
       });
     });
-    
+
     const mostCommonType = Object.entries(typeCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Cardio';
     const mostCommonIntensity = Object.entries(intensityCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Moderate';
-    
+
     return {
       type: mostCommonType,
       intensity: mostCommonIntensity,
       duration: planStats.avgDurationPerSession,
     };
   }, [weeklyCardioSchedules, planStats]);
-  
+
   // Get phase progression info
   const phaseProgression = React.useMemo(() => {
     const phases: Record<string, { sessions: number; minutes: number; calories: number; weeks: number }> = {};
-    
+
     weeklyCardioSchedules.forEach((week: any) => {
       const phase = week.phase?.toLowerCase() || 'foundation';
       if (!phases[phase]) {
         phases[phase] = { sessions: 0, minutes: 0, calories: 0, weeks: 0 };
       }
       phases[phase].weeks++;
-      
+
       (week.sessions || []).forEach((session: any) => {
         const template = session.cardioTemplate || session;
         phases[phase].sessions++;
@@ -151,7 +151,7 @@ export function CardioOverview({ plan, userProfile }: CardioOverviewProps) {
         phases[phase].calories += template.caloriesBurned || 0;
       });
     });
-    
+
     return Object.entries(phases).map(([name, data]) => ({
       name: name.charAt(0).toUpperCase() + name.slice(1),
       avgSessions: data.weeks > 0 ? Math.round(data.sessions / data.weeks) : 0,
@@ -274,8 +274,8 @@ export function CardioOverview({ plan, userProfile }: CardioOverviewProps) {
               </span>
               <div className="flex gap-2 mt-2">
                 {phaseProgression.map((phase) => (
-                  <div 
-                    key={phase.name} 
+                  <div
+                    key={phase.name}
                     className="flex-1 text-center p-2 rounded-lg border bg-slate-50/50 border-slate-200/50"
                   >
                     <div className="text-[10px] font-bold text-slate-600 uppercase">{phase.name}</div>

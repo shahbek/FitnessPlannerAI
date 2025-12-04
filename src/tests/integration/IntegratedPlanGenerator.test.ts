@@ -56,28 +56,48 @@ async function runTests() {
   // Sample user profile
   const userProfile: UserProfile = {
     age: 30,
-    gender: 'male',
-    height: 180,
-    weight: 75,
+    sex: 'male',
+    heightCm: 180,
+    weightKg: 75,
     activityLevel: 'moderate',
     goal: 'muscle_gain',
     workoutLevel: 'intermediate',
-    equipment: 'full',
+    workoutSplit: 'upper_lower',
+    equipment: 'gym_membership',
     trainingDaysPerWeek: 4,
     mealFrequency: 4,
+    timelineWeeks: 12,
+    preferences: 'None',
   };
 
   // Sample weekly outline
   const weeklyOutline: WeeklyOutline = {
     weekNumber: 1,
-    targetMacros: {
+    dailyTargets: {
       calories: 2500,
       protein: 180,
+      proteinPerKg: 2.4,
       carbs: 250,
-      fats: 80,
+      fat: 80,
     },
-    volumeTargets: {},
-    trainingDays: [1, 3, 5, 6], // Monday, Wednesday, Friday, Saturday
+    phase: 'foundation',
+    trainingSchedule: {
+      resistanceDays: ['Monday', 'Wednesday', 'Friday', 'Saturday'],
+      cardioDays: [],
+      restDays: ['Tuesday', 'Thursday', 'Sunday'],
+      weeklyVolume: 'Moderate',
+      focusAreas: ['Strength', 'Hypertrophy'],
+    },
+    cardioSchedule: {
+      sessions: 0,
+      duration: 0,
+      intensity: 'Low',
+      type: 'None',
+    },
+    objectives: ['Build muscle', 'Increase strength'],
+    expectedOutcomes: ['Improved strength', 'Muscle gain'],
+    adjustments: 'None',
+    specialNotes: 'Test generation',
   };
 
   // Test 1: Generator Initialization
@@ -128,11 +148,11 @@ async function runTests() {
     try {
       const generator = new IntegratedPlanGenerator(USDA_API_KEY, mockModel);
       const state = generator.getCurrentState();
-      
+
       if (!state) {
         throw new Error('Generator state not available');
       }
-      
+
       console.log(`   USDA service integrated`);
     } catch (error: any) {
       // If error is about model being null, that's expected
@@ -164,10 +184,10 @@ async function runTests() {
   await test('All components are properly initialized', async () => {
     try {
       const generator = new IntegratedPlanGenerator(USDA_API_KEY, mockModel);
-      
+
       // Verify generator was created (components initialized in constructor)
       const state = generator.getCurrentState();
-      
+
       if (!state) {
         throw new Error('Generator state not available');
       }

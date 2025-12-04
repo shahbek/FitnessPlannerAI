@@ -1,7 +1,7 @@
 // Phase 1: Feasibility Assessment Prompt Builder
 // Builds context-aware prompts for goal feasibility evaluation
 
-import { UserProfile } from '@/types';
+import { UserProfile } from '@/models/UserProfile';
 import { DietaryConstraints } from '@/utils/dietaryConstraints';
 
 export class FeasibilityPromptBuilder {
@@ -11,14 +11,14 @@ export class FeasibilityPromptBuilder {
     scientificLimits: any
   ): string {
     const { age, sex, weightKg, heightCm, bodyFat, targetBf, goal, timelineWeeks, workoutLevel, trainingDaysPerWeek } = userProfile;
-    
+
     return `
 Assess feasibility of this fitness goal:
 
 USER PROFILE:
 - Age: ${age}, Sex: ${sex}
 - Weight: ${weightKg}kg, Height: ${heightCm}cm
-- Body Fat: ${bodyFat}% → Target: ${targetBf}% (${bodyFat - targetBf}% to lose)
+- Body Fat: ${bodyFat || 'N/A'}% → Target: ${targetBf || 'N/A'}% ${bodyFat && targetBf ? `(${bodyFat - targetBf}% to lose)` : ''}
 - Goal: ${goal}
 - Timeline: ${timelineWeeks} weeks
 - Experience: ${workoutLevel}
@@ -52,7 +52,7 @@ Return structured assessment with specific calculations and evidence-based recom
     if (constraints.include.includes('all_foods') && constraints.exclude.length === 0) {
       return `- Dietary preference: Flexible (no restrictions)`;
     }
-    
+
     return `
 - MUST INCLUDE: ${constraints.include.join(', ')}
 - MUST EXCLUDE: ${constraints.exclude.join(', ')}

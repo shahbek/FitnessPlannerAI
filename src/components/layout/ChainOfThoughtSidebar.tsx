@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/Progress';
+import { Progress } from '@/components/ui/progress';
 import { ChainOfThoughtStep } from '@/components/ai-elements/chain-of-thought';
 import { StreamingText } from '@/components/ai-elements/StreamingText';
 import { TextEffect } from '@/components/ui/text-effect';

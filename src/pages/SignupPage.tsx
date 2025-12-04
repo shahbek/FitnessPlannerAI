@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { signUp } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
-import { Label } from "@/components/ui/Label";
-import { Card } from "@/components/ui/Card";
-import { Alert } from "@/components/ui/Alert";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card } from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
 
 import logo from "@/assets/logo.svg";
 

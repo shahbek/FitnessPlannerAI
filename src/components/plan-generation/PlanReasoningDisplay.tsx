@@ -4,8 +4,8 @@
  * Displays Chain-of-Thought reasoning steps from plan generation
  */
 
-import { Card } from '@/components/ui/Card';
-import { Badge } from '@/components/ui/Badge';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Brain, ChevronRight } from 'lucide-react';
 import { PlanGenerationProgress } from '@/hooks/usePlanGenerator';
 
@@ -15,10 +15,10 @@ interface PlanReasoningDisplayProps {
   maxSteps?: number;
 }
 
-export function PlanReasoningDisplay({ 
-  progress, 
+export function PlanReasoningDisplay({
+  progress,
   className = '',
-  maxSteps = 10 
+  maxSteps = 10
 }: PlanReasoningDisplayProps) {
   if (!progress || !progress.reasoning || progress.reasoning.length === 0) {
     return null;

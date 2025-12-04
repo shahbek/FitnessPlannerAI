@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, CardContent } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Dumbbell, Activity, Zap, Coffee, Info, Apple, Drumstick, Salad } from 'lucide-react';
 import {
@@ -123,14 +123,14 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
     const trainingSchedule = week?.trainingSchedule || {};
     const cardioDays = trainingSchedule.cardioDays || [];
     const isCardioDay = cardioDays.includes(day);
-    
+
     // Get detailed cardio schedule from plan
     const weeklyCardioSchedules = plan?.weeklyCardioSchedules || [];
     const weekCardioSchedule = weeklyCardioSchedules.find((s: any) => s.weekNumber === weekNumber);
-    const dayCardioSessions = weekCardioSchedule?.sessions?.filter((s: any) => 
+    const dayCardioSessions = weekCardioSchedule?.sessions?.filter((s: any) =>
       s.dayName === day || s.dayNumber === (['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].indexOf(day) + 1)
     ) || [];
-    
+
     // Fallback to basic cardioSchedule if no detailed schedule
     const cardioSchedule = week?.cardioSchedule || {};
 
@@ -179,7 +179,7 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
           const sessionType = template.type || 'Cardio';
           const sessionDuration = template.durationMinutes || template.totalDurationMinutes || 30;
           const sessionIntensity = template.intensity || 'Moderate';
-          
+
           // Determine timing based on session timing or default
           let cardioTime = '5:30 PM';
           if (session.timing === 'morning') cardioTime = '7:00 AM';
@@ -188,16 +188,16 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
           else if (session.timing === 'post_workout') {
             cardioTime = scheduleDay.workouts && scheduleDay.workouts.length > 0 ? '6:30 PM' : '5:30 PM';
           }
-          
+
           let cardioDetails = sessionName;
           if (sessionType !== sessionName) cardioDetails += ` (${sessionType})`;
           cardioDetails += ` - ${sessionDuration} min`;
           if (sessionIntensity) cardioDetails += ` @ ${sessionIntensity}`;
-          
+
           if (template.caloriesBurned) {
             cardioDetails += ` (~${Math.round(template.caloriesBurned)} cal)`;
           }
-          
+
           events.push({
             time: cardioTime,
             type: 'cardio',
@@ -211,13 +211,13 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
         const cardioType = cardioSchedule.type || 'Cardio';
         const cardioDuration = cardioSchedule.duration;
         const cardioIntensity = cardioSchedule.intensity;
-        
+
         const cardioTime = scheduleDay.workouts && scheduleDay.workouts.length > 0 ? '6:30 PM' : '5:30 PM';
-        
+
         let cardioDetails = cardioType;
         if (cardioDuration) cardioDetails += ` (${cardioDuration} min)`;
         if (cardioIntensity) cardioDetails += ` - ${cardioIntensity}`;
-        
+
         events.push({
           time: cardioTime,
           type: 'cardio',
@@ -238,11 +238,11 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
     const trainingSchedule = week.trainingSchedule || {};
     const resistanceDays = trainingSchedule.resistanceDays || [];
     const cardioDays = trainingSchedule.cardioDays || [];
-    
+
     // Get detailed cardio schedule for this week
     const weeklyCardioSchedules = plan?.weeklyCardioSchedules || [];
     const weekCardioSchedule = weeklyCardioSchedules.find((s: any) => s.weekNumber === week.weekNumber);
-    
+
     // Fallback to basic cardioSchedule
     const cardioSchedule = week?.cardioSchedule || {};
 
@@ -303,10 +303,10 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
 
       if (isCardio) {
         // Get detailed cardio session for this day
-        const dayCardioSession = weekCardioSchedule?.sessions?.find((s: any) => 
+        const dayCardioSession = weekCardioSchedule?.sessions?.find((s: any) =>
           s.dayName === day || s.dayNumber === (dayIndex + 1)
         );
-        
+
         if (dayCardioSession && dayCardioSession.cardioTemplate) {
           const template = dayCardioSession.cardioTemplate;
           cardioDetails = {
@@ -533,9 +533,8 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
 
                   return (
                     <div key={idx} className="flex flex-col items-center gap-1.5">
-                      <span className={`text-xs font-bold transition-colors ${
-                        isSelected ? 'text-orange-600' : 'text-slate-600'
-                      }`}>
+                      <span className={`text-xs font-bold transition-colors ${isSelected ? 'text-orange-600' : 'text-slate-600'
+                        }`}>
                         {daySchedule.dayLetter}
                       </span>
                       {hasDetails ? (
@@ -597,7 +596,7 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                   <div className="bg-gradient-to-br from-yellow-300 via-orange-500 to-red-600 rounded-full px-4 py-3 relative">
                     <div className="absolute top-0 left-[10%] w-[50%] h-[60%] bg-gradient-to-br from-white/80 via-white/40 to-transparent rounded-full blur-lg pointer-events-none"></div>
                     <div className="absolute bottom-0 right-[10%] w-[40%] h-[50%] bg-gradient-to-tl from-black/20 to-transparent rounded-full blur-md pointer-events-none"></div>
-                    
+
                     <div className="relative flex items-center justify-center gap-6 text-sm">
                       <div className="flex items-center gap-2">
                         <span className="text-lg drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">🍎</span>

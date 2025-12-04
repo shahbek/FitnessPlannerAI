@@ -16,20 +16,20 @@ export class PhaseController {
 
   async executeOptimalSequence(progressCallback?: (phase: string, progress: number, currentStep: string, reasoning: string[], streamingContent?: any[]) => void): Promise<CompletePlan> {
     console.log('🚀 Starting Optimal Phase Sequence...');
-    
+
     // ✅ VALIDATION: Enforce 24 week maximum
     const MAX_WEEKS = 24;
     if (this.userProfile.timelineWeeks > MAX_WEEKS) {
       throw new Error(`Maximum plan duration is ${MAX_WEEKS} weeks. Please adjust your timeline. Current: ${this.userProfile.timelineWeeks} weeks.`);
     }
-    
+
     // Calculate basic metrics for progress updates
     const lbm = this.userProfile.lbm;
     const bmr = 370 + (21.6 * lbm);
     const tdee = bmr * this.getActivityMultiplier();
     const proteinTarget = Math.round(lbm * 2.2); // 1g per lb of LBM
     const fatTarget = Math.round(tdee * 0.25 / 9); // 25% of calories from fat
-    
+
     // Update progress with calculated metrics
     if (progressCallback) {
       progressCallback('calculating', 20, 'Calculating baseline metrics...', [
@@ -39,12 +39,25 @@ export class PhaseController {
         `Fat target: ${fatTarget}g/day`
       ]);
     }
-    
+
     // For now, use the existing generatePhaseAwarePlan method
     // This provides all the phases in the correct sequence
+    // Adapt the progress callback to match AISdkRagService's expected signature
+    const adaptedCallback = progressCallback
+      ? (update: any) => {
+        progressCallback(
+          update.phase,
+          update.progress,
+          update.currentStep,
+          update.reasoning,
+          []
+        );
+      }
+      : undefined;
+
     console.log('📊 Using existing phase-aware plan generation...');
-    const completePlan = await this.aiService.generatePhaseAwarePlan(this.userProfile, progressCallback);
-    
+    const completePlan = await this.aiService.generatePhaseAwarePlan(this.userProfile, adaptedCallback);
+
     console.log('🎉 Optimal Phase Sequence Complete!');
     return completePlan;
   }
@@ -66,7 +79,7 @@ export class PhaseController {
   private normalizeUserProfile(userProfile: UserProfile): NormalizedUserProfile {
     const lbm = userProfile.weightKg * (1 - (userProfile.bodyFat || 22) / 100);
     const bmi = userProfile.weightKg / Math.pow(userProfile.heightCm / 100, 2);
-    
+
     return {
       ...userProfile,
       lbm,

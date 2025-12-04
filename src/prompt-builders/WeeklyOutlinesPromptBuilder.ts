@@ -1,7 +1,7 @@
 // Phase 5: Weekly Training Outlines Prompt Builder
 // Builds context-aware prompts for weekly training progression
 
-import { UserProfile } from '@/types';
+import { UserProfile } from '@/models/UserProfile';
 import { DietaryConstraints } from '@/utils/dietaryConstraints';
 import { PlanningMetrics } from '@/services/aiSdkRagService';
 

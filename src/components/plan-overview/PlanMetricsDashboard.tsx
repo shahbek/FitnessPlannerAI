@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Card, CardContent, CardHeader } from '@/components/ui/Card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Flame, Apple, Dumbbell, TrendingDown, Info, ChevronDown, ChevronUp, Droplet } from 'lucide-react';
 import { calculateWaterIntake } from '@/utils/planCalculations';
@@ -49,11 +49,11 @@ export function PlanMetricsDashboard({ plan, userProfile }: PlanMetricsDashboard
   const expectedWeeklyWeightLoss = metrics.expectedWeeklyWeightLoss;
   const expectedTotalWeightLoss = expectedWeeklyWeightLoss * totalWeeks;
   const expectedWeeklyBodyFatLossKg = metrics.expectedWeeklyBodyFatLoss;
-  
+
   // Calculate fat loss percentage for display
   const hasResistanceTraining = metrics.trainingFrequency > 0;
-  const fatLossPercentage = (proteinPerKg >= 2.0 && hasResistanceTraining) ? 0.75 : 
-                            (proteinPerKg >= 1.5) ? 0.65 : 0.55;
+  const fatLossPercentage = (proteinPerKg >= 2.0 && hasResistanceTraining) ? 0.75 :
+    (proteinPerKg >= 1.5) ? 0.65 : 0.55;
 
   // Hydration
   const waterIntake = plan?.metrics?.water?.value || (metrics.weight ? calculateWaterIntake(metrics.weight, 'moderate') : 0);
@@ -183,14 +183,14 @@ export function PlanMetricsDashboard({ plan, userProfile }: PlanMetricsDashboard
           {
             label: 'Basal Metabolic Rate (BMR)',
             value: `${bmr} kcal/day`,
-            formula: metrics?.bmr?.formula || 'Mifflin-St Jeor equation',
-            source: metrics?.bmr?.source || 'Standard metabolic calculation',
+            formula: plan?.metrics?.bmr?.formula || 'Mifflin-St Jeor equation',
+            source: plan?.metrics?.bmr?.source || 'Standard metabolic calculation',
           },
           {
             label: 'Total Daily Energy Expenditure (TDEE)',
             value: `${tdee} kcal/day`,
-            formula: metrics?.tdee?.formula || 'BMR × Activity Factor',
-            source: metrics?.tdee?.source || 'Activity-adjusted BMR',
+            formula: plan?.metrics?.tdee?.formula || 'BMR × Activity Factor',
+            source: plan?.metrics?.tdee?.source || 'Activity-adjusted BMR',
           },
           {
             label: 'Daily Deficit Calculation',
@@ -253,8 +253,8 @@ export function PlanMetricsDashboard({ plan, userProfile }: PlanMetricsDashboard
           {
             label: 'Training Volume',
             value: trainingVolume > 0 ? `${trainingVolume} sets/week` : 'Calculated per muscle group',
-            formula: metrics?.trainingVolume?.formula || 'Total sets × reps × load',
-            source: metrics?.trainingVolume?.source || 'Progressive overload tracking',
+            formula: plan?.metrics?.trainingVolume?.formula || 'Total sets × reps × load',
+            source: plan?.metrics?.trainingVolume?.source || 'Progressive overload tracking',
           },
           {
             label: 'Split Type',
@@ -286,7 +286,7 @@ export function PlanMetricsDashboard({ plan, userProfile }: PlanMetricsDashboard
         details={[
           {
             label: 'Weight Loss Calculation',
-            value: weeklyDeficit > 0 
+            value: weeklyDeficit > 0
               ? `${weeklyDeficit} kcal/week ÷ 7700 kcal/kg = ${expectedWeeklyWeightLoss.toFixed(2)} kg/week`
               : 'Insufficient data to calculate (TDEE or target calories missing)',
             formula: 'Weekly Deficit ÷ 7700 kcal per kg body fat',
@@ -310,8 +310,8 @@ export function PlanMetricsDashboard({ plan, userProfile }: PlanMetricsDashboard
           {
             label: 'Water Intake',
             value: waterIntake > 0 ? `${waterIntake} liters/day` : 'Not calculated',
-            formula: metrics?.water?.formula || '33ml × body weight (kg)',
-            source: metrics?.water?.source || 'Hydration for active individuals',
+            formula: plan?.metrics?.water?.formula || '33ml × body weight (kg)',
+            source: plan?.metrics?.water?.source || 'Hydration for active individuals',
           },
           {
             label: 'Plan Feasibility',

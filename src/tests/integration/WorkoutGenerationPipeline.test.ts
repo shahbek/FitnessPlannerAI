@@ -50,26 +50,32 @@ async function runTests() {
 
   const beginnerProfile: UserProfile = {
     age: 25,
-    gender: 'male',
-    height: 175,
-    weight: 70,
+    sex: 'male',
+    heightCm: 175,
+    weightKg: 70,
     activityLevel: 'low',
-    goal: 'weight_loss',
+    goal: 'fat_loss',
     workoutLevel: 'beginner',
-    equipment: 'home',
+    workoutSplit: 'full_body',
+    equipment: 'home_gym',
     trainingDaysPerWeek: 3,
+    timelineWeeks: 8,
+    preferences: 'None',
   };
 
   const intermediateProfile: UserProfile = {
     age: 30,
-    gender: 'male',
-    height: 180,
-    weight: 75,
+    sex: 'male',
+    heightCm: 180,
+    weightKg: 75,
     activityLevel: 'moderate',
     goal: 'muscle_gain',
     workoutLevel: 'intermediate',
-    equipment: 'full',
+    workoutSplit: 'upper_lower',
+    equipment: 'gym_membership',
     trainingDaysPerWeek: 4,
+    timelineWeeks: 12,
+    preferences: 'None',
   };
 
   try {
@@ -205,7 +211,7 @@ function createCoTProvider() {
   const mockSplit = {
     splitName: 'Mock AI Split',
     daysPerWeek: 4,
-    days: ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map((dayName, index) => ({
+    days: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((dayName, index) => ({
       dayNumber: index + 1,
       dayName,
       focus: index < 4 ? ['full_body'] : [],

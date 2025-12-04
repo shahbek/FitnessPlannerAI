@@ -28,6 +28,7 @@ export function PhasesOverview({ plan, progression, weeklySchedule, userProfile,
     <EnhancedPhasesOverview
       plan={plan}
       weeklySchedule={weeklySchedule}
+      progression={progression}
       userProfile={userProfile}
       workoutPlanId={workoutPlanId}
     />

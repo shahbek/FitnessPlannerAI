@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Flame, Utensils, Activity, Info, Dumbbell, Heart } from 'lucide-react';
 import { calculateWeeklyExerciseCalories, calculateEnergyBalance } from '@/utils/planCalculations';
@@ -204,7 +204,7 @@ export function EnergyBalanceVisualization({ plan, userProfile, selectedWeek = 1
                 </span>
                 <span className="font-bold text-slate-800">-{dietaryDeficit} kcal</span>
               </div>
-              
+
               {/* Exercise Burn - Separated */}
               <div className="space-y-2 pl-1">
                 <div className="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1.5">Exercise Burn</div>
@@ -241,7 +241,7 @@ export function EnergyBalanceVisualization({ plan, userProfile, selectedWeek = 1
                   </div>
                 </div>
               </div>
-              
+
               <div className="pt-3 border-t border-slate-200/60">
                 <div className="flex items-center gap-2 text-xs text-slate-500 font-medium">
                   <Info className="w-3.5 h-3.5 text-blue-500" />

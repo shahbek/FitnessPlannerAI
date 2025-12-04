@@ -1,5 +1,5 @@
 import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dumbbell, Utensils, Clock, Target, ChevronDown, Activity, Heart, Zap } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useEffect, useState } from 'react';
@@ -329,7 +329,7 @@ export function WeeklyScheduleTable({ data, plan }: WeeklyScheduleTableProps) {
                                     </div>
 
                                     <div className="space-y-5">
-                                      {cardioSessions.map((cardio, cardioIndex) => {
+                                      {cardioSessions.map((cardio: any, cardioIndex: number) => {
                                         const template = cardio.structure ? cardio : null;
                                         const hasFullStructure = template && cardio.structure;
 
