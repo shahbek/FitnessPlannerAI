@@ -4,26 +4,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Separator } from '@/components/ui/separator';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { updateUser as updateAuthUser } from '@/lib/auth-client';
 import {
   Save,
-  Coins,
-  TrendingUp,
-  TrendingDown,
-  Zap,
-  Activity,
   AlertTriangle,
-  CheckCircle2,
-  ShoppingCart,
-  BarChart3,
   Upload,
   X
 } from 'lucide-react';
@@ -396,476 +384,170 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
   }
 
   if (currentView === 'tokens') {
-    // Get actual account data (no free plan)
-    const dummyTokenBalance = userAccount?.tokens ?? 0;
-    const dummyTotalPurchased = userAccount?.totalTokensPurchased ?? 0;
-    const dummyPlanType = userAccount?.planType ?? 'none';
+    // Get actual account data
+    const tokenBalance = userAccount?.tokens ?? 0;
+    const totalPurchased = userAccount?.totalTokensPurchased ?? 0;
 
-    // Check if balance is low (less than 100 tokens or less than 10% of initial)
-    const isLowBalance = dummyTokenBalance < 100 || dummyTokenBalance < (dummyTotalPurchased * 0.1);
-    const balancePercentage = dummyTotalPurchased > 0 ? (dummyTokenBalance / dummyTotalPurchased) * 100 : 100;
+    // Check if balance is low (less than 100 tokens)
+    const isLowBalance = tokenBalance < 100;
+    
+    // Calculate plans remaining (100 tokens per plan)
+    const plansRemaining = Math.floor(tokenBalance / 100);
 
-    // Token packages - 90% profit margin pricing
-    const tokenPackages = [
-      {
-        id: 'starter',
-        name: 'Starter',
-        tokens: 700,
-        price: 10.00,
-        popular: false,
-        plans: 7,
-        description: 'Perfect for trying out the service'
-      },
-      {
-        id: 'professional',
-        name: 'Professional',
-        tokens: 2000,
-        price: 25.00,
-        popular: true,
-        plans: 20,
-        bonus: '20% bonus',
-        description: 'Best value for regular users'
-      },
-      {
-        id: 'enterprise',
-        name: 'Enterprise',
-        tokens: 4500,
-        price: 50.00,
-        popular: false,
-        plans: 45,
-        bonus: '29% bonus',
-        description: 'Maximum value for power users'
-      },
-    ];
-
-    // Operation costs per plan generation step
-    const operationCosts = [
-      { operation: 'Complete Plan Generation', tokens: 100, description: 'Full plan (all 7 steps: feasibility + framework + exercises + sessions + meals + shopping)', isComplete: true },
-      { operation: 'Feasibility Assessment', tokens: 10, description: 'Step 1: Goal validation and safety assessment', isComplete: false },
-      { operation: 'Strategic Framework', tokens: 15, description: 'Step 2: Training & nutrition approach', isComplete: false },
-      { operation: 'Weekly Outlines', tokens: 10, description: 'Step 3: Weekly progression plans', isComplete: false },
-      { operation: 'Exercise Library', tokens: 15, description: 'Step 4: Phase-specific exercises', isComplete: false },
-      { operation: 'Session Templates', tokens: 15, description: 'Step 5: Workout session structures', isComplete: false },
-      { operation: 'Meal Templates', tokens: 20, description: 'Step 6: Groq reasoning (most expensive)', isComplete: false },
-      { operation: 'Shopping Lists', tokens: 15, description: 'Step 7: Groq cost estimation', isComplete: false },
-    ];
-
-    // Format operation type for display
+    // Format operation type for display - simplified
     const formatOperationType = (type: string) => {
-      return type
+      // Map internal types to user-friendly names
+      const typeMap: Record<string, string> = {
+        'token_purchase': 'Tokens Purchased',
+        'plan_generation': 'Plan Generated',
+        'feasibility_check': 'Plan Generated',
+        'training_framework': 'Plan Generated',
+        'exercise_library': 'Plan Generated',
+        'session_templates': 'Plan Generated',
+        'meal_templates': 'Plan Generated',
+        'shopping_list': 'Plan Generated',
+      };
+      return typeMap[type] || type
         .split('_')
         .map(word => word.charAt(0).toUpperCase() + word.slice(1))
         .join(' ');
     };
 
-    // Get plan badge variant
-    const getPlanBadge = (plan: string) => {
-      switch (plan.toLowerCase()) {
-        case 'free':
-          return <Badge variant="secondary">Free</Badge>;
-        case 'basic':
-          return <Badge className="bg-blue-500 text-white">Basic</Badge>;
-        case 'premium':
-          return <Badge className="bg-purple-500 text-white">Premium</Badge>;
-        case 'enterprise':
-          return <Badge className="bg-gold-500 text-white">Enterprise</Badge>;
-        default:
-          return <Badge variant="secondary">{plan}</Badge>;
-      }
-    };
-
     return (
-      <div className="space-y-6">
+      <div className="space-y-8">
         {/* Low Balance Warning */}
-        {isLowBalance && (
+        {isLowBalance && tokenBalance > 0 && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Low Token Balance</AlertTitle>
             <AlertDescription>
-              You have {dummyTokenBalance.toLocaleString()} tokens remaining.
-              Consider purchasing more tokens to continue using the service.
+              You have {tokenBalance.toLocaleString()} tokens remaining ({plansRemaining} plan{plansRemaining !== 1 ? 's' : ''}).
             </AlertDescription>
           </Alert>
         )}
 
-        {/* Token Balance Overview */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardDescription className="text-sm font-medium">Available Tokens</CardDescription>
-                <Coins className="h-5 w-5 text-primary" />
-              </div>
-              <CardTitle className="text-4xl font-bold mt-2">
-                {dummyTokenBalance.toLocaleString()}
-              </CardTitle>
-              <div className="mt-3">
-                <Progress value={Math.min(balancePercentage, 100)} className="h-2" />
-                <p className="text-xs text-muted-foreground mt-1">
-                  {balancePercentage.toFixed(1)}% of total purchased
-                </p>
-              </div>
-            </CardHeader>
-          </Card>
+        {/* Balance Overview - Clean, minimal design */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Primary: Token Balance */}
+          <div className="col-span-2 p-6 rounded-xl border-2 border-primary/20 bg-gradient-to-br from-primary/5 to-primary/10">
+            <p className="text-sm font-medium text-muted-foreground">Available Tokens</p>
+            <p className="text-5xl font-bold tracking-tight mt-1">
+              {tokenBalance.toLocaleString()}
+            </p>
+            <p className="text-sm text-muted-foreground mt-2">
+              ≈ {plansRemaining} plan{plansRemaining !== 1 ? 's' : ''} remaining
+            </p>
+          </div>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardDescription className="text-sm font-medium">Total Purchased</CardDescription>
-                <Activity className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <CardTitle className="text-4xl font-bold mt-2">
-                {dummyTotalPurchased.toLocaleString()}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground mt-3">
-                Lifetime tokens acquired
-              </p>
-            </CardHeader>
-          </Card>
+          {/* Secondary stats */}
+          <div className="p-5 rounded-xl border bg-card">
+            <p className="text-sm font-medium text-muted-foreground">Total Purchased</p>
+            <p className="text-3xl font-bold tracking-tight mt-1">
+              {totalPurchased.toLocaleString()}
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">lifetime</p>
+          </div>
 
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardDescription className="text-sm font-medium">Current Plan</CardDescription>
-                <Zap className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <div className="mt-2">
-                {getPlanBadge(dummyPlanType)}
-              </div>
-              <p className="text-xs text-muted-foreground mt-3">
-                {dummyPlanType === 'none' ? 'Purchase tokens to get started' : 'Active subscription'}
-              </p>
-            </CardHeader>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardDescription className="text-sm font-medium">Usage Today</CardDescription>
-                <TrendingUp className="h-5 w-5 text-green-600" />
-              </div>
-              <CardTitle className="text-4xl font-bold mt-2 text-green-600">
-                {usageStats.today.toLocaleString()}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground mt-3">
-                Average: {Math.round(usageStats.averagePerDay).toLocaleString()}/day
-              </p>
-            </CardHeader>
-          </Card>
+          <div className="p-5 rounded-xl border bg-card">
+            <p className="text-sm font-medium text-muted-foreground">Used This Month</p>
+            <p className="text-3xl font-bold tracking-tight mt-1">
+              {usageStats.thisMonth.toLocaleString()}
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              {Math.floor(usageStats.thisMonth / 100)} plan{Math.floor(usageStats.thisMonth / 100) !== 1 ? 's' : ''}
+            </p>
+          </div>
         </div>
 
-        {/* Main Content Tabs */}
-        <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="purchase">Purchase Tokens</TabsTrigger>
-            <TabsTrigger value="history">Usage History</TabsTrigger>
-            <TabsTrigger value="pricing">Pricing Guide</TabsTrigger>
+        {/* Two-tab structure */}
+        <Tabs defaultValue="purchase" className="space-y-6">
+          <TabsList className="w-full sm:w-auto">
+            <TabsTrigger value="purchase" className="flex-1 sm:flex-none">Buy Tokens</TabsTrigger>
+            <TabsTrigger value="history" className="flex-1 sm:flex-none">History</TabsTrigger>
           </TabsList>
 
-          {/* Overview Tab */}
-          <TabsContent value="overview" className="space-y-6">
-            {/* Usage Statistics */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5" />
-                  Usage Statistics
-                </CardTitle>
-                <CardDescription>
-                  Track your token consumption over time
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-muted-foreground">This Week</span>
-                      <TrendingUp className="h-4 w-4 text-green-600" />
-                    </div>
-                    <p className="text-2xl font-bold">{usageStats.thisWeek.toLocaleString()}</p>
-                    <Progress
-                      value={Math.min((usageStats.thisWeek / 1000) * 100, 100)}
-                      className="h-2"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-muted-foreground">This Month</span>
-                      <Activity className="h-4 w-4 text-blue-600" />
-                    </div>
-                    <p className="text-2xl font-bold">{usageStats.thisMonth.toLocaleString()}</p>
-                    <Progress
-                      value={Math.min((usageStats.thisMonth / 5000) * 100, 100)}
-                      className="h-2"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-muted-foreground">All Time</span>
-                      <TrendingDown className="h-4 w-4 text-purple-600" />
-                    </div>
-                    <p className="text-2xl font-bold">{usageStats.total.toLocaleString()}</p>
-                    <Progress
-                      value={Math.min((usageStats.total / dummyTotalPurchased) * 100, 100)}
-                      className="h-2"
-                    />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Recent Activity */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Recent Activity</CardTitle>
-                <CardDescription>
-                  Your latest token transactions
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {tokenUsage && tokenUsage.length > 0 ? (
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Operation</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Tokens</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {tokenUsage.slice(0, 10).map((usage) => {
-                          const isPurchase = usage.operationType === "token_purchase" || usage.tokensUsed > 0;
-                          const tokensDisplay = Math.abs(usage.tokensUsed);
-                          const status = (usage as any).status || "success";
-
-                          return (
-                            <TableRow key={usage._id}>
-                              <TableCell className="text-muted-foreground">
-                                {new Date(usage.createdAt).toLocaleDateString()}
-                              </TableCell>
-                              <TableCell className="font-medium">
-                                {formatOperationType(usage.operationType)}
-                              </TableCell>
-                              <TableCell>
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${status === 'success' ? 'bg-muted text-foreground' :
-                                  status === 'failed' ? 'bg-destructive/10 text-destructive' :
-                                    'bg-muted text-muted-foreground'
-                                  }`}>
-                                  {status.charAt(0).toUpperCase() + status.slice(1)}
-                                </span>
-                              </TableCell>
-                              <TableCell className={`text-right font-medium tabular-nums ${isPurchase ? 'text-green-600' : ''}`}>
-                                {isPurchase ? '+' : '-'}{tokensDisplay.toLocaleString()}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-muted-foreground">No activity recorded yet</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Purchase Tokens Tab */}
+          {/* Purchase Tab */}
           <TabsContent value="purchase" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <ShoppingCart className="h-5 w-5" />
-                  Purchase Token Packages
-                </CardTitle>
-                <CardDescription>
-                  Choose a package that fits your needs. Tokens never expire.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {tokenPackages.map((pkg) => (
-                    <Card
-                      key={pkg.id}
-                      className={`relative border-2 transition-all hover:shadow-lg ${pkg.popular
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border'
-                        }`}
-                    >
-                      {pkg.popular && (
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                          <Badge className="bg-primary text-white">Most Popular</Badge>
-                        </div>
-                      )}
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-xl">{pkg.name}</CardTitle>
-                        <div className="mt-4">
-                          <div className="flex items-baseline gap-1">
-                            <span className="text-3xl font-bold">${pkg.price.toFixed(2)}</span>
-                          </div>
-                          <p className="text-sm text-muted-foreground mt-1">
-                            {pkg.tokens.toLocaleString()} tokens
-                          </p>
-                          <p className="text-xs font-medium text-primary mt-1">
-                            ~{pkg.plans} plan{pkg.plans !== 1 ? 's' : ''}
-                          </p>
-                          {pkg.bonus && (
-                            <Badge variant="secondary" className="mt-1 text-xs">
-                              {pkg.bonus}
-                            </Badge>
-                          )}
-                          <p className="text-xs text-muted-foreground mt-2">
-                            ${(pkg.price / pkg.tokens).toFixed(4)} per token
-                          </p>
-                        </div>
-                      </CardHeader>
-                      <CardContent>
-                        <PurchaseTokensButton
-                          packageId={pkg.id as "starter" | "professional" | "enterprise"}
-                          packageName={pkg.name}
-                          tokens={pkg.tokens}
-                          price={pkg.price}
-                          variant={pkg.popular ? 'default' : 'outline'}
-                          className="w-full"
-                        />
-                        <p className="text-xs text-muted-foreground text-center mt-2">
-                          Secure payment via Stripe
-                        </p>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
+            <div>
+              <h3 className="text-lg font-semibold">Token Packages</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                Each plan costs 100 tokens. Tokens never expire.
+              </p>
+            </div>
 
-          {/* Usage History Tab */}
-          <TabsContent value="history" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Usage History</CardTitle>
-                <CardDescription>
-                  Complete log of all token transactions
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {tokenUsage && tokenUsage.length > 0 ? (
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Operation</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead className="text-right">Tokens</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {tokenUsage.map((usage) => {
-                          const isPurchase = usage.operationType === "token_purchase" || usage.tokensUsed > 0;
-                          const tokensDisplay = Math.abs(usage.tokensUsed);
-                          const status = (usage as any).status || "success";
-
-                          return (
-                            <TableRow key={usage._id}>
-                              <TableCell className="text-muted-foreground whitespace-nowrap">
-                                {new Date(usage.createdAt).toLocaleDateString('en-US', {
-                                  month: 'short',
-                                  day: 'numeric',
-                                  year: 'numeric'
-                                })}
-                              </TableCell>
-                              <TableCell className="font-medium">
-                                {formatOperationType(usage.operationType)}
-                              </TableCell>
-                              <TableCell>
-                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${status === 'success' ? 'bg-muted text-foreground' :
-                                  status === 'failed' ? 'bg-destructive/10 text-destructive' :
-                                    'bg-muted text-muted-foreground'
-                                  }`}>
-                                  {status.charAt(0).toUpperCase() + status.slice(1)}
-                                </span>
-                              </TableCell>
-                              <TableCell className={`text-right font-medium tabular-nums ${isPurchase ? 'text-green-600' : ''}`}>
-                                {isPurchase ? '+' : '-'}{tokensDisplay.toLocaleString()}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <p className="text-muted-foreground">No usage history available</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Pricing Guide Tab */}
-          <TabsContent value="pricing" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Zap className="h-5 w-5" />
-                  Operation Cost Breakdown
-                </CardTitle>
-                <CardDescription>
-                  Understanding how tokens are used for different operations
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
+            <div className="max-w-sm">
+              <div className="p-6 rounded-xl border-2 border-primary bg-primary/5">
                 <div className="space-y-4">
-                  {operationCosts.map((cost, index) => (
-                    <div
-                      key={index}
-                      className={`flex items-center justify-between p-4 border rounded-lg ${cost.isComplete ? 'bg-primary/5 border-primary/20' : ''
-                        }`}
-                    >
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <h4 className="font-semibold">{cost.operation}</h4>
-                          <Badge variant={cost.isComplete ? "default" : "secondary"}>
-                            {cost.tokens} tokens
-                          </Badge>
-                          {cost.isComplete && (
-                            <Badge variant="outline" className="text-xs">Complete Plan</Badge>
-                          )}
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-1">{cost.description}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-mono text-lg font-semibold">{cost.tokens}</p>
-                        <p className="text-xs text-muted-foreground">tokens</p>
-                      </div>
+                  <div>
+                    <h4 className="font-semibold text-lg">Starter Pack</h4>
+                    <div className="flex items-baseline gap-2 mt-2">
+                      <span className="text-3xl font-bold">$10</span>
                     </div>
-                  ))}
-                </div>
+                  </div>
 
-                <Separator className="my-6" />
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    <p>700 tokens</p>
+                    <p className="font-medium text-foreground">~7 plans</p>
+                  </div>
 
-                <div className="bg-muted/50 p-4 rounded-lg">
-                  <h4 className="font-semibold mb-2 flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-600" />
-                    Token Economy
-                  </h4>
-                  <ul className="text-sm text-muted-foreground space-y-1 ml-6 list-disc">
-                    <li>Tokens are only consumed when you generate new plans or content</li>
-                    <li>Viewing existing plans does not consume tokens</li>
-                    <li>Tokens never expire - use them at your own pace</li>
-                    <li>Each complete plan generation costs 100 tokens (includes all 7 steps)</li>
-                    <li>If generation fails, tokens are refunded after review</li>
-                  </ul>
+                  <PurchaseTokensButton
+                    packageId="starter"
+                    packageName="Starter"
+                    tokens={700}
+                    price={10.00}
+                    variant="default"
+                    className="w-full"
+                  />
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* History Tab */}
+          <TabsContent value="history" className="space-y-4">
+            {tokenUsage && tokenUsage.length > 0 ? (
+              <div className="space-y-1">
+                {/* Header */}
+                <div className="flex items-center gap-4 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  <span className="w-32 shrink-0">Date</span>
+                  <span className="flex-1">Description</span>
+                  <span>Tokens</span>
+                </div>
+                {tokenUsage.map((usage) => {
+                  const isPurchase = usage.operationType === "token_purchase" || usage.tokensUsed > 0;
+                  const tokensDisplay = Math.abs(usage.tokensUsed);
+                  const date = new Date(usage.createdAt);
+
+                  return (
+                    <div 
+                      key={usage._id}
+                      className="flex items-center gap-4 py-2.5 text-sm"
+                    >
+                      <span className="text-muted-foreground tabular-nums w-32 shrink-0">
+                        {date.toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                        })}, {date.toLocaleTimeString('en-US', {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                      <span className="flex-1">
+                        {formatOperationType(usage.operationType)}
+                      </span>
+                      <span className={`font-medium tabular-nums ${isPurchase ? 'text-green-600' : ''}`}>
+                        {isPurchase ? '+' : '−'}{tokensDisplay.toLocaleString()}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-muted-foreground">
+                <p>No transactions yet</p>
+                <p className="text-sm mt-1">Purchase tokens to get started</p>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </div>

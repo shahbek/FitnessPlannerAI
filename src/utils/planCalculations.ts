@@ -158,16 +158,15 @@ export function calculateWeeklyExerciseCalories(
     }
   }
   
-  // Fallback to estimation using basic cardioSchedule
-  const cardioSessions = weeklyOutline?.cardioSchedule?.sessions || 0;
-  const cardioDuration = weeklyOutline?.cardioSchedule?.duration || 0;
-  const cardioIntensity = weeklyOutline?.cardioSchedule?.intensity || 'moderate';
-  cardioCalories = cardioSessions * calculateExerciseCalories(cardioIntensity, weightKg, cardioDuration, 'cardio');
+  // NO FALLBACK: Cardio data MUST come from CardioGenerationService (weeklyCardioSchedules)
+  // If weeklyCardioSchedules doesn't have data for this week, return 0 for cardio
+  // This indicates CardioGenerationService did not generate data properly
+  console.warn(`[planCalculations] Week ${weekNumber}: No cardio data found in weeklyCardioSchedules - CardioGenerationService may have failed`);
 
   return {
     resistance: resistanceCalories,
-    cardio: cardioCalories,
-    total: resistanceCalories + cardioCalories,
+    cardio: 0, // No fallback estimation
+    total: resistanceCalories, // Only resistance calories if no cardio data
   };
 }
 
@@ -470,4 +469,281 @@ export function calculateWaterIntake(
 
   const totalMl = weightKg * mlPerKg;
   return Math.round((totalMl / 1000) * 10) / 10; // Convert to liters, round to 1 decimal
+}
+
+/**
+ * CENTRALIZED TDEE CALCULATION
+ * 
+ * This is the SINGLE source of truth for TDEE calculations.
+ * All components should use this function to ensure consistency.
+ * 
+ * Uses Mifflin-St Jeor formula for BMR, then applies activity factor.
+ * 
+ * @param params - User parameters for calculation
+ * @returns TDEE calculation result with breakdown
+ */
+export interface TDEEParams {
+  weightKg: number;
+  heightCm: number;
+  age: number;
+  gender: 'male' | 'female';
+  experienceLevel?: string;
+  trainingDaysPerWeek?: number;
+  bodyFat?: number; // Optional: if provided, uses Katch-McArdle instead
+}
+
+export interface TDEEResult {
+  tdee: number;
+  bmr: number;
+  activityFactor: number;
+  formula: 'mifflin-st-jeor' | 'katch-mcardle';
+}
+
+export function calculateTDEE(params: TDEEParams): TDEEResult {
+  const {
+    weightKg,
+    heightCm,
+    age,
+    gender,
+    experienceLevel,
+    trainingDaysPerWeek = 3,
+    bodyFat
+  } = params;
+
+  let bmr: number;
+  let formula: 'mifflin-st-jeor' | 'katch-mcardle';
+
+  // Calculate BMR
+  const hasValidBodyFat = typeof bodyFat === 'number' && bodyFat > 0 && bodyFat < 50;
+
+  if (hasValidBodyFat) {
+    // Katch-McArdle: More accurate when body fat is known
+    // BMR = 370 + (21.6 × lean body mass in kg)
+    const leanBodyMass = weightKg * (1 - bodyFat! / 100);
+    bmr = Math.round(370 + 21.6 * leanBodyMass);
+    formula = 'katch-mcardle';
+  } else {
+    // Mifflin-St Jeor: Standard calculation
+    const genderFactor = gender === 'male' ? 5 : -161;
+    bmr = Math.round(10 * weightKg + 6.25 * heightCm - 5 * age + genderFactor);
+    formula = 'mifflin-st-jeor';
+  }
+
+  // Determine activity factor based on experience level first, then fall back to training days
+  let activityFactor = 1.55; // Default moderate
+  const levelLower = experienceLevel?.toLowerCase() || '';
+
+  if (levelLower === 'beginner' || levelLower === 'sedentary') {
+    activityFactor = 1.375; // Light activity
+  } else if (levelLower === 'intermediate' || levelLower === 'moderate') {
+    activityFactor = 1.55; // Moderate activity
+  } else if (levelLower === 'advanced' || levelLower === 'expert' || levelLower === 'active') {
+    activityFactor = 1.725; // Active
+  } else if (levelLower === 'athlete' || levelLower === 'very_active') {
+    activityFactor = 1.9; // Very active
+  } else {
+    // Fallback to training days if no valid experience level
+    if (trainingDaysPerWeek <= 2) activityFactor = 1.375;
+    else if (trainingDaysPerWeek <= 3) activityFactor = 1.55;
+    else if (trainingDaysPerWeek <= 5) activityFactor = 1.725;
+    else activityFactor = 1.9;
+  }
+
+  const tdee = Math.round(bmr * activityFactor);
+
+  return {
+    tdee,
+    bmr,
+    activityFactor,
+    formula
+  };
+}
+
+/**
+ * Get TDEE from plan data or calculate from user profile
+ * 
+ * This helper ensures consistent TDEE values across all components.
+ * Always use this function instead of calculating TDEE inline.
+ * 
+ * @param plan - Plan object (may contain pre-calculated metrics.tdee)
+ * @param userProfile - User profile data for fallback calculation
+ * @returns TDEE value or null if insufficient data
+ */
+export function getTDEE(
+  plan?: { metrics?: { tdee?: { value: number } }; userProfile?: any },
+  userProfile?: {
+    weight?: number;
+    height?: number;
+    age?: number;
+    gender?: string;
+    experienceLevel?: string;
+    workoutDaysPerWeek?: number;
+    bodyFat?: number;
+  }
+): number | null {
+  // First priority: Use pre-calculated TDEE from plan
+  if (plan?.metrics?.tdee?.value && plan.metrics.tdee.value > 0) {
+    return plan.metrics.tdee.value;
+  }
+
+  // Get user data from plan.userProfile or userProfile parameter
+  const profile = plan?.userProfile || userProfile;
+  
+  if (!profile?.weight || !profile?.height || !profile?.age || !profile?.gender) {
+    return null;
+  }
+
+  const result = calculateTDEE({
+    weightKg: profile.weight,
+    heightCm: profile.height,
+    age: profile.age,
+    gender: profile.gender.toLowerCase() === 'male' || profile.gender.toLowerCase() === 'm' ? 'male' : 'female',
+    experienceLevel: profile.experienceLevel,
+    trainingDaysPerWeek: profile.workoutDaysPerWeek || 3,
+    bodyFat: profile.bodyFat
+  });
+
+  return result.tdee;
+}
+
+/**
+ * Calculate daily calorie deficit for a single day
+ * Formula: Deficit = TDEE - calories consumed + exercise burn (resistance + cardio)
+ * 
+ * @param tdee - Total Daily Energy Expenditure
+ * @param caloriesConsumed - Calories from meals consumed that day
+ * @param resistanceCalories - Calories burned from resistance training
+ * @param cardioCalories - Calories burned from cardio
+ * @returns Daily calorie deficit (positive = deficit, negative = surplus)
+ */
+export function calculateDailyDeficit(
+  tdee: number,
+  caloriesConsumed: number,
+  resistanceCalories: number,
+  cardioCalories: number
+): number {
+  // Total energy out = TDEE (base) + exercise
+  // Deficit = energy out - energy in
+  return (tdee + resistanceCalories + cardioCalories) - caloriesConsumed;
+}
+
+/**
+ * Day data interface for deficit calculation
+ */
+export interface DayDeficitData {
+  day: string;
+  dayNumber: number;
+  caloriesConsumed: number;
+  resistanceCalories: number;
+  cardioCalories: number;
+  deficit: number;
+}
+
+/**
+ * Weekly deficit summary
+ */
+export interface WeeklyDeficitSummary {
+  dailyDeficits: DayDeficitData[];
+  totalWeeklyDeficit: number;
+  averageDailyDeficit: number;
+  projectedWeightLossKg: number;
+  projectedWeightLossLbs: number;
+}
+
+/**
+ * Calculate weekly calorie deficit and projected weight loss
+ * Uses data from weeklySchedule (meals) and cardio schedules
+ * 
+ * @param weekNumber - The week number to calculate for
+ * @param tdee - Daily TDEE value
+ * @param weeklySchedule - Array of weekly schedule data with daily meals
+ * @param plan - Full plan object with cardio schedules
+ * @param weightKg - User's weight for resistance calorie calculation
+ * @returns Weekly deficit summary with projected weight loss
+ */
+export function calculateWeeklyDeficitSummary(
+  weekNumber: number,
+  tdee: number,
+  weeklySchedule: any[],
+  plan: any,
+  weightKg: number
+): WeeklyDeficitSummary | null {
+  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  
+  // Get the week's schedule data
+  const scheduleWeek = weeklySchedule?.find((w: any) => w.weekNumber === weekNumber);
+  if (!scheduleWeek || !scheduleWeek.days) {
+    return null;
+  }
+
+  // Get cardio schedule for this week
+  const weeklyCardioSchedules = plan?.weeklyCardioSchedules || [];
+  const weekCardioSchedule = weeklyCardioSchedules.find((s: any) => 
+    s.weekNumber === weekNumber || 
+    Number(s.weekNumber) === Number(weekNumber)
+  );
+
+  // Get training schedule from weekly outline
+  const weeklyOutline = plan?.weeklyOutlines?.find((w: any) => w.weekNumber === weekNumber);
+  const resistanceDays = weeklyOutline?.trainingSchedule?.resistanceDays || [];
+  const sessionDuration = 60; // Default session duration in minutes
+
+  const dailyDeficits: DayDeficitData[] = [];
+
+  days.forEach((day, index) => {
+    const dayNumber = index + 1;
+    const scheduleDay = scheduleWeek.days.find((d: any) => 
+      d.day === day || d.dayNumber === dayNumber
+    );
+
+    // Get calories consumed from meals
+    const caloriesConsumed = scheduleDay?.dailyMacros?.totalCalories || 0;
+
+    // Calculate resistance training calories
+    let resistanceCalories = 0;
+    if (resistanceDays.includes(day)) {
+      resistanceCalories = estimateResistanceCalories(sessionDuration, weightKg, 'moderate');
+    }
+
+    // Get cardio calories for this day
+    let cardioCalories = 0;
+    if (weekCardioSchedule?.sessions) {
+      const dayCardioSessions = weekCardioSchedule.sessions.filter((s: any) =>
+        s.dayName === day || s.dayNumber === dayNumber
+      );
+      
+      cardioCalories = dayCardioSessions.reduce((total: number, session: any) => {
+        const template = session.cardioTemplate || session;
+        return total + (template.caloriesBurned || 0);
+      }, 0);
+    }
+
+    // Calculate daily deficit
+    const deficit = calculateDailyDeficit(tdee, caloriesConsumed, resistanceCalories, cardioCalories);
+
+    dailyDeficits.push({
+      day,
+      dayNumber,
+      caloriesConsumed,
+      resistanceCalories,
+      cardioCalories,
+      deficit
+    });
+  });
+
+  // Sum up weekly deficit
+  const totalWeeklyDeficit = dailyDeficits.reduce((sum, day) => sum + day.deficit, 0);
+  const averageDailyDeficit = totalWeeklyDeficit / 7;
+  
+  // 7,700 kcal ≈ 1 kg of body fat
+  const projectedWeightLossKg = totalWeeklyDeficit / 7700;
+  const projectedWeightLossLbs = projectedWeightLossKg * 2.205;
+
+  return {
+    dailyDeficits,
+    totalWeeklyDeficit: Math.round(totalWeeklyDeficit),
+    averageDailyDeficit: Math.round(averageDailyDeficit),
+    projectedWeightLossKg: Math.round(projectedWeightLossKg * 100) / 100,
+    projectedWeightLossLbs: Math.round(projectedWeightLossLbs * 100) / 100
+  };
 }

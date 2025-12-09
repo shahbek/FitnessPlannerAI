@@ -23,7 +23,13 @@ export default defineSchema({
     bodyFat: v.optional(v.number()),
     targetBodyFat: v.optional(v.number()),
 
-    // Fitness Goals
+    // Fitness Goals - New Goal Category System
+    goalCategory: v.optional(v.string()), // 'lean_bulk', 'dirty_bulk', 'mini_cut', 'aggressive_cut', 'recomp', 'maintenance', 'body_fat_goal'
+    bodyFatGoal: v.optional(v.object({
+      currentBf: v.number(),
+      targetBf: v.number(),
+    })),
+    // Legacy field (deprecated, kept for backward compatibility)
     primaryGoal: v.optional(v.string()),
     experienceLevel: v.optional(v.string()),
 
@@ -56,6 +62,9 @@ export default defineSchema({
 
     // ✅ Metadata fields for better querying (extracted from fullPlanData)
     totalWeeks: v.optional(v.number()),
+    // New goal category system
+    goalCategory: v.optional(v.string()), // 'lean_bulk', 'dirty_bulk', etc.
+    // Legacy field (deprecated)
     primaryGoal: v.optional(v.string()),
     exerciseCount: v.optional(v.number()),
     mealCount: v.optional(v.number()),
@@ -75,7 +84,8 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_user", ["userId"])
     .index("by_user_active", ["userId", "isActive"])
-    .index("by_goal", ["primaryGoal"])
+    .index("by_goal_category", ["goalCategory"])
+    .index("by_goal", ["primaryGoal"]) // Legacy index
     .index("by_total_weeks", ["totalWeeks"]),
 
   // Meal Plans

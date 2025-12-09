@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Activity, Clock } from 'lucide-react';
+import { calculateTDEE as calculateCentralizedTDEE } from '@/utils/planCalculations';
 
 interface BMRAndMetabolicAgeProps {
   plan: any;
@@ -172,31 +173,22 @@ export function BMRAndMetabolicAge({ plan, userProfile }: BMRAndMetabolicAgeProp
   const { bmr, method } = bmrData;
   const { metabolicAge, difference } = metabolicAgeData;
 
-  // Calculate estimated TDEE using experience level OR training days
-  const experienceLevel = planUserProfile?.experienceLevel || userProfile?.experienceLevel || planUserProfile?.workoutLevel || '';
-  const trainingDays = planUserProfile?.workoutDaysPerWeek || userProfile?.workoutDaysPerWeek || 3;
+  // Use CENTRALIZED TDEE calculation for consistency across all components
+  const tdeeResult = useMemo(() => {
+    if (!weight || !height || !age) return null;
+    return calculateCentralizedTDEE({
+      weightKg: weight,
+      heightCm: height,
+      age,
+      gender: gender?.toLowerCase() === 'male' || gender?.toLowerCase() === 'm' ? 'male' : 'female',
+      experienceLevel: planUserProfile?.experienceLevel || userProfile?.experienceLevel || planUserProfile?.workoutLevel || '',
+      trainingDaysPerWeek: planUserProfile?.workoutDaysPerWeek || userProfile?.workoutDaysPerWeek || 3,
+      bodyFat
+    });
+  }, [weight, height, age, gender, bodyFat, planUserProfile, userProfile]);
 
-  // Determine activity factor based on experience level first, then fall back to training days
-  let activityFactor = 1.55; // Default moderate
-  const levelLower = experienceLevel?.toLowerCase() || '';
-
-  if (levelLower === 'beginner' || levelLower === 'sedentary') {
-    activityFactor = 1.375; // Light activity
-  } else if (levelLower === 'intermediate' || levelLower === 'moderate') {
-    activityFactor = 1.55; // Moderate activity
-  } else if (levelLower === 'advanced' || levelLower === 'expert' || levelLower === 'active') {
-    activityFactor = 1.725; // Active
-  } else if (levelLower === 'athlete' || levelLower === 'very_active') {
-    activityFactor = 1.9; // Very active
-  } else {
-    // Fallback to training days if no valid experience level
-    if (trainingDays <= 2) activityFactor = 1.375;
-    else if (trainingDays <= 3) activityFactor = 1.55;
-    else if (trainingDays <= 5) activityFactor = 1.725;
-    else activityFactor = 1.9;
-  }
-
-  const estimatedTDEE = Math.round(bmr * activityFactor);
+  const estimatedTDEE = tdeeResult?.tdee || Math.round(bmr * 1.55);
+  const activityFactor = tdeeResult?.activityFactor || 1.55;
 
   // Determine gradient colors based on method for BMR
   const bmrGradient = method === 'katch-mcardle'

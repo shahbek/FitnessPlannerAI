@@ -59,7 +59,6 @@ const recommendations = getCardioRecommendations('fat_loss', 'peak', 'intermedia
 ## Planned Knowledge Bases
 
 ### Nutrition Knowledge Base
-- Macro cycling research
 - Meal timing studies
 - Nutrient timing for performance
 - Dietary strategies by goal

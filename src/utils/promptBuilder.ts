@@ -7,7 +7,9 @@ import { formatFoodCategory, checkMacroConflict, calculateAdjustedFat } from './
 export interface UserProfile {
   preferences: string;
   mealFrequency: number;
-  goal: string;
+  // Goal can come from either goalCategory (new) or goal (legacy)
+  goalCategory?: string;
+  goal?: string;
   timelineWeeks: number;
   targetBf?: number;
   experienceLevel?: string;

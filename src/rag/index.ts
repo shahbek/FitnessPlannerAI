@@ -2,6 +2,7 @@
 // Centralized access to all specialized knowledge bases
 
 export * from './cardio/cardioKnowledgeBase';
+export * from './goals/goalStrategyKnowledgeBase';
 
 // Future RAG modules will be exported here:
 // export * from './nutrition/nutritionKnowledgeBase';
@@ -22,6 +23,12 @@ export async function searchAllRAG(
   if (!categories || categories.includes('cardio')) {
     const { searchCardioKnowledge } = await import('./cardio/cardioKnowledgeBase');
     results.push(...searchCardioKnowledge(query));
+  }
+
+  // Search goal strategy knowledge base
+  if (!categories || categories.includes('goals')) {
+    const { searchGoalKnowledge } = await import('./goals/goalStrategyKnowledgeBase');
+    results.push(...searchGoalKnowledge(query));
   }
 
   // Future: Add other knowledge bases

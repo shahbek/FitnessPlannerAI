@@ -39,7 +39,7 @@ const CardioTemplateSchema = z.object({
   }).optional(),
   caloriesBurned: z.number().optional(),
   equipment: z.array(z.string()),
-  difficulty: z.enum(['beginner', 'intermediate', 'advanced']),
+  difficulty: z.enum(['beginner', 'intermediate', 'advanced', 'expert']),
   structure: z.object({
     warmup: z.object({
       durationMinutes: z.number(),
@@ -114,8 +114,24 @@ export class CardioGenerationService {
   }
 
   /**
+   * Normalize phase name to lowercase standard form
+   * Handles variations like "Foundation", "FOUNDATION", "Foundation Phase", etc.
+   */
+  private normalizePhase(phaseName: string | undefined): string {
+    if (!phaseName) return '';
+    // Remove common suffixes and normalize
+    return phaseName
+      .toLowerCase()
+      .replace(/\s*phase\s*/gi, '')
+      .replace(/\s+/g, '')
+      .trim();
+  }
+
+  /**
    * Generate phase-specific cardio templates
    * Similar to generatePhaseExerciseLibraries
+   * 
+   * CRITICAL: This method MUST generate templates. Empty results are not acceptable.
    */
   async generatePhaseCardioTemplates(
     userProfile: UserProfile,
@@ -126,13 +142,29 @@ export class CardioGenerationService {
       throw new Error('AI service is required to generate cardio templates. Configure an AI API key.');
     }
 
-    const phaseWeeks = weeklyOutlines.filter(w =>
-      w.phase.toLowerCase() === phase.toLowerCase()
-    );
+    // ROBUST PHASE MATCHING: Handle various phase name formats
+    const normalizedTargetPhase = this.normalizePhase(phase);
+    
+    const phaseWeeks = weeklyOutlines.filter(w => {
+      const normalizedOutlinePhase = this.normalizePhase(w.phase);
+      return normalizedOutlinePhase === normalizedTargetPhase;
+    });
+
+    console.log(`🏃 [CARDIO] Phase matching for "${phase}":`);
+    console.log(`   Target (normalized): "${normalizedTargetPhase}"`);
+    console.log(`   Outline phases: ${weeklyOutlines.map(w => `Week ${w.weekNumber}: "${w.phase}" → "${this.normalizePhase(w.phase)}"`).join(', ')}`);
+    console.log(`   Matched weeks: ${phaseWeeks.map(w => w.weekNumber).join(', ') || 'NONE'}`);
 
     if (phaseWeeks.length === 0) {
-      console.warn(`No weeks found for phase: ${phase}`);
-      return [];
+      // CRITICAL: If no weeks match, this is a configuration error - throw instead of returning empty
+      const allPhases = weeklyOutlines.map(w => w.phase).filter(Boolean);
+      const uniquePhases = [...new Set(allPhases)];
+      
+      throw new Error(
+        `CARDIO GENERATION FAILED: No weeks found for phase "${phase}" (normalized: "${normalizedTargetPhase}").\n` +
+        `Available phases in outline: ${uniquePhases.join(', ') || 'NONE'}\n` +
+        `This indicates a phase naming mismatch. Phases must be: foundation, progression, or peak.`
+      );
     }
 
     // Get evidence-based recommendations
@@ -214,6 +246,20 @@ export class CardioGenerationService {
           // Fallback to durationMinutes if calculation fails
           fixedTemplate.structure.totalDurationMinutes = total > 0 ? Math.round(total) : fixedTemplate.durationMinutes;
         }
+
+        // CRITICAL: Always calculate caloriesBurned if missing or zero
+        // This ensures ALL templates have calorie data for energy balance calculations
+        if (!fixedTemplate.caloriesBurned || fixedTemplate.caloriesBurned === 0) {
+          const duration = fixedTemplate.structure.totalDurationMinutes || fixedTemplate.durationMinutes;
+          fixedTemplate.caloriesBurned = this.calculateCaloriesBurned(
+            userProfile.weightKg,
+            duration,
+            fixedTemplate.intensity as CardioIntensity,
+            fixedTemplate.type as CardioType
+          );
+          console.log(`   📊 Calculated calories for "${fixedTemplate.name}": ${fixedTemplate.caloriesBurned} kcal (${duration} min @ ${fixedTemplate.intensity})`);
+        }
+
         return fixedTemplate as CardioTemplate;
       });
 
@@ -501,6 +547,9 @@ Return structured weekly cardio schedule.`;
 
   /**
    * Calculate estimated calories burned for a cardio session
+   * 
+   * Uses MET (Metabolic Equivalent of Task) values from the Compendium of Physical Activities
+   * Formula: Calories = MET × weight(kg) × duration(hours)
    */
   calculateCaloriesBurned(
     weightKg: number,
@@ -509,27 +558,69 @@ Return structured weekly cardio schedule.`;
     type: CardioType
   ): number {
     // MET values (Metabolic Equivalent of Task) for different activities
+    // Based on the 2011 Compendium of Physical Activities
     const metValues: Record<string, Record<string, number>> = {
-      'HIIT': { 'Very High': 12, 'High': 10 },
-      'MISS': { 'Moderate': 7, 'High': 8 },
-      'LISS': { 'Low': 4, 'Very Low': 3 },
-      'Zone 2': { 'Low': 5 },
-      'Walking': { 'Low': 3.5, 'Very Low': 2.5 },
-      'Cycling': { 'Moderate': 8, 'High': 10, 'Low': 6 },
-      'Rowing': { 'Moderate': 7, 'High': 9 },
-      'Running': { 'Moderate': 8, 'High': 11.5 },
+      // High-Intensity Interval Training
+      'HIIT': { 'Very High': 12, 'High': 10, 'Moderate': 8, 'Variable': 10 },
+      'Tabata': { 'Very High': 14, 'High': 12, 'Variable': 12 },
+      
+      // Steady State Cardio
+      'MISS': { 'High': 8, 'Moderate': 7, 'Low': 5 },
+      'LISS': { 'Moderate': 5, 'Low': 4, 'Very Low': 3 },
+      'Zone 2': { 'Moderate': 6, 'Low': 5, 'Very Low': 4 },
+      
+      // Running Variants
+      'Tempo Run': { 'High': 10, 'Moderate': 8.5 },
+      'Fartlek': { 'High': 9, 'Moderate': 8, 'Variable': 8.5 },
+      
+      // Machine Cardio
+      'Rowing': { 'Very High': 12, 'High': 9.5, 'Moderate': 7, 'Low': 5 },
+      'Cycling': { 'Very High': 12, 'High': 10, 'Moderate': 8, 'Low': 6 },
+      'Swimming': { 'Very High': 10, 'High': 8.5, 'Moderate': 7, 'Low': 5.5 },
+      'Stair Climbing': { 'Very High': 12, 'High': 9, 'Moderate': 7, 'Low': 5 },
+      'Elliptical': { 'High': 8, 'Moderate': 6.5, 'Low': 5 },
+      'Assault Bike': { 'Very High': 14, 'High': 11, 'Moderate': 8, 'Variable': 10 },
+      'SkiErg': { 'Very High': 12, 'High': 9, 'Moderate': 7 },
+      
+      // Low Impact
+      'Walking': { 'Moderate': 4.5, 'Low': 3.5, 'Very Low': 2.5 },
+      'Rucking': { 'High': 8, 'Moderate': 6.5, 'Low': 5 },
+      
+      // Functional
+      'Circuit': { 'Very High': 10, 'High': 8, 'Moderate': 6, 'Variable': 7.5 },
+      'Sled Push': { 'Very High': 10, 'High': 8, 'Moderate': 6 },
+      'Battle Ropes': { 'Very High': 12, 'High': 10, 'Moderate': 7, 'Variable': 9 },
+      
+      // Fallback for 'Other' type
+      'Other': { 'Very High': 10, 'High': 8, 'Moderate': 6, 'Low': 4, 'Very Low': 3, 'Variable': 6 },
     };
 
-    const intensityMap: Record<CardioIntensity, string> = {
-      'Very Low': 'Very Low',
-      'Low': 'Low',
-      'Moderate': 'Moderate',
-      'High': 'High',
-      'Very High': 'Very High',
-      'Variable': 'Moderate', // Average for variable
-    };
-
-    const met = metValues[type]?.[intensityMap[intensity]] || 5; // Default MET
+    // Get the MET value for this type and intensity
+    const typeMetValues = metValues[type] || metValues['Other'];
+    let met = typeMetValues[intensity];
+    
+    // If exact intensity not found, find closest match
+    if (!met) {
+      const intensityOrder: CardioIntensity[] = ['Very Low', 'Low', 'Moderate', 'High', 'Very High', 'Variable'];
+      const currentIdx = intensityOrder.indexOf(intensity);
+      
+      // Try to find a nearby intensity value
+      for (let offset = 1; offset <= 5; offset++) {
+        if (currentIdx - offset >= 0 && typeMetValues[intensityOrder[currentIdx - offset]]) {
+          met = typeMetValues[intensityOrder[currentIdx - offset]];
+          break;
+        }
+        if (currentIdx + offset < intensityOrder.length && typeMetValues[intensityOrder[currentIdx + offset]]) {
+          met = typeMetValues[intensityOrder[currentIdx + offset]];
+          break;
+        }
+      }
+      
+      // Ultimate fallback
+      if (!met) {
+        met = 6; // Default moderate cardio MET
+      }
+    }
 
     // Calories = MET × weight(kg) × duration(hours)
     const calories = met * weightKg * (durationMinutes / 60);

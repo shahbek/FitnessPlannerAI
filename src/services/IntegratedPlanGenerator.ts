@@ -698,8 +698,8 @@ export class IntegratedPlanGenerator {
           if (error instanceof Error && (error as any).cause) {
             console.error(`      Cause: ${(error as any).cause}`);
           }
-          console.error(`   ⚠️  This phase will have empty cardio templates - plan will use basic cardioSchedule fallback`);
-          // Add empty array to maintain phase order
+          console.error(`   ❌ This phase will have empty cardio templates - NO FALLBACK AVAILABLE`);
+          // Add empty array to maintain phase order, but this will cause schedule generation to fail
           phaseTemplates.push([]);
         }
       }
@@ -709,29 +709,50 @@ export class IntegratedPlanGenerator {
       console.log(`      Weekly schedules: ${weeklySchedules.length}`);
       console.log(`      Total templates: ${phaseTemplates.flat().length}`);
 
-      // Check if we have any successful generations
+      // CRITICAL: Cardio is MANDATORY - validate we have proper generation
       const totalTemplates = phaseTemplates.flat().length;
       const expectedWeeks = weeklyOutlines.length;
 
-      if (totalTemplates === 0 || weeklySchedules.length === 0) {
-        console.warn(`\n   ⚠️  WARNING: Cardio generation produced no templates or schedules!`);
-        console.warn(`      Templates generated: ${totalTemplates}`);
-        console.warn(`      Schedules generated: ${weeklySchedules.length}`);
-        console.warn(`      Expected weeks: ${expectedWeeks}`);
-        console.warn(`      ⚠️  System will fall back to basic cardioSchedule from weeklyOutlines`);
-        console.warn(`      This means the UI will show basic cardio info instead of detailed templates.`);
-      } else if (weeklySchedules.length < expectedWeeks) {
+      if (totalTemplates === 0) {
+        throw new Error(
+          `CARDIO GENERATION FAILED: No cardio templates were generated.\n` +
+          `Expected at least 3 templates (1 per phase), got 0.\n` +
+          `Cardio is required for all fitness plans. Check phase naming in weekly outlines.`
+        );
+      }
+
+      if (weeklySchedules.length === 0) {
+        throw new Error(
+          `CARDIO SCHEDULE GENERATION FAILED: No weekly cardio schedules were generated.\n` +
+          `Templates generated: ${totalTemplates}, but 0 schedules.\n` +
+          `Cardio schedules are required for all fitness plans.`
+        );
+      }
+
+      if (weeklySchedules.length < expectedWeeks) {
+        const missingWeeks = weeklyOutlines
+          .filter(w => !weeklySchedules.some(s => s.weekNumber === w.weekNumber))
+          .map(w => w.weekNumber);
+        
         console.warn(`\n   ⚠️  WARNING: Not all weeks have detailed cardio schedules!`);
         console.warn(`      Generated: ${weeklySchedules.length} schedules`);
         console.warn(`      Expected: ${expectedWeeks} schedules`);
-        console.warn(`      Missing weeks: ${weeklyOutlines.filter(w =>
-          !weeklySchedules.some(s => s.weekNumber === w.weekNumber)
-        ).map(w => w.weekNumber).join(', ')}`);
+        console.warn(`      Missing weeks: ${missingWeeks.join(', ')}`);
+        
+        // If more than 50% of weeks are missing, throw error
+        if (missingWeeks.length > expectedWeeks / 2) {
+          throw new Error(
+            `CARDIO SCHEDULE GENERATION FAILED: Too many weeks missing cardio schedules.\n` +
+            `Generated: ${weeklySchedules.length}/${expectedWeeks} schedules.\n` +
+            `Missing weeks: ${missingWeeks.join(', ')}.\n` +
+            `At least 50% of weeks must have cardio schedules.`
+          );
+        }
       }
 
       return { phaseTemplates, weeklySchedules };
     } catch (error) {
-      console.error('❌ [CARDIO] Cardio generation failed completely:');
+      console.error('❌ [CARDIO] Cardio generation failed:');
       console.error('   Error:', error instanceof Error ? error.message : String(error));
       if (error instanceof Error && error.stack) {
         console.error('   Stack:', error.stack.split('\n').slice(0, 10).join('\n'));
@@ -739,8 +760,12 @@ export class IntegratedPlanGenerator {
       if (error instanceof Error && (error as any).cause) {
         console.error('   Cause:', (error as any).cause);
       }
-      console.warn('   ⚠️  Continuing without cardio templates...');
-      return { phaseTemplates: [], weeklySchedules: [] };
+      
+      // CRITICAL: Re-throw the error - cardio is mandatory
+      throw new Error(
+        `CARDIO GENERATION REQUIRED: ${error instanceof Error ? error.message : String(error)}\n` +
+        `Cardio is a mandatory component of all fitness plans and cannot be skipped.`
+      );
     }
   }
 

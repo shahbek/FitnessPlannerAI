@@ -12,7 +12,8 @@ import {
   buildMealPrompt,
   type UserProfile as PromptUserProfile,
 } from '@/utils/promptBuilder';
-import { UserProfile } from '@/models/UserProfile';
+import { UserProfile, GoalCategory, getEffectiveGoalType, getGoalCategoryLabel } from '@/models/UserProfile';
+import { GOAL_CALORIE_ADJUSTMENTS } from '@/services/NutritionCalculationService';
 import { validateMealCompliance } from '@/utils/mealValidator';
 import { NutritionalResearchService } from './NutritionalResearchService';
 import { MealGenerationService } from './MealGenerationService';
@@ -42,9 +43,12 @@ const PHASE_DISTRIBUTION = {
   PEAK_END: 1.0,          // Final 34% of timeline (66-100%)
 } as const;
 
+import { GENERATION_TOLERANCES } from '@/constants/validation';
+
+// Re-export for backward compatibility
 const VALIDATION_TOLERANCES = {
-  CALORIE_PERCENTAGE: 0.05,   // 5% tolerance for calorie matching
-  PROTEIN_PERCENTAGE: 0.10,   // 10% tolerance for protein matching
+  CALORIE_PERCENTAGE: GENERATION_TOLERANCES.CALORIE_PERCENTAGE,
+  PROTEIN_PERCENTAGE: GENERATION_TOLERANCES.PROTEIN_PERCENTAGE,
 } as const;
 
 const API_CONFIG = {
@@ -183,7 +187,9 @@ const SessionTemplateSchema = z.object({
 
 const WeeklyOutlineSchema = z.object({
   weekNumber: z.number(),
-  phase: z.string(),
+  // CRITICAL: Phase MUST be one of these exact values (lowercase)
+  // The cardio generation depends on this for phase matching
+  phase: z.enum(['foundation', 'progression', 'peak']).describe('Phase must be exactly: foundation, progression, or peak (lowercase)'),
   dailyTargets: z.object({
     calories: z.number(),
     protein: z.number(),
@@ -198,12 +204,14 @@ const WeeklyOutlineSchema = z.object({
     weeklyVolume: z.string().optional(),
     focusAreas: z.array(z.string()).optional()
   }),
+  // CRITICAL: cardioSchedule is REQUIRED for all weeks
+  // This drives the cardio generation and UI display
   cardioSchedule: z.object({
-    sessions: z.number().optional(),
-    duration: z.number().optional(),
-    intensity: z.string().optional(),
-    type: z.string().optional()
-  }).optional(),
+    sessions: z.number().min(1).describe('Number of cardio sessions per week (minimum 1)'),
+    duration: z.number().min(10).describe('Duration per session in minutes (minimum 10)'),
+    intensity: z.enum(['Very Low', 'Low', 'Moderate', 'High', 'Very High', 'Variable']).describe('Cardio intensity level'),
+    type: z.string().describe('Type of cardio (e.g., HIIT, LISS, Zone 2, Cycling, etc.)')
+  }).describe('Cardio schedule is REQUIRED for all weeks'),
   objectives: z.array(z.string()).optional(),
   expectedOutcomes: z.array(z.string()).optional(),
   adjustments: z.string().optional(),
@@ -658,9 +666,17 @@ export class AISdkRagService {
     // Compute deterministic metrics first to ground the assessment
     const metrics = await this.computePlanningMetrics(userProfile);
 
+    // Get goal category and label
+    const goalCategory = userProfile.goalCategory as GoalCategory | undefined;
+    const goalLabel = goalCategory ? getGoalCategoryLabel(goalCategory) : (userProfile.goal || 'fitness');
+    const effectiveGoalType = goalCategory 
+      ? getEffectiveGoalType(goalCategory) 
+      : (userProfile.goal?.includes('muscle') || userProfile.goal?.includes('bulk') ? 'muscle_gain' : 
+         userProfile.goal?.includes('fat') || userProfile.goal?.includes('cut') ? 'fat_loss' : 'maintenance');
+
     // Search for relevant research on goal feasibility
     const relevantKnowledge = await this.searchKnowledgeBase(
-      `${userProfile.goal} ${userProfile.workoutLevel} ${userProfile.timelineWeeks} weeks`,
+      `${effectiveGoalType} ${userProfile.workoutLevel} ${userProfile.timelineWeeks} weeks`,
       'training'
     );
 
@@ -668,15 +684,40 @@ export class AISdkRagService {
     const maxSafeFatLoss = userProfile.weightKg * FAT_LOSS_LIMITS.MAX_SAFE_WEEKLY_PERCENTAGE;
     const currentFatLossTarget = userProfile.weightKg * FAT_LOSS_LIMITS.TARGET_WEEKLY_PERCENTAGE;
     const bodyFatToLose = userProfile.bodyFat
-      ? userProfile.bodyFat - (userProfile.targetBf || 15)
+      ? userProfile.bodyFat - (userProfile.targetBf || userProfile.bodyFatGoal?.targetBf || 15)
       : 0;
 
-    // Calculate minimum safe timeline
-    const minWeeksForGoal = bodyFatToLose > 0
+    // Calculate minimum safe timeline (only for fat loss goals)
+    const minWeeksForGoal = (effectiveGoalType === 'fat_loss' && bodyFatToLose > 0)
       ? Math.ceil(bodyFatToLose / maxSafeFatLoss)
       : 4; // Minimum 4 weeks for any fitness goal
 
     const isTimelineRealistic = userProfile.timelineWeeks >= minWeeksForGoal;
+
+    // Build goal-specific assessment requirements
+    let assessmentRequirements: string;
+    if (effectiveGoalType === 'fat_loss') {
+      assessmentRequirements = `
+ASSESSMENT REQUIREMENTS (FAT LOSS):
+1. Timeline MUST be at least ${minWeeksForGoal} weeks for safe fat loss
+2. Fat-loss rate MUST NOT exceed ${maxSafeFatLoss.toFixed(2)} kg/week
+3. If timeline unrealistic, suggest minimum safe timeline
+4. Flag any extreme protocols or assumptions`;
+    } else if (effectiveGoalType === 'muscle_gain') {
+      assessmentRequirements = `
+ASSESSMENT REQUIREMENTS (MUSCLE GAIN):
+1. Verify caloric surplus is appropriate (5-20% above TDEE)
+2. Confirm protein intake supports muscle growth (1.6-2.2g/kg)
+3. Assess training volume and recovery capacity
+4. Note expected rate of muscle gain based on experience level`;
+    } else {
+      assessmentRequirements = `
+ASSESSMENT REQUIREMENTS (MAINTENANCE/RECOMP):
+1. Verify caloric intake is at or near TDEE
+2. Confirm protein intake is adequate (1.6-2.0g/kg)
+3. Assess timeline for measurable body composition changes
+4. Note realistic expectations for recomposition`;
+    }
 
     const prompt = `
 Based on the following user profile, deterministic calculations, and scientific research, 
@@ -685,8 +726,8 @@ assess the feasibility of their fitness goal:
 USER PROFILE:
 - Age: ${userProfile.age}, Sex: ${userProfile.sex}
 - Weight: ${userProfile.weightKg} kg, Height: ${userProfile.heightCm} cm
-- Body Fat: ${userProfile.bodyFat || 'unknown'}% → Target: ${userProfile.targetBf || 15}%
-- Goal: ${userProfile.goal}
+${effectiveGoalType === 'fat_loss' ? `- Body Fat: ${userProfile.bodyFat || 'unknown'}% → Target: ${userProfile.targetBf || userProfile.bodyFatGoal?.targetBf || 15}%` : ''}
+- Goal: ${goalLabel} (${effectiveGoalType})
 - Timeline: ${userProfile.timelineWeeks} weeks
 - Experience: ${userProfile.workoutLevel}
 - Training: ${userProfile.trainingDaysPerWeek} days/week
@@ -694,19 +735,15 @@ USER PROFILE:
 DETERMINISTIC CALCULATIONS:
 - BMR: ${metrics.bmr.value} kcal (${metrics.bmr.formula})
 - TDEE: ${metrics.tdee.value} kcal (${metrics.tdee.formula})
-- Safe fat-loss rate: ${maxSafeFatLoss.toFixed(2)} kg/week (evidence limit)
+- Target calories: ${metrics.macros.calories} kcal/day
+${effectiveGoalType === 'fat_loss' ? `- Safe fat-loss rate: ${maxSafeFatLoss.toFixed(2)} kg/week (evidence limit)
 - Current target: ${currentFatLossTarget.toFixed(2)} kg/week
 - Minimum weeks needed: ${minWeeksForGoal} weeks
-- Timeline realistic: ${isTimelineRealistic ? 'YES' : 'NO'}
+- Timeline realistic: ${isTimelineRealistic ? 'YES' : 'NO'}` : ''}
 
 SCIENTIFIC CONTEXT:
 ${this.formatFacts(relevantKnowledge)}
-
-ASSESSMENT REQUIREMENTS:
-1. Timeline MUST be at least ${minWeeksForGoal} weeks for safe fat loss
-2. Fat-loss rate MUST NOT exceed ${maxSafeFatLoss.toFixed(2)} kg/week
-3. If timeline unrealistic, suggest minimum safe timeline
-4. Flag any extreme protocols or assumptions
+${assessmentRequirements}
 
 Provide evidence-based assessment with specific calculations.
 `;
@@ -751,66 +788,183 @@ Provide evidence-based assessment with specific calculations.
   ): Promise<any[]> {
     console.log('📅 Creating detailed weekly outlines...');
 
-    // Search for relevant research on progression and periodization
+    // Get goal category and determine calorie adjustment strategy FIRST
+    const goalCategory = userProfile.goalCategory as GoalCategory | undefined;
+    const effectiveGoalType = goalCategory 
+      ? getEffectiveGoalType(goalCategory) 
+      : (userProfile.goal?.includes('muscle') || userProfile.goal?.includes('bulk') ? 'muscle_gain' : 
+         userProfile.goal?.includes('fat') || userProfile.goal?.includes('cut') ? 'fat_loss' : 'maintenance');
+    
+    const goalLabel = goalCategory ? getGoalCategoryLabel(goalCategory) : (userProfile.goal || 'fitness');
+
+    // Search for relevant research on progression and periodization (using effective goal type)
     const nutritionKnowledge = await this.searchKnowledgeBase(
-      `${userProfile.goal} fat loss progression weekly targets macro cycling cardio`,
+      `${effectiveGoalType} ${effectiveGoalType === 'fat_loss' ? 'fat loss' : effectiveGoalType === 'muscle_gain' ? 'muscle building' : 'maintenance'} progression weekly targets`,
       'nutrition'
     );
 
     const trainingKnowledge = await this.searchKnowledgeBase(
-      `${userProfile.goal} training progression volume intensity weekly`,
+      `${effectiveGoalType} training progression volume intensity weekly`,
       'training'
     );
-
-    // Calculate progression parameters
-    const currentBF = userProfile.bodyFat || 22;
-    const targetBF = userProfile.targetBf || 10;
-    const bfToLose = currentBF - targetBF;
+    
+    // Get calorie adjustment from goal category or use defaults
+    const adjustment = goalCategory && GOAL_CALORIE_ADJUSTMENTS[goalCategory] 
+      ? GOAL_CALORIE_ADJUSTMENTS[goalCategory]
+      : null;
+    
     const totalWeeks = userProfile.timelineWeeks;
-    const weeklyBFReduction = bfToLose / totalWeeks;
-
-    // Calculate progressive calorie deficit
-    const startingDeficit = metrics.tdee.value * CALORIC_DEFICIT_RANGES.MODERATE_START;
-    const maxDeficit = metrics.tdee.value * CALORIC_DEFICIT_RANGES.MODERATE_MAX;
-    const deficitIncrease = totalWeeks > 1
-      ? (maxDeficit - startingDeficit) / (totalWeeks - 1)
+    const tdee = metrics.tdee.value;
+    
+    // Calculate calorie targets based on goal type
+    let startingCalories: number;
+    let endingCalories: number;
+    let calorieStrategy: string;
+    let weeklyChange: number;
+    
+    if (adjustment) {
+      // Use goal category adjustments
+      const adjustmentType = adjustment.type;
+      const minAdjust = adjustment.range.MIN;
+      const maxAdjust = adjustment.range.MAX;
+      
+      if (adjustmentType === 'surplus') {
+        // Bulk goals: start with smaller surplus, progress to larger
+        startingCalories = Math.round(tdee * (1 + minAdjust));
+        endingCalories = Math.round(tdee * (1 + maxAdjust));
+        calorieStrategy = `surplus (${Math.round(minAdjust * 100)}-${Math.round(maxAdjust * 100)}%)`;
+      } else if (adjustmentType === 'deficit') {
+        // Cut goals: start with smaller deficit, progress to larger
+        startingCalories = Math.round(tdee * (1 - minAdjust));
+        endingCalories = Math.round(tdee * (1 - maxAdjust));
+        calorieStrategy = `deficit (${Math.round(minAdjust * 100)}-${Math.round(maxAdjust * 100)}%)`;
+      } else {
+        // Maintenance/recomp: stay at or near TDEE
+        startingCalories = tdee;
+        endingCalories = tdee;
+        calorieStrategy = 'maintenance';
+      }
+    } else {
+      // Legacy fallback based on goal type
+      if (effectiveGoalType === 'muscle_gain') {
+        startingCalories = Math.round(tdee * 1.10); // 10% surplus
+        endingCalories = Math.round(tdee * 1.15); // 15% surplus
+        calorieStrategy = 'surplus (10-15%)';
+      } else if (effectiveGoalType === 'fat_loss') {
+        startingCalories = Math.round(tdee * 0.85); // 15% deficit
+        endingCalories = Math.round(tdee * 0.75); // 25% deficit
+        calorieStrategy = 'deficit (15-25%)';
+      } else {
+        startingCalories = tdee;
+        endingCalories = tdee;
+        calorieStrategy = 'maintenance';
+      }
+    }
+    
+    weeklyChange = totalWeeks > 1 
+      ? Math.round((endingCalories - startingCalories) / (totalWeeks - 1))
       : 0;
+    
+    console.log(`📊 Goal Strategy: ${goalLabel} (${effectiveGoalType})`);
+    console.log(`📊 Calorie Strategy: ${calorieStrategy}`);
+    console.log(`📊 TDEE: ${tdee} → Starting: ${startingCalories} → Ending: ${endingCalories}`);
+    
+    // Body composition info (for body fat goals)
+    const currentBF = userProfile.bodyFat || userProfile.bodyFatGoal?.currentBf || 22;
+    const targetBF = userProfile.bodyFatGoal?.targetBf || userProfile.targetBf || currentBF;
+    const bfChange = currentBF - targetBF;
+    
+    // Calculate phase boundaries
+    const foundationEnd = Math.ceil(totalWeeks * PHASE_DISTRIBUTION.FOUNDATION_END);
+    const progressionEnd = Math.ceil(totalWeeks * PHASE_DISTRIBUTION.PROGRESSION_END);
+
+    // Build goal-specific prompt content
+    let goalContext: string;
+    if (effectiveGoalType === 'muscle_gain') {
+      goalContext = `
+GOAL: ${goalLabel} (Muscle Building)
+- Calorie strategy: ${calorieStrategy}
+- Starting calories: ${startingCalories} kcal/day (TDEE + ${Math.round(((startingCalories/tdee) - 1) * 100)}%)
+- Weekly calorie increase: ${weeklyChange > 0 ? '+' : ''}${weeklyChange} kcal/week
+- Focus: Progressive overload, muscle protein synthesis, recovery
+- Expected outcome: Muscle gain with controlled fat gain`;
+    } else if (effectiveGoalType === 'fat_loss') {
+      goalContext = `
+GOAL: ${goalLabel} (Fat Loss)
+- Calorie strategy: ${calorieStrategy}
+- Starting calories: ${startingCalories} kcal/day (TDEE - ${Math.round((1 - startingCalories/tdee) * 100)}%)
+- Weekly calorie decrease: ${weeklyChange} kcal/week
+${bfChange > 0 ? `- Body fat target: ${currentBF}% → ${targetBF}% (${bfChange.toFixed(1)}% to lose)` : ''}
+- Focus: Fat loss while preserving muscle mass
+- Expected outcome: ${metrics.fatLoss.value.toFixed(2)} kg fat loss/week`;
+    } else {
+      goalContext = `
+GOAL: ${goalLabel} (Maintenance/Recomposition)
+- Calorie strategy: ${calorieStrategy}
+- Target calories: ${startingCalories} kcal/day (at TDEE)
+- Focus: Body recomposition, performance, or maintenance
+- Expected outcome: Improved body composition at stable weight`;
+    }
 
     const prompt = `
-Create detailed weekly outlines for ALL ${totalWeeks} weeks of this ${userProfile.goal} journey:
+Create detailed weekly outlines for ALL ${totalWeeks} weeks of this ${goalLabel} journey:
 
 USER PROFILE:
-- Current: ${currentBF}% BF → Target: ${targetBF}% BF (${bfToLose}% to lose)
-- Timeline: ${totalWeeks} weeks (${weeklyBFReduction.toFixed(2)}% BF reduction/week)
 - Weight: ${userProfile.weightKg}kg
 - Training: ${userProfile.trainingDaysPerWeek} days/week
+- Experience: ${userProfile.workoutLevel}
 - Meals: ${userProfile.mealFrequency || 3} per day
 ${userProfile.schedule ? `- Schedule: ${userProfile.schedule}` : ''}
+${goalContext}
 
 SCIENTIFIC CALCULATIONS:
 - BMR: ${metrics.bmr.value} kcal, TDEE: ${metrics.tdee.value} kcal
-- Starting calories: ${Math.round(metrics.tdee.value - startingDeficit)} kcal
-- Progressive deficit: +${deficitIncrease.toFixed(0)} kcal/week
+- Target calories: ${startingCalories} → ${endingCalories} kcal over ${totalWeeks} weeks
 - Protein: ${metrics.macros.protein}g (${(metrics.macros.protein / userProfile.weightKg).toFixed(2)}g/kg)
-- Fat loss rate: ${metrics.fatLoss.value.toFixed(2)} kg/week
 
 RESEARCH CONTEXT:
 ${this.formatFacts([...nutritionKnowledge, ...trainingKnowledge])}
 
-PROGRESSIVE STRUCTURE:
-- Weeks 1-${Math.ceil(totalWeeks * PHASE_DISTRIBUTION.FOUNDATION_END)}: Foundation (establish patterns)
-- Weeks ${Math.ceil(totalWeeks * PHASE_DISTRIBUTION.FOUNDATION_END) + 1}-${Math.ceil(totalWeeks * PHASE_DISTRIBUTION.PROGRESSION_END)}: Progression (increase intensity)
-- Weeks ${Math.ceil(totalWeeks * PHASE_DISTRIBUTION.PROGRESSION_END) + 1}-${totalWeeks}: Peak (maximum effort)
+🚨 CRITICAL REQUIREMENTS - MUST FOLLOW EXACTLY:
 
-For EACH of the ${totalWeeks} weeks, provide:
-1. Week number and phase
-2. Daily calorie and macro targets (progressive)
-3. Training schedule (resistance days, cardio days, rest days)
-4. Cardio protocol (type, duration, intensity)
-5. Key objectives and expected outcomes
-6. Adjustments from previous week
+1. CALORIE TARGETS (EXTREMELY IMPORTANT):
+   - Week 1 target: ${startingCalories} kcal/day
+   - Weekly change: ${weeklyChange >= 0 ? '+' : ''}${weeklyChange} kcal per week
+   - Final week target: ${endingCalories} kcal/day
+   ⚠️ This is a ${effectiveGoalType.toUpperCase()} goal - calories should ${effectiveGoalType === 'muscle_gain' ? 'INCREASE' : effectiveGoalType === 'fat_loss' ? 'DECREASE' : 'STAY STABLE'}!
 
-CRITICAL: Generate outlines for ALL ${totalWeeks} weeks, numbered 1 through ${totalWeeks}.
+2. PHASE NAMES (MUST be exactly one of these lowercase values):
+   - Weeks 1-${foundationEnd}: phase = "foundation"
+   - Weeks ${foundationEnd + 1}-${progressionEnd}: phase = "progression"
+   - Weeks ${progressionEnd + 1}-${totalWeeks}: phase = "peak"
+   ⚠️ Phase names MUST be lowercase: "foundation", "progression", or "peak"
+   ❌ DO NOT use: "Foundation", "FOUNDATION", "Foundation Phase", etc.
+
+3. CARDIO SCHEDULE (REQUIRED for EVERY week):
+   Each week MUST have a cardioSchedule with ALL of these fields:
+   - sessions: number of cardio sessions per week (${effectiveGoalType === 'muscle_gain' ? '1-2 sessions for recovery' : '2-4 sessions'})
+   - duration: minutes per session (${effectiveGoalType === 'muscle_gain' ? '20-30 min' : '20-45 min'})
+   - intensity: one of "Very Low", "Low", "Moderate", "High", "Very High", "Variable"
+   - type: specific cardio type (e.g., "HIIT", "LISS", "Zone 2 Running", "Cycling", "Rowing")
+   
+   Example:
+   cardioSchedule: {
+     sessions: ${effectiveGoalType === 'muscle_gain' ? '1' : '3'},
+     duration: ${effectiveGoalType === 'muscle_gain' ? '25' : '30'},
+     intensity: "${effectiveGoalType === 'muscle_gain' ? 'Low' : 'Moderate'}",
+     type: "${effectiveGoalType === 'muscle_gain' ? 'Zone 2 Walking' : 'Zone 2 Running'}"
+   }
+
+4. For EACH of the ${totalWeeks} weeks, provide:
+   - weekNumber: 1 through ${totalWeeks}
+   - phase: EXACTLY "foundation", "progression", or "peak" (lowercase!)
+   - dailyTargets: calories (following the progression above!), protein, carbs, fat
+   - trainingSchedule: resistanceDays, cardioDays, restDays
+   - cardioSchedule: sessions, duration, intensity, type (ALL REQUIRED)
+   - objectives: key goals for the week
+   - expectedOutcomes: expected results
+
+GENERATE outlines for ALL ${totalWeeks} weeks, numbered 1 through ${totalWeeks}.
 `;
 
     const result = await this.generateWithFallback<{ weeklyOutlines: any[] }>(
@@ -841,8 +995,115 @@ CRITICAL: Generate outlines for ALL ${totalWeeks} weeks, numbered 1 through ${to
       );
     }
 
+    // CRITICAL: Validate phases and cardioSchedule
+    const validPhases = ['foundation', 'progression', 'peak'];
+    const phaseErrors: string[] = [];
+    const cardioErrors: string[] = [];
+
+    result.weeklyOutlines.forEach(week => {
+      // Validate phase name
+      const normalizedPhase = week.phase?.toLowerCase().replace(/\s*phase\s*/gi, '').trim();
+      if (!validPhases.includes(normalizedPhase)) {
+        phaseErrors.push(`Week ${week.weekNumber}: Invalid phase "${week.phase}" (expected: foundation, progression, or peak)`);
+      }
+
+      // Validate cardioSchedule exists and has required fields
+      if (!week.cardioSchedule) {
+        cardioErrors.push(`Week ${week.weekNumber}: Missing cardioSchedule (REQUIRED)`);
+      } else {
+        const cs = week.cardioSchedule;
+        if (!cs.sessions || cs.sessions < 1) {
+          cardioErrors.push(`Week ${week.weekNumber}: cardioSchedule.sessions must be at least 1`);
+        }
+        if (!cs.duration || cs.duration < 10) {
+          cardioErrors.push(`Week ${week.weekNumber}: cardioSchedule.duration must be at least 10 minutes`);
+        }
+        if (!cs.intensity) {
+          cardioErrors.push(`Week ${week.weekNumber}: cardioSchedule.intensity is required`);
+        }
+        if (!cs.type) {
+          cardioErrors.push(`Week ${week.weekNumber}: cardioSchedule.type is required`);
+        }
+      }
+    });
+
+    if (phaseErrors.length > 0) {
+      throw new Error(
+        `PHASE VALIDATION FAILED:\n${phaseErrors.join('\n')}\n` +
+        `Phases must be exactly: foundation, progression, or peak (lowercase)`
+      );
+    }
+
+    if (cardioErrors.length > 0) {
+      throw new Error(
+        `CARDIO SCHEDULE VALIDATION FAILED:\n${cardioErrors.join('\n')}\n` +
+        `All weeks must have a complete cardioSchedule with: sessions, duration, intensity, type`
+      );
+    }
+
     console.log(`✅ Generated ${result.weeklyOutlines.length} weekly outlines`);
-    return result.weeklyOutlines;
+    console.log(`   Phases: ${result.weeklyOutlines.map(w => `Week ${w.weekNumber}=${w.phase}`).join(', ')}`);
+    console.log(`   Cardio: ${result.weeklyOutlines.map(w => `Week ${w.weekNumber}=${w.cardioSchedule?.sessions || 0} sessions`).join(', ')}`);
+    
+    // =========================================================================
+    // CRITICAL: CALORIE VALIDATION AND AUTO-CORRECTION
+    // The AI sometimes ignores our calorie targets. We ENFORCE them here.
+    // =========================================================================
+    const CALORIE_TOLERANCE = 0.05; // 5% tolerance
+    const correctedOutlines = result.weeklyOutlines.map((week: any, idx: number) => {
+      // Calculate expected calories for this week
+      const expectedCalories = startingCalories + (weeklyChange * idx);
+      const actualCalories = week.dailyTargets?.calories || 0;
+      
+      // Check if the AI's calories are within tolerance
+      const deviation = Math.abs(actualCalories - expectedCalories) / expectedCalories;
+      
+      if (deviation > CALORIE_TOLERANCE) {
+        console.warn(`⚠️ Week ${week.weekNumber}: AI generated ${actualCalories} kcal, expected ${expectedCalories} kcal (${(deviation * 100).toFixed(1)}% off)`);
+        console.log(`   AUTO-CORRECTING to ${expectedCalories} kcal`);
+        
+        // Recalculate macros proportionally
+        const ratio = expectedCalories / (actualCalories || expectedCalories);
+        const correctedProtein = Math.round((week.dailyTargets?.protein || 0) * (ratio > 1 ? 1 : ratio)); // Don't increase protein beyond AI's calculation
+        const correctedCarbs = Math.round((week.dailyTargets?.carbs || 0) * ratio);
+        const correctedFat = Math.round((week.dailyTargets?.fat || 0) * ratio);
+        
+        // For deficit goals, ensure protein stays high (at least 2g/kg)
+        const minProtein = Math.round(userProfile.weightKg * 2.0);
+        const finalProtein = Math.max(correctedProtein, minProtein);
+        
+        // Recalculate carbs to fit calorie budget
+        const proteinCals = finalProtein * 4;
+        const fatCals = correctedFat * 9;
+        const remainingCals = expectedCalories - proteinCals - fatCals;
+        const finalCarbs = Math.round(Math.max(0, remainingCals / 4));
+        
+        return {
+          ...week,
+          dailyTargets: {
+            ...week.dailyTargets,
+            calories: expectedCalories,
+            protein: finalProtein,
+            carbs: finalCarbs,
+            fat: correctedFat,
+            proteinPerKg: parseFloat((finalProtein / userProfile.weightKg).toFixed(2)),
+          },
+          _corrected: true,
+          _originalCalories: actualCalories,
+        };
+      }
+      
+      return week;
+    });
+    
+    // Log summary of corrections
+    const correctedCount = correctedOutlines.filter((w: any) => w._corrected).length;
+    if (correctedCount > 0) {
+      console.log(`🔧 Auto-corrected ${correctedCount}/${correctedOutlines.length} weeks to match goal-based calorie targets`);
+      console.log(`   Goal: ${goalLabel} | Expected range: ${startingCalories} → ${endingCalories} kcal`);
+    }
+    
+    return correctedOutlines;
   }
 
   // -------------------------------------------------------------------------
@@ -865,8 +1126,16 @@ CRITICAL: Generate outlines for ALL ${totalWeeks} weeks, numbered 1 through ${to
       'training'
     );
 
+    // Get goal label for display
+    const goalCategory = userProfile.goalCategory as GoalCategory | undefined;
+    const goalLabel = goalCategory ? getGoalCategoryLabel(goalCategory) : (userProfile.goal || 'fitness');
+    const effectiveGoalType = goalCategory 
+      ? getEffectiveGoalType(goalCategory) 
+      : (userProfile.goal?.includes('muscle') || userProfile.goal?.includes('bulk') ? 'muscle_gain' : 
+         userProfile.goal?.includes('fat') || userProfile.goal?.includes('cut') ? 'fat_loss' : 'maintenance');
+    
     const nutritionKnowledge = await this.searchKnowledgeBase(
-      `${userProfile.goal} nutrition macro cycling phases`,
+      `${effectiveGoalType} nutrition phases`,
       'nutrition'
     );
 
@@ -874,7 +1143,7 @@ CRITICAL: Generate outlines for ALL ${totalWeeks} weeks, numbered 1 through ${to
 Create a phase-aware strategic framework based on scientific research:
 
 USER PROFILE:
-- Goal: ${userProfile.goal}
+- Goal: ${goalLabel} (${effectiveGoalType})
 - Experience: ${userProfile.workoutLevel}
 - Split: ${userProfile.workoutSplit}
 - Training: ${userProfile.trainingDaysPerWeek} days/week
@@ -883,8 +1152,9 @@ USER PROFILE:
 METRICS:
 - BMR: ${metrics.bmr.value} kcal (${metrics.bmr.formula})
 - TDEE: ${metrics.tdee.value} kcal (${metrics.tdee.formula})
+- Target Calories: ${metrics.macros.calories} kcal/day
 - Protein: ${metrics.macros.protein}g (${(metrics.macros.protein / userProfile.weightKg).toFixed(2)}g/kg)
-- Fat loss: ${metrics.fatLoss.value.toFixed(2)} kg/week
+${effectiveGoalType === 'fat_loss' ? `- Fat loss rate: ${metrics.fatLoss.value.toFixed(2)} kg/week` : ''}
 - Training volume: ${metrics.trainingVolume.value} sets/muscle/week
 
 RESEARCH CONTEXT:
@@ -892,7 +1162,7 @@ ${this.formatFacts([...trainingKnowledge, ...nutritionKnowledge])}
 
 REQUIREMENTS:
 1. Create a personalized, compelling plan name (3-6 words) that reflects:
-   - User's goal: ${userProfile.goal}
+   - User's goal: ${goalLabel}
    - Training approach: ${userProfile.workoutSplit}
    - Timeline: ${userProfile.timelineWeeks} weeks
    - Must be motivating and specific (NOT generic like "Basic Program")
@@ -904,7 +1174,7 @@ REQUIREMENTS:
 
 3. For each phase, specify:
    - Training modifications (volume, intensity)
-   - Nutrition adjustments (calorie cycling, macro distribution)
+   - Nutrition adjustments (macro distribution)
    - Recovery protocols
    - Progression markers
 
@@ -1234,7 +1504,7 @@ Week ${week.weekNumber} (${week.phase}):
   // -------------------------------------------------------------------------
 
   /**
-   * Generate phase-specific meal templates with macro cycling
+   * Generate phase-specific meal templates
    * Creates weekly meal plans that match daily calorie targets
    */
   async generatePhaseMealTemplates(
@@ -1251,10 +1521,16 @@ Week ${week.weekNumber} (${week.phase}):
     }
 
     // Split weeks into phases to avoid token limits
+    // Phase names are normalized to lowercase in the schema
+    const normalizePhase = (phase: string | undefined): string => {
+      if (!phase) return '';
+      return phase.toLowerCase().replace(/\s*phase\s*/gi, '').trim();
+    };
+    
     const phases = {
-      foundation: weeklyOutlines.filter(week => week.phase === 'Foundation'),
-      progression: weeklyOutlines.filter(week => week.phase === 'Progression'),
-      peak: weeklyOutlines.filter(week => week.phase === 'Peak')
+      foundation: weeklyOutlines.filter(week => normalizePhase(week.phase) === 'foundation'),
+      progression: weeklyOutlines.filter(week => normalizePhase(week.phase) === 'progression'),
+      peak: weeklyOutlines.filter(week => normalizePhase(week.phase) === 'peak')
     };
 
     console.log(
@@ -1520,7 +1796,7 @@ ALL ${phaseWeeks.length} weeks.
     const guidance: { [key: string]: string } = {
       foundation: 'Foundation Phase: Establish eating patterns, moderate deficits, focus on compliance',
       progression: 'Progression Phase: Increase deficit gradually, optimize meal timing around training',
-      peak: 'Peak Phase: Maximum deficit, strategic carb cycling, precision timing'
+      peak: 'Peak Phase: Maximum deficit, precision timing'
     };
 
     return guidance[phaseName.toLowerCase()] || guidance.foundation;
@@ -1908,10 +2184,10 @@ ALL ${phaseWeeks.length} weeks.
       this.emitProgress(
         'meals',
         75,
-        'Designing phase-specific meal templates with macro cycling...',
+        'Designing phase-specific meal templates...',
         [
           'Creating meal templates for each phase',
-          'Planning macro cycling strategies',
+          'Planning nutrition strategies',
           'Designing meal timing protocols',
           'Setting up portion control guidelines'
         ]

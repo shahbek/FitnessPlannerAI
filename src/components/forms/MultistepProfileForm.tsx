@@ -6,7 +6,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
-import { DEFAULT_FORM_STATE } from '@/constants';
+import { DEFAULT_FORM_STATE, GOAL_CATEGORY_OPTIONS } from '@/constants';
+import { GoalCategory, BodyFatGoal } from '@/models/UserProfile';
 import {
   ChevronLeft,
   ChevronRight,
@@ -14,7 +15,8 @@ import {
   Target,
   Dumbbell,
   Heart,
-  CheckCircle
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react';
 
 interface FormData {
@@ -23,11 +25,13 @@ interface FormData {
   sex: string;
   heightCm: number;
   weightKg: number;
-  bodyFat?: number;
-  targetBf?: number;
+  bodyFat?: number; // Optional: current body fat for BMR calculation (non-body_fat_goal modes)
 
-  // Goals and Timeline
-  primaryGoal: string;
+  // New goal category system
+  goalCategory: GoalCategory;
+  bodyFatGoal?: BodyFatGoal; // Only used when goalCategory === 'body_fat_goal'
+
+  // Timeline
   timelineWeeks: number;
   trainingDaysPerWeek: number;
   workoutLevel: string;
@@ -46,6 +50,9 @@ interface CompleteFormData extends FormData {
   apiKey: string;
   endpoint: string;
   model: string;
+  // Legacy fields for backward compatibility
+  primaryGoal?: string;
+  targetBf?: number;
 }
 
 interface MultistepProfileFormProps {
@@ -65,9 +72,9 @@ const defaultFormData: FormData = {
   sex: DEFAULT_FORM_STATE.sex,
   heightCm: DEFAULT_FORM_STATE.heightCm,
   weightKg: DEFAULT_FORM_STATE.weightKg,
-  bodyFat: DEFAULT_FORM_STATE.bodyFat,
-  targetBf: DEFAULT_FORM_STATE.targetBf,
-  primaryGoal: DEFAULT_FORM_STATE.primaryGoal,
+  bodyFat: undefined, // Optional by default
+  goalCategory: DEFAULT_FORM_STATE.goalCategory,
+  bodyFatGoal: undefined, // Only set when body_fat_goal is selected
   timelineWeeks: DEFAULT_FORM_STATE.timelineWeeks,
   trainingDaysPerWeek: DEFAULT_FORM_STATE.trainingDaysPerWeek,
   workoutLevel: DEFAULT_FORM_STATE.workoutLevel,
@@ -83,6 +90,36 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
 
   const updateFormData = (field: keyof FormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const updateBodyFatGoal = (field: keyof BodyFatGoal, value: number | undefined) => {
+    setFormData(prev => ({
+      ...prev,
+      bodyFatGoal: {
+        currentBf: prev.bodyFatGoal?.currentBf ?? 20,
+        targetBf: prev.bodyFatGoal?.targetBf ?? 12,
+        [field]: value
+      }
+    }));
+  };
+
+  const handleGoalCategoryChange = (value: GoalCategory) => {
+    setFormData(prev => {
+      const newData = { ...prev, goalCategory: value };
+      
+      // If switching to body_fat_goal, initialize bodyFatGoal
+      if (value === 'body_fat_goal') {
+        newData.bodyFatGoal = {
+          currentBf: prev.bodyFat ?? 20,
+          targetBf: 12
+        };
+      } else {
+        // Clear body fat goal when switching away
+        newData.bodyFatGoal = undefined;
+      }
+      
+      return newData;
+    });
   };
 
   const handleNext = () => {
@@ -103,7 +140,10 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
       ...formData,
       apiKey: DEFAULT_FORM_STATE.apiKey,
       endpoint: 'groq', // Use simplified endpoint identifier
-      model: DEFAULT_FORM_STATE.model
+      model: DEFAULT_FORM_STATE.model,
+      // Add legacy fields for backward compatibility
+      primaryGoal: goalCategoryToLegacyGoal(formData.goalCategory),
+      targetBf: formData.bodyFatGoal?.targetBf
     };
     onComplete(completeFormData);
   };
@@ -112,8 +152,26 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
     switch (step) {
       case 1:
         return !!(formData.age > 0 && formData.sex && formData.heightCm > 0 && formData.weightKg > 0);
-      case 2:
-        return !!(formData.primaryGoal && formData.timelineWeeks > 0 && formData.timelineWeeks <= 24 && formData.trainingDaysPerWeek > 0 && formData.workoutLevel);
+      case 2: {
+        const baseValid = !!(
+          formData.goalCategory && 
+          formData.timelineWeeks > 0 && 
+          formData.timelineWeeks <= 24 && 
+          formData.trainingDaysPerWeek > 0 && 
+          formData.workoutLevel
+        );
+        
+        // If body_fat_goal, require body fat inputs
+        if (formData.goalCategory === 'body_fat_goal') {
+          return baseValid && 
+            formData.bodyFatGoal !== undefined &&
+            formData.bodyFatGoal.currentBf > 0 &&
+            formData.bodyFatGoal.targetBf > 0 &&
+            formData.bodyFatGoal.currentBf !== formData.bodyFatGoal.targetBf;
+        }
+        
+        return baseValid;
+      }
       case 3:
         return !!(formData.workoutSplit && formData.equipment && formData.schedule.trim() !== '');
       case 4:
@@ -121,6 +179,11 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
       default:
         return false;
     }
+  };
+
+  // Helper to get goal category option by value
+  const getGoalCategoryOption = (value: GoalCategory) => {
+    return GOAL_CATEGORY_OPTIONS.find(opt => opt.value === value);
   };
 
   const renderStepContent = () => {
@@ -150,7 +213,6 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   <SelectContent>
                     <SelectItem value="male">Male</SelectItem>
                     <SelectItem value="female">Female</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -179,29 +241,117 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                 />
               </div>
             </div>
+
+            {/* Optional body fat for BMR accuracy */}
+            <div className="pt-4 border-t border-border/50">
+              <div className="flex items-center gap-2 mb-2">
+                <Label htmlFor="bodyFat" className="text-muted-foreground">Current Body Fat % (optional)</Label>
+              </div>
+              <Input
+                id="bodyFat"
+                type="number"
+                min={5}
+                max={50}
+                value={formData.bodyFat ?? ''}
+                onChange={(e) => updateFormData('bodyFat', e.target.value ? parseInt(e.target.value) : undefined)}
+                placeholder="e.g., 20"
+                className="font-mono max-w-[200px]"
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Providing body fat % improves calorie calculation accuracy
+              </p>
+            </div>
           </div>
         );
 
       case 2:
         return (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="primaryGoal">Primary Goal *</Label>
-                <Select value={formData.primaryGoal} onValueChange={(value) => updateFormData('primaryGoal', value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select goal" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="fat_loss">Fat Loss</SelectItem>
-                    <SelectItem value="muscle_gain">Muscle Gain</SelectItem>
-                    <SelectItem value="body_recomposition">Body Recomposition</SelectItem>
-                    <SelectItem value="maintenance">Maintenance</SelectItem>
-                    <SelectItem value="athletic_performance">Athletic Performance</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            {/* Goal Category Selection */}
+            <div>
+              <Label htmlFor="goalCategory" className="text-base font-medium">What's your goal? *</Label>
+              <Select 
+                value={formData.goalCategory} 
+                onValueChange={(value) => handleGoalCategoryChange(value as GoalCategory)}
+              >
+                <SelectTrigger className="mt-2">
+                  <SelectValue placeholder="Select your goal" />
+                </SelectTrigger>
+                <SelectContent>
+                  {GOAL_CATEGORY_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      <div className="flex flex-col items-start">
+                        <span className="font-medium">{option.label}</span>
+                        <span className="text-xs text-muted-foreground">{option.description}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              
+              {/* Show selected goal description */}
+              {formData.goalCategory && (
+                <div className="mt-2 p-3 bg-muted/50 rounded-lg">
+                  <p className="text-sm text-muted-foreground">
+                    {getGoalCategoryOption(formData.goalCategory)?.description}
+                  </p>
+                </div>
+              )}
+            </div>
 
+            {/* Body Fat Goal Inputs - Only shown when body_fat_goal is selected */}
+            {formData.goalCategory === 'body_fat_goal' && (
+              <div className="p-4 border border-primary/20 bg-primary/5 rounded-lg space-y-4">
+                <div className="flex items-center gap-2 text-primary">
+                  <Target className="h-4 w-4" />
+                  <span className="font-medium">Body Fat Target</span>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="currentBf">Current Body Fat % *</Label>
+                    <Input
+                      id="currentBf"
+                      type="number"
+                      min={5}
+                      max={50}
+                      value={formData.bodyFatGoal?.currentBf ?? ''}
+                      onChange={(e) => updateBodyFatGoal('currentBf', parseInt(e.target.value) || undefined)}
+                      placeholder="e.g., 22"
+                      className="font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <Label htmlFor="targetBf">Target Body Fat % *</Label>
+                    <Input
+                      id="targetBf"
+                      type="number"
+                      min={5}
+                      max={50}
+                      value={formData.bodyFatGoal?.targetBf ?? ''}
+                      onChange={(e) => updateBodyFatGoal('targetBf', parseInt(e.target.value) || undefined)}
+                      placeholder="e.g., 12"
+                      className="font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Body fat goal validation feedback */}
+                {formData.bodyFatGoal && formData.bodyFatGoal.currentBf && formData.bodyFatGoal.targetBf && (
+                  <BodyFatGoalFeedback 
+                    currentBf={formData.bodyFatGoal.currentBf}
+                    targetBf={formData.bodyFatGoal.targetBf}
+                    timelineWeeks={formData.timelineWeeks}
+                    weightKg={formData.weightKg}
+                    sex={formData.sex as 'male' | 'female'}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Timeline and Training */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="timelineWeeks">Timeline (weeks) *</Label>
                 <Input
@@ -212,7 +362,6 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   value={formData.timelineWeeks}
                   onChange={(e) => {
                     const value = parseInt(e.target.value) || 0;
-                    // Enforce 24 week maximum
                     const clampedValue = Math.min(Math.max(value, 1), 24);
                     updateFormData('timelineWeeks', clampedValue);
                   }}
@@ -235,51 +384,21 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   className="font-mono"
                 />
               </div>
-
-              <div>
-                <Label htmlFor="workoutLevel">Experience Level *</Label>
-                <Select value={formData.workoutLevel} onValueChange={(value) => updateFormData('workoutLevel', value)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select level" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="beginner">Beginner (0-1 year)</SelectItem>
-                    <SelectItem value="intermediate">Intermediate (1-4 years)</SelectItem>
-                    <SelectItem value="expert">Expert (4+ years)</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
             </div>
 
-            {/* Body Composition Fields */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="bodyFat">Current Body Fat %</Label>
-                <Input
-                  id="bodyFat"
-                  type="number"
-                  min={5}
-                  max={50}
-                  value={formData.bodyFat || ''}
-                  onChange={(e) => updateFormData('bodyFat', parseInt(e.target.value) || undefined)}
-                  placeholder="20"
-                  className="font-mono"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="targetBf">Target Body Fat %</Label>
-                <Input
-                  id="targetBf"
-                  type="number"
-                  min={5}
-                  max={30}
-                  value={formData.targetBf || ''}
-                  onChange={(e) => updateFormData('targetBf', parseInt(e.target.value) || undefined)}
-                  placeholder="15"
-                  className="font-mono"
-                />
-              </div>
+            <div>
+              <Label htmlFor="workoutLevel">Experience Level *</Label>
+              <Select value={formData.workoutLevel} onValueChange={(value) => updateFormData('workoutLevel', value)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select level" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="beginner">Beginner (0-1 year)</SelectItem>
+                  <SelectItem value="intermediate">Intermediate (1-4 years)</SelectItem>
+                  <SelectItem value="advanced">Advanced (4-7 years)</SelectItem>
+                  <SelectItem value="expert">Expert (7+ years)</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         );
@@ -366,9 +485,21 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Goal Summary */}
+            <div className="p-4 bg-muted/50 rounded-lg">
+              <h4 className="font-medium mb-2">Goal Summary</h4>
+              <div className="text-sm text-muted-foreground space-y-1">
+                <p><span className="font-medium">Goal:</span> {getGoalCategoryOption(formData.goalCategory)?.label}</p>
+                <p><span className="font-medium">Timeline:</span> {formData.timelineWeeks} weeks</p>
+                <p><span className="font-medium">Training:</span> {formData.trainingDaysPerWeek} days/week</p>
+                {formData.goalCategory === 'body_fat_goal' && formData.bodyFatGoal && (
+                  <p><span className="font-medium">Body Fat:</span> {formData.bodyFatGoal.currentBf}% → {formData.bodyFatGoal.targetBf}%</p>
+                )}
+              </div>
+            </div>
           </div>
         );
-
 
       default:
         return null;
@@ -379,7 +510,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
 
   return (
     <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <Card className="w-full max-w-2xl max-h-[90vh] overflow-hidden">
+      <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="p-6">
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
@@ -469,4 +600,94 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
       </Card>
     </div>
   );
+}
+
+/**
+ * Body Fat Goal Feedback Component
+ * Shows real-time feedback about the feasibility of body fat goals
+ */
+function BodyFatGoalFeedback({ 
+  currentBf, 
+  targetBf, 
+  timelineWeeks, 
+  weightKg,
+  sex 
+}: { 
+  currentBf: number; 
+  targetBf: number; 
+  timelineWeeks: number;
+  weightKg: number;
+  sex: 'male' | 'female';
+}) {
+  // Essential body fat minimums
+  const essentialBf = sex === 'female' ? 13 : 5;
+  
+  // Calculate change
+  const currentFatMass = weightKg * (currentBf / 100);
+  const targetFatMass = weightKg * (targetBf / 100);
+  const fatChange = currentFatMass - targetFatMass;
+  const isLosing = fatChange > 0;
+  
+  // Weekly change rate
+  const weeklyChange = Math.abs(fatChange) / timelineWeeks;
+  const weeklyChangePercent = (weeklyChange / weightKg) * 100;
+  
+  // Determine feasibility
+  let status: 'success' | 'warning' | 'error';
+  let message: string;
+  
+  if (targetBf < essentialBf) {
+    status = 'error';
+    message = `Target ${targetBf}% is below essential body fat (${essentialBf}%). This is not safe.`;
+  } else if (currentBf <= targetBf && isLosing) {
+    status = 'error';
+    message = 'Target body fat must be lower than current body fat for fat loss.';
+  } else if (!isLosing && targetBf > currentBf) {
+    status = 'warning';
+    message = 'This goal would require gaining body fat. Consider a muscle gain goal instead.';
+  } else if (weeklyChangePercent > 1.0) {
+    status = 'warning';
+    message = `Timeline is aggressive (${weeklyChangePercent.toFixed(1)}% BW/week). Consider extending to ${Math.ceil(Math.abs(fatChange) / (weightKg * 0.01))} weeks.`;
+  } else if (weeklyChangePercent > 0.75) {
+    status = 'warning';
+    message = `Moderate pace. You'll need strict adherence and high protein (2.3g+/kg).`;
+  } else {
+    status = 'success';
+    message = `Achievable goal: ~${fatChange.toFixed(1)}kg fat loss over ${timelineWeeks} weeks (${weeklyChangePercent.toFixed(1)}% BW/week).`;
+  }
+  
+  const statusColors = {
+    success: 'text-green-600 bg-green-50 border-green-200',
+    warning: 'text-amber-600 bg-amber-50 border-amber-200',
+    error: 'text-red-600 bg-red-50 border-red-200'
+  };
+  
+  const StatusIcon = status === 'error' ? AlertCircle : status === 'warning' ? AlertCircle : CheckCircle;
+  
+  return (
+    <div className={`p-3 rounded-lg border ${statusColors[status]} flex items-start gap-2`}>
+      <StatusIcon className="h-4 w-4 mt-0.5 flex-shrink-0" />
+      <p className="text-sm">{message}</p>
+    </div>
+  );
+}
+
+/**
+ * Convert goal category to legacy goal for backward compatibility
+ */
+function goalCategoryToLegacyGoal(goalCategory: GoalCategory): string {
+  switch (goalCategory) {
+    case 'lean_bulk':
+    case 'dirty_bulk':
+      return 'muscle_gain';
+    case 'mini_cut':
+    case 'aggressive_cut':
+    case 'body_fat_goal':
+      return 'fat_loss';
+    case 'recomp':
+    case 'maintenance':
+      return 'maintenance';
+    default:
+      return 'maintenance';
+  }
 }

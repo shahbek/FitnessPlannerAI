@@ -25,6 +25,13 @@ export const upsertUserProfile = mutation({
     gender: v.optional(v.string()),
     height: v.optional(v.number()),
     weight: v.optional(v.number()),
+    // New goal category system
+    goalCategory: v.optional(v.string()),
+    bodyFatGoal: v.optional(v.object({
+      currentBf: v.number(),
+      targetBf: v.number(),
+    })),
+    // Legacy field (deprecated)
     primaryGoal: v.optional(v.string()),
     experienceLevel: v.optional(v.string()),
     workoutDaysPerWeek: v.optional(v.number()),

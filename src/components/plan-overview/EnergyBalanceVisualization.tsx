@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Flame, Utensils, Activity, Info, Dumbbell, Heart } from 'lucide-react';
-import { calculateWeeklyExerciseCalories, calculateEnergyBalance } from '@/utils/planCalculations';
+import { Flame, Utensils, Info, Dumbbell, Heart } from 'lucide-react';
+import { calculateWeeklyExerciseCalories, calculateEnergyBalance, getTDEE } from '@/utils/planCalculations';
 import {
   BarChart,
   Bar,
@@ -19,7 +19,12 @@ interface EnergyBalanceVisualizationProps {
   plan: any;
   userProfile?: {
     weight?: number;
+    height?: number;
+    age?: number;
+    gender?: string;
+    experienceLevel?: string;
     workoutDaysPerWeek?: number;
+    bodyFat?: number;
   };
   selectedWeek?: number;
 }
@@ -27,26 +32,8 @@ interface EnergyBalanceVisualizationProps {
 export function EnergyBalanceVisualization({ plan, userProfile, selectedWeek = 1 }: EnergyBalanceVisualizationProps) {
   const weeklyOutlines = Array.isArray(plan?.weeklyOutlines) ? plan.weeklyOutlines : [];
 
-  // Calculate TDEE if missing from plan
-  const calculateTDEE = (): number => {
-    if (plan?.metrics?.tdee?.value && plan.metrics.tdee.value > 0) {
-      return plan.metrics.tdee.value;
-    }
-    if (userProfile?.weight && userProfile?.weight > 0) {
-      const weight = userProfile.weight;
-      const trainingDays = userProfile.workoutDaysPerWeek || 3;
-      const bmrEstimate = weight * 23;
-      let activityFactor = 1.55;
-      if (trainingDays <= 2) activityFactor = 1.375;
-      else if (trainingDays <= 3) activityFactor = 1.55;
-      else if (trainingDays <= 5) activityFactor = 1.725;
-      else activityFactor = 1.9;
-      return Math.round(bmrEstimate * activityFactor);
-    }
-    return 0;
-  };
-
-  const tdee = calculateTDEE();
+  // Use CENTRALIZED TDEE calculation for consistency across all components
+  const tdee = getTDEE(plan, userProfile) || 0;
   const weight = userProfile?.weight || 88;
 
   const weekData = weeklyOutlines[selectedWeek - 1] || weeklyOutlines[0];
@@ -85,40 +72,50 @@ export function EnergyBalanceVisualization({ plan, userProfile, selectedWeek = 1
     expectedWeightLoss,
   } = energyData;
 
+  // Calculate net daily balance (positive = deficit, negative = surplus)
+  const netDailyBalance = dietaryDeficit + Math.round(exerciseBurn.total / 7);
+  const isDeficitMode = netDailyBalance >= 0;
+
   // Prepare chart data
   const chartData = [
     {
-      name: 'Maintenance',
+      name: 'TDEE',
       calories: maintenanceCalories,
       fill: 'url(#colorMaintenance)',
-      label: 'TDEE'
+      label: 'TDEE (Maintenance)'
     },
     {
       name: 'Intake',
       calories: mealCalories,
       fill: 'url(#colorIntake)',
-      label: 'Food'
+      label: 'Daily Food Intake'
     },
     {
-      name: 'Deficit',
-      calories: dietaryDeficit + Math.round(exerciseBurn.total / 7),
-      fill: 'url(#colorDeficit)',
-      label: 'Total Deficit'
+      name: isDeficitMode ? 'Deficit' : 'Surplus',
+      calories: Math.abs(netDailyBalance),
+      fill: isDeficitMode ? 'url(#colorDeficit)' : 'url(#colorSurplus)',
+      label: isDeficitMode ? 'Total Deficit' : 'Total Surplus'
     }
   ];
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
+      const fillType = payload[0].payload.fill;
+      let dotColor = '#94a3b8'; // default maintenance
+      if (fillType.includes('Intake')) dotColor = '#22c55e';
+      else if (fillType.includes('Deficit')) dotColor = '#ef4444';
+      else if (fillType.includes('Surplus')) dotColor = '#f59e0b';
+      
       return (
         <div className="bg-white/90 backdrop-blur-md border border-white/50 p-4 rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
           <p className="font-bold text-slate-800 mb-2">{payload[0].payload.label}</p>
           <div className="flex items-center gap-2 text-sm">
             <div
               className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: payload[0].payload.fill.includes('Maintenance') ? '#94a3b8' : payload[0].payload.fill.includes('Intake') ? '#22c55e' : '#ef4444' }}
+              style={{ backgroundColor: dotColor }}
             />
             <span className="text-slate-900 font-bold">
-              {payload[0].value} kcal
+              {payload[0].value} kcal/day
             </span>
           </div>
         </div>
@@ -142,8 +139,15 @@ export function EnergyBalanceVisualization({ plan, userProfile, selectedWeek = 1
               <div className="text-xs text-slate-500 font-medium">Calories In vs. Calories Out</div>
             </div>
           </div>
-          <Badge variant="secondary" className="bg-green-100 text-green-800 hover:bg-green-200 border border-green-200 shadow-sm">
-            -{expectedWeightLoss.toFixed(2)} kg/week
+          <Badge 
+            variant="secondary" 
+            className={`shadow-sm border ${
+              expectedWeightLoss >= 0 
+                ? 'bg-green-100 text-green-800 hover:bg-green-200 border-green-200' 
+                : 'bg-amber-100 text-amber-800 hover:bg-amber-200 border-amber-200'
+            }`}
+          >
+            {expectedWeightLoss >= 0 ? '−' : '+'}{Math.abs(expectedWeightLoss).toFixed(2)} kg/week
           </Badge>
         </div>
       </CardHeader>
@@ -165,6 +169,10 @@ export function EnergyBalanceVisualization({ plan, userProfile, selectedWeek = 1
                   <linearGradient id="colorDeficit" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} />
                     <stop offset="95%" stopColor="#fca5a5" stopOpacity={0.6} />
+                  </linearGradient>
+                  <linearGradient id="colorSurplus" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#fcd34d" stopOpacity={0.6} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" strokeOpacity={0.6} />
@@ -190,19 +198,27 @@ export function EnergyBalanceVisualization({ plan, userProfile, selectedWeek = 1
                 <div className="text-xs text-green-600 font-bold">kcal/day</div>
               </div>
               <div className="bg-white/60 p-3 rounded-xl border border-white/60 shadow-sm backdrop-blur-sm">
-                <div className="text-xs text-slate-500 mb-1 font-medium uppercase tracking-wide">Total Deficit</div>
-                <div className="text-2xl font-black text-red-600">-{Math.round(netWeeklyDeficit / 7)}</div>
-                <div className="text-xs text-red-600 font-bold">kcal/day (avg)</div>
+                <div className="text-xs text-slate-500 mb-1 font-medium uppercase tracking-wide">
+                  {netWeeklyDeficit >= 0 ? 'Total Deficit' : 'Total Surplus'}
+                </div>
+                <div className={`text-2xl font-black ${netWeeklyDeficit >= 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                  {netWeeklyDeficit >= 0 ? '−' : '+'}{Math.abs(Math.round(netWeeklyDeficit / 7))}
+                </div>
+                <div className={`text-xs font-bold ${netWeeklyDeficit >= 0 ? 'text-red-600' : 'text-amber-600'}`}>kcal/day (avg)</div>
               </div>
             </div>
 
             <div className="space-y-3 bg-white/40 p-4 rounded-xl border border-white/40">
               <div className="flex items-center justify-between text-sm">
                 <span className="flex items-center gap-2 text-slate-700 font-medium">
-                  <div className="p-1 rounded bg-green-100 text-green-600"><Utensils className="w-3.5 h-3.5" /></div>
-                  Dietary Deficit
+                  <div className={`p-1 rounded ${dietaryDeficit >= 0 ? 'bg-green-100 text-green-600' : 'bg-amber-100 text-amber-600'}`}>
+                    <Utensils className="w-3.5 h-3.5" />
+                  </div>
+                  {dietaryDeficit >= 0 ? 'Dietary Deficit' : 'Dietary Surplus'}
                 </span>
-                <span className="font-bold text-slate-800">-{dietaryDeficit} kcal</span>
+                <span className={`font-bold ${dietaryDeficit >= 0 ? 'text-slate-800' : 'text-amber-700'}`}>
+                  {dietaryDeficit >= 0 ? '−' : '+'}{Math.abs(dietaryDeficit)} kcal
+                </span>
               </div>
 
               {/* Exercise Burn - Separated */}
@@ -214,7 +230,7 @@ export function EnergyBalanceVisualization({ plan, userProfile, selectedWeek = 1
                     Resistance Training
                   </span>
                   <div className="text-right">
-                    <span className="font-bold text-slate-800">-{Math.round(exerciseBurn.resistance / 7)}</span>
+                    <span className="font-bold text-slate-800">−{Math.abs(Math.round(exerciseBurn.resistance / 7))}</span>
                     <span className="text-xs text-slate-500 ml-1">kcal/day</span>
                   </div>
                 </div>
@@ -224,10 +240,10 @@ export function EnergyBalanceVisualization({ plan, userProfile, selectedWeek = 1
                     Cardio
                   </span>
                   <div className="text-right">
-                    <span className="font-bold text-orange-700">-{Math.round(exerciseBurn.cardio / 7)}</span>
+                    <span className="font-bold text-orange-700">−{Math.abs(Math.round(exerciseBurn.cardio / 7))}</span>
                     <span className="text-xs text-slate-500 ml-1">kcal/day</span>
                     <div className="text-[10px] text-orange-500 font-medium mt-0.5">
-                      {Math.round(exerciseBurn.cardio)} cal/week
+                      {Math.abs(Math.round(exerciseBurn.cardio))} cal/week
                     </div>
                   </div>
                 </div>
@@ -236,7 +252,7 @@ export function EnergyBalanceVisualization({ plan, userProfile, selectedWeek = 1
                     Total Exercise Burn
                   </span>
                   <div className="text-right">
-                    <span className="font-bold text-slate-800">-{Math.round(exerciseBurn.total / 7)}</span>
+                    <span className="font-bold text-slate-800">−{Math.abs(Math.round(exerciseBurn.total / 7))}</span>
                     <span className="text-xs text-slate-500 ml-1">kcal/day</span>
                   </div>
                 </div>

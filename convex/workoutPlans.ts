@@ -37,6 +37,7 @@ function validatePlanStructure(fullPlanData: any): void {
  */
 function extractMetadata(fullPlanData: any): {
   totalWeeks?: number;
+  goalCategory?: string;
   primaryGoal?: string;
   exerciseCount?: number;
   mealCount?: number;
@@ -75,9 +76,18 @@ function extractMetadata(fullPlanData: any): {
       .filter((m: any) => m !== null);
   }
 
-  // Extract primary goal from feasibility or framework
-  if (fullPlanData.feasibility?.recommendations) {
-    // Try to infer goal from recommendations
+  // ✅ Extract goalCategory from userProfile (new goal system)
+  if (fullPlanData.userProfile?.goalCategory) {
+    metadata.goalCategory = fullPlanData.userProfile.goalCategory;
+    console.log('[extractMetadata] Found goalCategory:', metadata.goalCategory);
+  }
+
+  // ✅ Also extract primaryGoal for legacy compatibility
+  // Priority: userProfile.goalCategory > userProfile.goal > inferred from recommendations
+  if (fullPlanData.userProfile?.goal) {
+    metadata.primaryGoal = fullPlanData.userProfile.goal;
+  } else if (fullPlanData.feasibility?.recommendations) {
+    // Fall back to inferring from recommendations
     const recs = fullPlanData.feasibility.recommendations.join(' ').toLowerCase();
     if (recs.includes('fat loss') || recs.includes('weight loss')) {
       metadata.primaryGoal = 'fat_loss';
@@ -150,6 +160,7 @@ export const createWorkoutPlan = mutation({
     const metadata = args.fullPlanData ? extractMetadata(args.fullPlanData) : {};
     console.log('[createWorkoutPlan] Extracted metadata:', {
       totalWeeks: metadata.totalWeeks,
+      goalCategory: metadata.goalCategory,
       primaryGoal: metadata.primaryGoal,
       exerciseCount: metadata.exerciseCount,
       mealCount: metadata.mealCount,
@@ -175,7 +186,8 @@ export const createWorkoutPlan = mutation({
       fullPlanData: args.fullPlanData, // Store complete plan
       // ✅ Add extracted metadata for fast querying
       totalWeeks: metadata.totalWeeks,
-      primaryGoal: metadata.primaryGoal,
+      goalCategory: metadata.goalCategory, // New goal category system
+      primaryGoal: metadata.primaryGoal,   // Legacy, for backward compatibility
       exerciseCount: metadata.exerciseCount,
       mealCount: metadata.mealCount,
       weeklyTargetMacros: metadata.weeklyTargetMacros,

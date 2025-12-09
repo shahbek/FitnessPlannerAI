@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useQuery } from 'convex/react';
+import { useState, useEffect, useRef } from 'react';
+import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -26,6 +26,15 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
   const { state: sidebarState, isMobile } = useSidebar();
   const [parsedData, setParsedData] = useState<ParsedWorkoutData | null>(null);
   const [activeTab, setActiveTab] = useState('phases');
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState(planTitle || 'Workout Program');
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const updateWorkoutPlan = useMutation(api.workoutPlans.updateWorkoutPlan);
+
+  // Update editedTitle when planTitle prop changes
+  useEffect(() => {
+    setEditedTitle(planTitle || 'Workout Program');
+  }, [planTitle]);
 
   // Extract user profile from plan data (plan-specific profile)
   // Fallback to logged-in user's profile if plan doesn't have one
@@ -58,6 +67,17 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
       console.log('');
     }
   }, [activeTab, parsedData]);
+
+  // Sync contentEditable content when not editing or when title changes
+  // This must be called before any early returns to follow Rules of Hooks
+  useEffect(() => {
+    if (titleRef.current && !isEditingTitle) {
+      // When not editing, ensure DOM matches React state
+      if (titleRef.current.textContent !== editedTitle) {
+        titleRef.current.textContent = editedTitle;
+      }
+    }
+  }, [editedTitle, isEditingTitle]);
 
   if (!parsedData || isGenerating) {
     return (
@@ -159,6 +179,78 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
     );
   }
 
+  const handleTitleClick = () => {
+    if (workoutPlanId) {
+      setIsEditingTitle(true);
+      // Focus the contentEditable element after a brief delay to ensure it's rendered
+      setTimeout(() => {
+        if (titleRef.current) {
+          // Ensure content is set before focusing
+          if (titleRef.current.textContent !== editedTitle) {
+            titleRef.current.textContent = editedTitle;
+          }
+          titleRef.current.focus();
+          // Select all text for easy editing
+          const range = document.createRange();
+          range.selectNodeContents(titleRef.current);
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        }
+      }, 0);
+    }
+  };
+
+  const handleTitleBlur = async () => {
+    setIsEditingTitle(false);
+    const newTitle = titleRef.current?.textContent?.trim() || editedTitle;
+    
+    // Only update if title changed and we have a plan ID
+    if (newTitle !== editedTitle && workoutPlanId && newTitle.length > 0) {
+      setEditedTitle(newTitle);
+      try {
+        await updateWorkoutPlan({
+          planId: workoutPlanId as any,
+          name: newTitle,
+        });
+      } catch (error) {
+        console.error('Failed to update plan title:', error);
+        // Revert on error
+        const originalTitle = planTitle || 'Workout Program';
+        setEditedTitle(originalTitle);
+        if (titleRef.current) {
+          titleRef.current.textContent = originalTitle;
+        }
+      }
+    } else if (newTitle.length === 0) {
+      // Revert if empty
+      const originalTitle = planTitle || 'Workout Program';
+      setEditedTitle(originalTitle);
+      if (titleRef.current) {
+        titleRef.current.textContent = originalTitle;
+      }
+    } else {
+      // Sync DOM with state if no change
+      if (titleRef.current && titleRef.current.textContent !== editedTitle) {
+        titleRef.current.textContent = editedTitle;
+      }
+    }
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLHeadingElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      titleRef.current?.blur();
+    } else if (e.key === 'Escape') {
+      setIsEditingTitle(false);
+      const originalTitle = planTitle || 'Workout Program';
+      setEditedTitle(originalTitle);
+      if (titleRef.current) {
+        titleRef.current.textContent = originalTitle;
+      }
+    }
+  };
+
   const tabs = [
     {
       value: 'phases',
@@ -200,8 +292,26 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
       <div className="border-b border-border pb-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-editorial font-light tracking-tight mb-2">
-              {planTitle || 'Workout Program'}
+            <h1
+              ref={titleRef}
+              contentEditable={isEditingTitle && !!workoutPlanId}
+              suppressContentEditableWarning
+              onClick={handleTitleClick}
+              onBlur={handleTitleBlur}
+              onKeyDown={handleTitleKeyDown}
+              className={`text-3xl font-editorial font-light tracking-tight mb-2 ${
+                workoutPlanId 
+                  ? 'cursor-text hover:opacity-80 transition-opacity outline-none focus:outline-none focus:ring-0' 
+                  : ''
+              } ${isEditingTitle ? 'ring-1 ring-border rounded px-2 -mx-2' : ''}`}
+              style={{
+                minHeight: '2.5rem',
+                ...(isEditingTitle ? { 
+                  backgroundColor: 'rgba(0, 0, 0, 0.02)',
+                } : {})
+              }}
+            >
+              {editedTitle}
             </h1>
             <p className="text-sm text-muted-foreground">
               Complete fitness program with exercises, nutrition, and progression

@@ -205,9 +205,16 @@ MANDATORY STRUCTURAL REQUIREMENTS:
 1. Generate EXACTLY 7 days (Monday through Sunday) in order
 2. Each day must have dayNumber (1-7) and dayName (Monday-Sunday)
 3. EXACTLY ${userProfile.trainingDaysPerWeek} training days (isRestDay: false)
-4. AT LEAST 1 rest day (isRestDay: true)
+4. AT LEAST 1 rest day (isRestDay: true) - unless user specified 7 training days
 5. Rest days: empty focus array []
 6. Training days: focus array with specific muscle groups/workout types
+${userProfile.schedule ? `
+⚠️ CRITICAL - USER'S TRAINING SCHEDULE (MUST FOLLOW):
+The user has specified their availability: "${userProfile.schedule}"
+- These are the ONLY days the user can train
+- Mark these days as training days (isRestDay: false)
+- Mark all other days as rest days (isRestDay: true)
+- The user's schedule takes PRIORITY over any default patterns` : ''}
 
 SPLIT-SPECIFIC GUIDELINES:
 ${this.getSplitGuidelines(userProfile.workoutSplit, userProfile.trainingDaysPerWeek)}
@@ -263,7 +270,8 @@ Think step-by-step through your split design considering recovery, balance, and 
 - Push: Chest, Shoulders, Triceps
 - Pull: Back, Biceps, Rear Delts
 - Legs: Quads, Hamstrings, Glutes, Calves
-- For ${trainingDays} days: ${trainingDays === 6 ? 'Run 2 full cycles' : trainingDays === 3 ? '1 cycle exactly' : 'Repeat pattern as needed'}
+- For ${trainingDays} days: ${trainingDays === 6 ? 'Run 2 FULL cycles (Push/Pull/Legs/Push/Pull/Legs)' : trainingDays === 3 ? '1 cycle exactly' : 'Repeat pattern as needed'}
+- IMPORTANT: Use the user's schedule to determine WHICH days to train
 - This is a proven and balanced approach`;
 
       case 'body_part':
@@ -518,6 +526,27 @@ Think step-by-step through your split design considering recovery, balance, and 
       issues.push(`Training days must have focus areas. Missing focus on: ${trainingDaysNoFocus.map(d => d.dayName).join(', ')}`);
     }
 
+    // If user provided a schedule, validate that those days are training days
+    if (userProfile.schedule) {
+      const scheduledDays = this.parseScheduleSlots(userProfile.schedule)
+        .map(idx => DAY_NAMES[idx].toLowerCase());
+      
+      if (scheduledDays.length > 0) {
+        const trainingDayNames = split.days
+          .filter(d => !d.isRestDay)
+          .map(d => d.dayName.toLowerCase());
+        
+        const missingScheduledDays = scheduledDays.filter(
+          day => !trainingDayNames.includes(day)
+        );
+        
+        if (missingScheduledDays.length > 0 && missingScheduledDays.length <= 2) {
+          // Only warn if a few days are missing (might be intentional for rest)
+          console.warn(`⚠️ User schedule includes ${missingScheduledDays.join(', ')} but these are marked as rest days`);
+        }
+      }
+    }
+
     return issues;
   }
 
@@ -535,6 +564,7 @@ Think step-by-step through your split design considering recovery, balance, and 
 
   private parseScheduleSlots(schedule?: string): number[] {
     if (!schedule) return [];
+    
     const dayIndexMap: Record<string, number> = {
       monday: 0,
       mon: 0,
@@ -554,11 +584,45 @@ Think step-by-step through your split design considering recovery, balance, and 
       sun: 6,
     };
 
-    return schedule
-      .split(/[,|;/\n]+/)
-      .map((part) => part.trim().toLowerCase())
+    // Normalize and strip time information
+    let normalized = schedule.toLowerCase();
+    normalized = normalized.replace(/\b(from\s+)?\d{1,2}(:\d{2})?\s*(am|pm)?\s*(to|-)\s*\d{1,2}(:\d{2})?\s*(am|pm)?/gi, '');
+    normalized = normalized.replace(/\bat\s+\d{1,2}(:\d{2})?\s*(am|pm)?/gi, '');
+    
+    const result: number[] = [];
+    
+    // Check for range patterns like "Monday to Saturday", "Mon-Sat"
+    const rangeMatch = normalized.match(/(\w+)\s*(?:to|through|-)\s*(\w+)/i);
+    if (rangeMatch) {
+      const startIdx = dayIndexMap[rangeMatch[1].trim()];
+      const endIdx = dayIndexMap[rangeMatch[2].trim()];
+      
+      if (startIdx !== undefined && endIdx !== undefined) {
+        if (startIdx <= endIdx) {
+          for (let i = startIdx; i <= endIdx; i++) {
+            if (!result.includes(i)) result.push(i);
+          }
+        } else {
+          // Wrap around
+          for (let i = startIdx; i < 7; i++) {
+            if (!result.includes(i)) result.push(i);
+          }
+          for (let i = 0; i <= endIdx; i++) {
+            if (!result.includes(i)) result.push(i);
+          }
+        }
+        return result.sort((a, b) => a - b);
+      }
+    }
+    
+    // Parse individual days
+    return normalized
+      .split(/[,|;/\n\s]+/)
+      .map((part) => part.trim())
       .map((token) => dayIndexMap[token])
-      .filter((idx): idx is number => typeof idx === 'number');
+      .filter((idx): idx is number => typeof idx === 'number')
+      .filter((idx, i, arr) => arr.indexOf(idx) === i) // unique
+      .sort((a, b) => a - b);
   }
 
   private applySchedulePreference(split: TrainingSplit, userProfile: UserProfile): TrainingSplit {

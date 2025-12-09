@@ -13,7 +13,15 @@ import {
   nutritionCalculationService,
   UserMetrics,
   GoalConfig,
+  GoalCategoryConfig,
+  GOAL_CALORIE_ADJUSTMENTS,
 } from '../services/NutritionCalculationService';
+
+import {
+  GoalCategory,
+  BodyFatGoal,
+  getEffectiveGoalType,
+} from '../models/UserProfile';
 
 export interface CalculationResult {
   value: number;
@@ -135,7 +143,8 @@ export class DynamicCalculator {
   /**
    * Macro distribution tailored to goal (fat loss, recomp, gain).
    *
-   * NOTE: Now delegates to NutritionCalculationService for calculation.
+   * NOTE: Now uses GoalCategory system when available, falls back to legacy goal string.
+   * This ensures new goal categories (dirty_bulk, lean_bulk, etc.) are properly handled.
    */
   async calculateMacroTargets(
     userProfile: any,
@@ -147,6 +156,38 @@ export class DynamicCalculator {
     const metrics = this.convertToUserMetrics(userProfile);
     const maintenanceCalories = await nutritionCalculationService.calculateMaintenanceCalories(metrics);
 
+    // Check if userProfile has the new goalCategory field
+    const goalCategory = userProfile.goalCategory as GoalCategory | undefined;
+    
+    if (goalCategory && GOAL_CALORIE_ADJUSTMENTS[goalCategory]) {
+      // Use new GoalCategory system for proper surplus/deficit calculation
+      const categoryConfig: GoalCategoryConfig = {
+        goalCategory,
+        timelineWeeks: userProfile.timelineWeeks,
+        bodyFatGoal: userProfile.bodyFatGoal as BodyFatGoal | undefined,
+      };
+
+      const macros = await nutritionCalculationService.calculateMacroTargetsFromCategory(
+        metrics,
+        maintenanceCalories,
+        categoryConfig
+      );
+
+      console.log(`📊 Using GoalCategory: ${goalCategory} → ${macros.calories} kcal (TDEE: ${maintenanceCalories.tdee})`);
+
+      return {
+        calories: macros.calories,
+        protein: macros.protein,
+        fat: macros.fat,
+        carbs: macros.carbs,
+        confidence: 0.92, // Higher confidence with explicit goal category
+        sources: macros.sources,
+      };
+    }
+
+    // Fall back to legacy goal string for backward compatibility
+    console.log(`⚠️ Using legacy goal: ${goal} (no goalCategory found)`);
+    
     const goalConfig: GoalConfig = {
       goal: goal,
       deficitMagnitude: 'moderate',
@@ -223,6 +264,7 @@ export class DynamicCalculator {
 
   /**
    * Training volume recommendations (sets per muscle per week).
+   * Now checks goalCategory first for proper goal-specific recommendations.
    */
   async calculateTrainingVolume(
     userProfile: any,
@@ -230,9 +272,15 @@ export class DynamicCalculator {
   ): Promise<CalculationResult> {
     await this.ensureKnowledgeBase();
 
+    // Check for goalCategory first
+    const goalCategory = userProfile.goalCategory as GoalCategory | undefined;
+    const effectiveGoal = goalCategory 
+      ? getEffectiveGoalType(goalCategory)
+      : goal;
+
     const { setsPerWeek, frequency } = this.deriveTrainingVolume(
       userProfile,
-      goal,
+      effectiveGoal,
     );
 
     return {

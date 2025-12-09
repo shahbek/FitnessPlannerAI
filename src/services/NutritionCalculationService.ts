@@ -11,10 +11,14 @@
  * - Protein: Helms et al. (2014) - 1.8-2.7g/kg for resistance-trained individuals
  * - Fat: Essential fatty acid requirements (0.7-1.0g/kg) per Helms et al. (2013)
  * - Carbs: Remainder after protein/fat allocation
- * - Training/Rest Day Cycling: Aragon & Schoenfeld (2013) - nutrient timing principles
  */
 
 import { ResearchFact, researchKnowledgeBase } from '../ai/knowledgeBase';
+import { 
+  GoalCategory, 
+  BodyFatGoal, 
+  getEffectiveGoalType 
+} from '../models/UserProfile';
 
 // ============================================================================
 // TYPES & INTERFACES
@@ -36,6 +40,18 @@ export interface GoalConfig {
   deficitMagnitude?: 'conservative' | 'moderate' | 'aggressive';
   proteinMultiplier?: number; // Override default protein target (g/kg)
   fatMultiplier?: number; // Override default fat target (g/kg)
+}
+
+/**
+ * New goal category configuration
+ * Uses explicit goal categories instead of legacy goal strings
+ */
+export interface GoalCategoryConfig {
+  goalCategory: GoalCategory;
+  timelineWeeks?: number;
+  bodyFatGoal?: BodyFatGoal;
+  proteinMultiplier?: number;
+  fatMultiplier?: number;
 }
 
 export interface MaintenanceCalories {
@@ -62,12 +78,6 @@ export interface MacroTargets {
   reasoning: string;
 }
 
-export interface DailyCycledMacros {
-  trainingDay: MacroTargets;
-  restDay: MacroTargets;
-  weeklyAverage: MacroTargets;
-  cyclingRationale: string;
-}
 
 export interface DeficitCalculation {
   maintenanceCalories: number;
@@ -183,32 +193,67 @@ export const SURPLUS_RANGES = {
 } as const;
 
 /**
- * Training vs Rest Day Macro Cycling
- * Evidence: Aragon & Schoenfeld (2013) - nutrient timing for performance and recovery
- *
- * Training Day: Higher carbs for glycogen replenishment, slightly higher calories
- * Rest Day: Lower carbs (less demand), maintain protein, slightly lower calories
- *
- * Typical cycling:
- * - Training Day: +5-10% calories, +15-20% carbs, -10-15% fat
- * - Rest Day: -5-10% calories, -15-20% carbs, +10-15% fat
- * - Net effect: Same weekly calories, optimized nutrient timing
+ * Goal Category Calorie Adjustments
+ * Maps each GoalCategory to its caloric adjustment strategy
+ * 
+ * Evidence:
+ * - Lean bulk: Slater & Phillips (2011) - conservative surplus
+ * - Dirty bulk: Garthe et al. (2013) - aggressive surplus
+ * - Mini cut: Trexler et al. (2014) - short-term moderate deficit
+ * - Aggressive cut: Helms et al. (2014) - maximum sustainable deficit
+ * - Recomp/Maintenance: Barakat et al. (2020) - maintenance calories
+ * - Body fat goal: Dynamically calculated based on BF% delta
  */
-export const MACRO_CYCLING = {
-  // Calorie adjustment (% of daily target)
-  TRAINING_DAY_CALORIE_BOOST: 0.05, // +5%
-  REST_DAY_CALORIE_REDUCTION: 0.05, // -5%
-
-  // Carb adjustment (% of daily carbs)
-  TRAINING_DAY_CARB_BOOST: 0.20, // +20%
-  REST_DAY_CARB_REDUCTION: 0.20, // -20%
-
-  // Fat adjustment (% of daily fat)
-  TRAINING_DAY_FAT_REDUCTION: 0.15, // -15%
-  REST_DAY_FAT_BOOST: 0.15, // +15%
-
-  // Protein remains constant across all days
+export const GOAL_CALORIE_ADJUSTMENTS: Record<GoalCategory, {
+  type: 'surplus' | 'deficit' | 'maintenance' | 'dynamic';
+  range: { MIN: number; MAX: number };
+  proteinRange: { MIN: number; MAX: number };
+  fatRange: { MIN: number; MAX: number };
+}> = {
+  lean_bulk: {
+    type: 'surplus',
+    range: { MIN: 0.05, MAX: 0.10 },
+    proteinRange: { MIN: 1.6, MAX: 2.2 },
+    fatRange: { MIN: 0.8, MAX: 1.0 },
+  },
+  dirty_bulk: {
+    type: 'surplus',
+    range: { MIN: 0.15, MAX: 0.20 },
+    proteinRange: { MIN: 1.6, MAX: 2.0 },
+    fatRange: { MIN: 1.0, MAX: 1.2 },
+  },
+  mini_cut: {
+    type: 'deficit',
+    range: { MIN: 0.15, MAX: 0.20 },
+    proteinRange: { MIN: 2.0, MAX: 2.4 },
+    fatRange: { MIN: 0.7, MAX: 0.9 },
+  },
+  aggressive_cut: {
+    type: 'deficit',
+    range: { MIN: 0.25, MAX: 0.30 },
+    proteinRange: { MIN: 2.3, MAX: 2.7 },
+    fatRange: { MIN: 0.6, MAX: 0.8 },
+  },
+  recomp: {
+    type: 'maintenance',
+    range: { MIN: -0.05, MAX: 0.05 },
+    proteinRange: { MIN: 2.0, MAX: 2.4 },
+    fatRange: { MIN: 0.8, MAX: 1.0 },
+  },
+  maintenance: {
+    type: 'maintenance',
+    range: { MIN: 0, MAX: 0 },
+    proteinRange: { MIN: 1.6, MAX: 2.0 },
+    fatRange: { MIN: 0.8, MAX: 1.0 },
+  },
+  body_fat_goal: {
+    type: 'dynamic',
+    range: { MIN: -0.30, MAX: 0.20 }, // Calculated based on BF% delta
+    proteinRange: { MIN: 2.0, MAX: 2.7 },
+    fatRange: { MIN: 0.6, MAX: 1.0 },
+  },
 } as const;
+
 
 // ============================================================================
 // NUTRITION CALCULATION SERVICE
@@ -616,108 +661,6 @@ export class NutritionCalculationService {
     return lines.join('\n');
   }
 
-  // ==========================================================================
-  // TRAINING/REST DAY MACRO CYCLING
-  // ==========================================================================
-
-  /**
-   * Calculate cycled macros for training vs rest days
-   *
-   * Evidence: Aragon & Schoenfeld (2013) - nutrient timing for performance
-   *
-   * Training days: Higher carbs for glycogen, slightly higher calories
-   * Rest days: Lower carbs, maintain protein, slightly lower calories
-   * Weekly average: Matches baseline target
-   */
-  async calculateCycledMacros(
-    baselineMacros: MacroTargets,
-    trainingDaysPerWeek: number
-  ): Promise<DailyCycledMacros> {
-    await this.ensureKnowledgeBase();
-
-    const restDaysPerWeek = 7 - trainingDaysPerWeek;
-
-    // Training Day Adjustments
-    const trainingDayCalories = Math.round(
-      baselineMacros.calories * (1 + MACRO_CYCLING.TRAINING_DAY_CALORIE_BOOST)
-    );
-    const trainingDayCarbs = Math.round(
-      baselineMacros.carbs * (1 + MACRO_CYCLING.TRAINING_DAY_CARB_BOOST) * 10
-    ) / 10;
-    const trainingDayFat = Math.round(
-      baselineMacros.fat * (1 - MACRO_CYCLING.TRAINING_DAY_FAT_REDUCTION) * 10
-    ) / 10;
-    const trainingDayProtein = baselineMacros.protein; // Protein stays constant
-
-    // Rest Day Adjustments
-    const restDayCalories = Math.round(
-      baselineMacros.calories * (1 - MACRO_CYCLING.REST_DAY_CALORIE_REDUCTION)
-    );
-    const restDayCarbs = Math.round(
-      baselineMacros.carbs * (1 - MACRO_CYCLING.REST_DAY_CARB_REDUCTION) * 10
-    ) / 10;
-    const restDayFat = Math.round(
-      baselineMacros.fat * (1 + MACRO_CYCLING.REST_DAY_FAT_BOOST) * 10
-    ) / 10;
-    const restDayProtein = baselineMacros.protein; // Protein stays constant
-
-    // Calculate weekly average to verify it matches baseline
-    const weeklyAvgCalories = Math.round(
-      (trainingDayCalories * trainingDaysPerWeek + restDayCalories * restDaysPerWeek) / 7
-    );
-    const weeklyAvgProtein = trainingDayProtein; // Same on all days
-    const weeklyAvgCarbs = Math.round(
-      ((trainingDayCarbs * trainingDaysPerWeek + restDayCarbs * restDaysPerWeek) / 7) * 10
-    ) / 10;
-    const weeklyAvgFat = Math.round(
-      ((trainingDayFat * trainingDaysPerWeek + restDayFat * restDaysPerWeek) / 7) * 10
-    ) / 10;
-
-    const cyclingRationale = `
-Training days (${trainingDaysPerWeek}/week): +${MACRO_CYCLING.TRAINING_DAY_CALORIE_BOOST * 100}% calories, +${MACRO_CYCLING.TRAINING_DAY_CARB_BOOST * 100}% carbs for glycogen replenishment and performance.
-Rest days (${restDaysPerWeek}/week): -${MACRO_CYCLING.REST_DAY_CALORIE_REDUCTION * 100}% calories, -${MACRO_CYCLING.REST_DAY_CARB_REDUCTION * 100}% carbs (lower energy demand).
-Protein remains constant at ${trainingDayProtein}g to support recovery on all days.
-Weekly average matches baseline target: ${weeklyAvgCalories} kcal/day.
-Evidence: Aragon & Schoenfeld (2013) - nutrient timing principles.
-    `.trim();
-
-    return {
-      trainingDay: {
-        calories: trainingDayCalories,
-        protein: trainingDayProtein,
-        proteinPerKg: baselineMacros.proteinPerKg,
-        fat: trainingDayFat,
-        fatPerKg: Math.round((trainingDayFat / (baselineMacros.protein / baselineMacros.proteinPerKg)) * 100) / 100,
-        carbs: trainingDayCarbs,
-        carbPercentage: Math.round((trainingDayCarbs * 4 / trainingDayCalories) * 100),
-        sources: baselineMacros.sources,
-        reasoning: `Training day: optimized for performance and recovery`,
-      },
-      restDay: {
-        calories: restDayCalories,
-        protein: restDayProtein,
-        proteinPerKg: baselineMacros.proteinPerKg,
-        fat: restDayFat,
-        fatPerKg: Math.round((restDayFat / (baselineMacros.protein / baselineMacros.proteinPerKg)) * 100) / 100,
-        carbs: restDayCarbs,
-        carbPercentage: Math.round((restDayCarbs * 4 / restDayCalories) * 100),
-        sources: baselineMacros.sources,
-        reasoning: `Rest day: lower energy demand, maintain protein for recovery`,
-      },
-      weeklyAverage: {
-        calories: weeklyAvgCalories,
-        protein: weeklyAvgProtein,
-        proteinPerKg: baselineMacros.proteinPerKg,
-        fat: weeklyAvgFat,
-        fatPerKg: baselineMacros.fatPerKg,
-        carbs: weeklyAvgCarbs,
-        carbPercentage: Math.round((weeklyAvgCarbs * 4 / weeklyAvgCalories) * 100),
-        sources: baselineMacros.sources,
-        reasoning: `Weekly average matches baseline target`,
-      },
-      cyclingRationale,
-    };
-  }
 
   // ==========================================================================
   // DEFICIT/SURPLUS CALCULATIONS
@@ -788,26 +731,424 @@ Expected fat loss: ${expectedWeeklyFatLoss.toFixed(2)} kg/week (${((expectedWeek
   }
 
   // ==========================================================================
-  // HELPER METHODS
+  // GOAL CATEGORY CALCULATIONS
   // ==========================================================================
 
   /**
-   * Calculate macros for a specific day (training or rest)
-   *
-   * Convenience method that applies cycling logic to baseline macros
+   * Calculate macro targets using the new GoalCategory system
+   * 
+   * This method handles all goal categories including body_fat_goal
    */
-  calculateDayMacros(
-    baselineMacros: MacroTargets,
-    isTrainingDay: boolean,
-    cycledMacros?: DailyCycledMacros
-  ): MacroTargets {
-    if (!cycledMacros) {
-      // No cycling - return baseline
-      return baselineMacros;
+  async calculateMacroTargetsFromCategory(
+    metrics: UserMetrics,
+    maintenanceCalories: MaintenanceCalories,
+    config: GoalCategoryConfig
+  ): Promise<MacroTargets> {
+    await this.ensureKnowledgeBase();
+
+    const { goalCategory, bodyFatGoal, timelineWeeks } = config;
+    const adjustment = GOAL_CALORIE_ADJUSTMENTS[goalCategory];
+
+    // Handle body_fat_goal specially - calculate dynamic deficit
+    if (goalCategory === 'body_fat_goal' && bodyFatGoal) {
+      return this.calculateBodyFatGoalMacros(
+        metrics,
+        maintenanceCalories,
+        bodyFatGoal,
+        timelineWeeks || 12,
+        config.proteinMultiplier,
+        config.fatMultiplier
+      );
     }
 
-    return isTrainingDay ? cycledMacros.trainingDay : cycledMacros.restDay;
+    // For other goals, use the predefined adjustment ranges
+    const { targetCalories, adjustmentCalories } = this.calculateCategoryTargetCalories(
+      maintenanceCalories.tdee,
+      goalCategory
+    );
+
+    // Determine protein and fat targets
+    const proteinPerKg = config.proteinMultiplier || 
+      (adjustment.proteinRange.MIN + adjustment.proteinRange.MAX) / 2;
+    const fatPerKg = config.fatMultiplier ||
+      (adjustment.fatRange.MIN + adjustment.fatRange.MAX) / 2;
+
+    const protein = Math.round(metrics.weightKg * proteinPerKg * 10) / 10;
+    const fat = Math.round(metrics.weightKg * fatPerKg * 10) / 10;
+
+    // Carbs fill remaining calories
+    const proteinCalories = protein * 4;
+    const fatCalories = fat * 9;
+    const remainingCalories = Math.max(targetCalories - proteinCalories - fatCalories, 0);
+    const carbs = Math.round((remainingCalories / 4) * 10) / 10;
+
+    // Generate reasoning
+    const reasoning = this.generateCategoryMacroReasoning(
+      goalCategory,
+      metrics.weightKg,
+      proteinPerKg,
+      fatPerKg,
+      maintenanceCalories.tdee,
+      targetCalories,
+      adjustmentCalories
+    );
+
+    return {
+      calories: Math.round(targetCalories),
+      protein,
+      proteinPerKg,
+      fat,
+      fatPerKg,
+      carbs,
+      carbPercentage: Math.round((carbs * 4 / targetCalories) * 100),
+      sources: this.collectGoalCategorySources(goalCategory),
+      reasoning,
+    };
   }
+
+  /**
+   * Calculate target calories based on goal category
+   */
+  private calculateCategoryTargetCalories(
+    tdee: number,
+    goalCategory: GoalCategory
+  ): { targetCalories: number; adjustmentCalories: number } {
+    const adjustment = GOAL_CALORIE_ADJUSTMENTS[goalCategory];
+    
+    if (adjustment.type === 'maintenance') {
+      return { targetCalories: tdee, adjustmentCalories: 0 };
+    }
+
+    // Calculate midpoint of range
+    const adjustmentPercent = (adjustment.range.MIN + adjustment.range.MAX) / 2;
+    
+    if (adjustment.type === 'surplus') {
+      const surplusCalories = Math.round(tdee * adjustmentPercent);
+      return { 
+        targetCalories: tdee + surplusCalories, 
+        adjustmentCalories: surplusCalories 
+      };
+    } else {
+      // deficit
+      const deficitCalories = Math.round(tdee * adjustmentPercent);
+      return { 
+        targetCalories: tdee - deficitCalories, 
+        adjustmentCalories: -deficitCalories 
+      };
+    }
+  }
+
+  /**
+   * Calculate macros for body fat goal
+   * Dynamically determines deficit based on current/target BF% and timeline
+   */
+  private async calculateBodyFatGoalMacros(
+    metrics: UserMetrics,
+    maintenanceCalories: MaintenanceCalories,
+    bodyFatGoal: BodyFatGoal,
+    timelineWeeks: number,
+    proteinMultiplier?: number,
+    fatMultiplier?: number
+  ): Promise<MacroTargets> {
+    const { currentBf, targetBf } = bodyFatGoal;
+    const tdee = maintenanceCalories.tdee;
+    const weightKg = metrics.weightKg;
+
+    // Calculate fat mass to lose/gain
+    const currentFatMass = weightKg * (currentBf / 100);
+    const targetFatMass = weightKg * (targetBf / 100);
+    const fatMassChange = currentFatMass - targetFatMass; // Positive = loss, negative = gain
+
+    // Determine if this is fat loss or gain
+    const isLosing = fatMassChange > 0;
+
+    // Calculate required weekly change
+    const weeklyFatChange = fatMassChange / timelineWeeks;
+    const weeklyCalorieChange = weeklyFatChange * 7700; // 7700 kcal per kg fat
+    const dailyCalorieChange = weeklyCalorieChange / 7;
+
+    // Calculate adjustment percentage
+    let adjustmentPercent = dailyCalorieChange / tdee;
+    
+    // Clamp to safe ranges
+    if (isLosing) {
+      adjustmentPercent = Math.min(adjustmentPercent, 0.30); // Max 30% deficit
+    } else {
+      adjustmentPercent = Math.max(adjustmentPercent, -0.20); // Max 20% surplus
+    }
+
+    const targetCalories = Math.round(tdee - (tdee * adjustmentPercent));
+    const adjustmentCalories = Math.round(tdee * adjustmentPercent);
+
+    // Determine protein and fat targets based on deficit magnitude
+    let proteinPerKg: number;
+    let fatPerKg: number;
+
+    if (isLosing) {
+      // Higher protein for fat loss to preserve muscle
+      if (adjustmentPercent > 0.25) {
+        proteinPerKg = proteinMultiplier || 2.5; // Aggressive cut
+        fatPerKg = fatMultiplier || 0.7;
+      } else if (adjustmentPercent > 0.15) {
+        proteinPerKg = proteinMultiplier || 2.2; // Moderate cut
+        fatPerKg = fatMultiplier || 0.8;
+      } else {
+        proteinPerKg = proteinMultiplier || 2.0; // Conservative cut
+        fatPerKg = fatMultiplier || 0.9;
+      }
+    } else {
+      // Building phase - moderate protein
+      proteinPerKg = proteinMultiplier || 1.8;
+      fatPerKg = fatMultiplier || 1.0;
+    }
+
+    const protein = Math.round(weightKg * proteinPerKg * 10) / 10;
+    const fat = Math.round(weightKg * fatPerKg * 10) / 10;
+
+    // Carbs fill remaining calories
+    const proteinCalories = protein * 4;
+    const fatCalories = fat * 9;
+    const remainingCalories = Math.max(targetCalories - proteinCalories - fatCalories, 0);
+    const carbs = Math.round((remainingCalories / 4) * 10) / 10;
+
+    // Generate detailed reasoning
+    const reasoning = this.generateBodyFatGoalReasoning(
+      currentBf,
+      targetBf,
+      timelineWeeks,
+      fatMassChange,
+      weeklyFatChange,
+      adjustmentPercent,
+      tdee,
+      targetCalories,
+      proteinPerKg,
+      fatPerKg,
+      weightKg
+    );
+
+    return {
+      calories: Math.round(targetCalories),
+      protein,
+      proteinPerKg,
+      fat,
+      fatPerKg,
+      carbs,
+      carbPercentage: Math.round((carbs * 4 / targetCalories) * 100),
+      sources: [
+        'Helms et al. (2014) - Evidence-based contest preparation',
+        'Body fat goal calculation based on 7700 kcal/kg fat'
+      ],
+      reasoning,
+    };
+  }
+
+  /**
+   * Generate reasoning for goal category macros
+   */
+  private generateCategoryMacroReasoning(
+    goalCategory: GoalCategory,
+    weightKg: number,
+    proteinPerKg: number,
+    fatPerKg: number,
+    tdee: number,
+    targetCalories: number,
+    adjustmentCalories: number
+  ): string {
+    const lines: string[] = [];
+    const adjustment = GOAL_CALORIE_ADJUSTMENTS[goalCategory];
+    const goalLabel = goalCategory.replace(/_/g, ' ');
+
+    lines.push(`Goal: ${goalLabel}`);
+    lines.push(`Maintenance (TDEE): ${tdee} kcal/day`);
+
+    if (adjustmentCalories !== 0) {
+      const sign = adjustmentCalories > 0 ? '+' : '';
+      const percentChange = Math.round(Math.abs(adjustmentCalories) / tdee * 100);
+      lines.push(`Adjustment: ${sign}${adjustmentCalories} kcal/day (${percentChange}% ${adjustment.type})`);
+    }
+
+    lines.push(`Target: ${targetCalories} kcal/day`);
+    lines.push(`Protein: ${proteinPerKg}g/kg × ${weightKg}kg = ${Math.round(weightKg * proteinPerKg)}g`);
+    lines.push(`Fat: ${fatPerKg}g/kg × ${weightKg}kg = ${Math.round(weightKg * fatPerKg)}g`);
+    lines.push(`Carbs: Remainder after protein/fat allocation`);
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Generate detailed reasoning for body fat goal
+   */
+  private generateBodyFatGoalReasoning(
+    currentBf: number,
+    targetBf: number,
+    timelineWeeks: number,
+    fatMassChange: number,
+    weeklyFatChange: number,
+    adjustmentPercent: number,
+    tdee: number,
+    targetCalories: number,
+    proteinPerKg: number,
+    fatPerKg: number,
+    weightKg: number
+  ): string {
+    const lines: string[] = [];
+    const isLosing = fatMassChange > 0;
+
+    lines.push(`Body Fat Goal: ${currentBf}% → ${targetBf}%`);
+    lines.push(`Timeline: ${timelineWeeks} weeks`);
+    lines.push(`Fat mass to ${isLosing ? 'lose' : 'gain'}: ${Math.abs(fatMassChange).toFixed(1)} kg`);
+    lines.push(`Weekly target: ${Math.abs(weeklyFatChange).toFixed(2)} kg/week`);
+    lines.push('');
+    lines.push(`Maintenance (TDEE): ${tdee} kcal/day`);
+    
+    const sign = isLosing ? '-' : '+';
+    const percentChange = Math.round(Math.abs(adjustmentPercent) * 100);
+    lines.push(`Calculated ${isLosing ? 'deficit' : 'surplus'}: ${sign}${percentChange}%`);
+    lines.push(`Target: ${targetCalories} kcal/day`);
+    lines.push('');
+    lines.push(`Protein: ${proteinPerKg}g/kg × ${weightKg}kg = ${Math.round(weightKg * proteinPerKg)}g`);
+    lines.push(`Fat: ${fatPerKg}g/kg × ${weightKg}kg = ${Math.round(weightKg * fatPerKg)}g`);
+
+    // Add feasibility notes
+    const weeklyPercentChange = (Math.abs(weeklyFatChange) / weightKg) * 100;
+    if (weeklyPercentChange > 1) {
+      lines.push('');
+      lines.push(`⚠️ Warning: Weekly loss rate (${weeklyPercentChange.toFixed(1)}% BW) exceeds safe maximum of 1%`);
+      lines.push('Consider extending timeline for sustainable results');
+    }
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Collect sources for goal category
+   */
+  private collectGoalCategorySources(goalCategory: GoalCategory): string[] {
+    const sources: string[] = [];
+
+    switch (goalCategory) {
+      case 'lean_bulk':
+      case 'dirty_bulk':
+        sources.push('Slater & Phillips (2011) - Nutrition guidelines for strength sports');
+        break;
+      case 'mini_cut':
+        sources.push('Trexler et al. (2014) - Metabolic adaptation to weight loss');
+        break;
+      case 'aggressive_cut':
+        sources.push('Helms et al. (2014) - Evidence-based recommendations for contest preparation');
+        break;
+      case 'recomp':
+        sources.push('Barakat et al. (2020) - Body Recomposition');
+        break;
+      case 'maintenance':
+        sources.push('ACSM Guidelines for Exercise and Nutrition');
+        break;
+    }
+
+    // Add common sources
+    sources.push('Morton et al. (2018) - Protein intake for muscle hypertrophy');
+
+    return sources;
+  }
+
+  /**
+   * Calculate body fat goal feasibility
+   * Returns warnings if the goal is too aggressive
+   */
+  calculateBodyFatGoalFeasibility(
+    weightKg: number,
+    currentBf: number,
+    targetBf: number,
+    timelineWeeks: number,
+    sex: 'male' | 'female' = 'male'
+  ): {
+    feasible: boolean;
+    feasibility: 'easy' | 'moderate' | 'aggressive' | 'unsafe';
+    fatToChange: number;
+    weeklyChange: number;
+    recommendedWeeks: number;
+    warnings: string[];
+    recommendations: string[];
+  } {
+    const warnings: string[] = [];
+    const recommendations: string[] = [];
+
+    // Essential body fat minimums
+    const essentialBf = sex === 'female' ? 13 : 5;
+    const athleteBf = sex === 'female' ? 17 : 10;
+
+    // Check target validity
+    if (targetBf < essentialBf) {
+      warnings.push(`Target ${targetBf}% is below essential body fat (${essentialBf}%)`);
+      recommendations.push(`Minimum safe target: ${essentialBf + 2}%`);
+    }
+
+    if (targetBf < athleteBf && targetBf >= essentialBf) {
+      warnings.push(`Target ${targetBf}% is athlete-level and may be difficult to maintain`);
+    }
+
+    // Calculate change required
+    const currentFatMass = weightKg * (currentBf / 100);
+    const targetFatMass = weightKg * (targetBf / 100);
+    const fatToChange = currentFatMass - targetFatMass;
+    const isLosing = fatToChange > 0;
+
+    // Weekly change rate
+    const weeklyChange = fatToChange / timelineWeeks;
+    const weeklyChangePercent = (Math.abs(weeklyChange) / weightKg) * 100;
+
+    // Recommended timeline (0.5-1% BW/week for fat loss)
+    const conservativeWeeklyLoss = weightKg * 0.005;
+    const aggressiveWeeklyLoss = weightKg * 0.01;
+    const recommendedWeeks = isLosing 
+      ? Math.ceil(Math.abs(fatToChange) / aggressiveWeeklyLoss)
+      : Math.ceil(Math.abs(fatToChange) / (weightKg * 0.005)); // Slower for gain
+
+    // Determine feasibility
+    let feasibility: 'easy' | 'moderate' | 'aggressive' | 'unsafe';
+    let feasible = true;
+
+    if (!isLosing) {
+      // Gaining fat (unusual but possible)
+      feasibility = 'moderate';
+      warnings.push('Goal requires gaining body fat - unusual goal');
+    } else if (weeklyChangePercent <= 0.5) {
+      feasibility = 'easy';
+    } else if (weeklyChangePercent <= 0.75) {
+      feasibility = 'moderate';
+    } else if (weeklyChangePercent <= 1.0) {
+      feasibility = 'aggressive';
+      warnings.push('Aggressive timeline - requires strict adherence');
+      recommendations.push('Higher protein intake recommended (2.3-2.7g/kg)');
+    } else {
+      feasibility = 'unsafe';
+      feasible = false;
+      warnings.push(`Weekly loss rate ${weeklyChangePercent.toFixed(1)}% exceeds safe maximum of 1%`);
+      recommendations.push(`Extend timeline to at least ${recommendedWeeks} weeks`);
+    }
+
+    // Check for unrealistic target
+    if (currentBf <= targetBf && isLosing) {
+      feasible = false;
+      feasibility = 'unsafe';
+      warnings.push('Target body fat is higher than or equal to current');
+    }
+
+    return {
+      feasible,
+      feasibility,
+      fatToChange: Math.round(fatToChange * 10) / 10,
+      weeklyChange: Math.round(weeklyChange * 100) / 100,
+      recommendedWeeks,
+      warnings,
+      recommendations,
+    };
+  }
+
+  // ==========================================================================
+  // HELPER METHODS
+  // ==========================================================================
+
 
   /**
    * Validate user metrics for calculation

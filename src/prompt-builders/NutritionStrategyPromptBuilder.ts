@@ -35,16 +35,12 @@ ${this.formatTrainingSchedule(weeklyOutlines)}
 MEAL FREQUENCY: ${mealFrequency} meals/day
 
 STRATEGY DESIGN:
-1. **Macro Cycling** (optional):
-   - Training days: Higher calories/carbs (if applicable to diet)
-   - Rest days: Lower calories/carbs
-   
-2. **Meal Timing**:
+1. **Meal Timing**:
    - Pre-workout meal timing
    - Post-workout nutrition
    - Protein distribution across meals
    
-3. **Phase Adjustments**:
+2. **Phase Adjustments**:
    - How nutrition changes from foundation → peak
    - Refeed protocol (if applicable)
 

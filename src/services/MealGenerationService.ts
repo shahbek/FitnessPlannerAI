@@ -542,7 +542,7 @@ export class MealGenerationService {
    */
   /**
    * Determine if complex macro balancing is needed (use GPT-OSS 120B)
-   * Complex scenarios: extreme deficits, multiple dietary restrictions, macro cycling
+   * Complex scenarios: extreme deficits, multiple dietary restrictions
    */
   private needsComplexMacroBalancing(userProfile: any, metrics: any, batchWeeks: any[]): boolean {
     // Check for extreme calorie deficits (>25%)
@@ -566,17 +566,6 @@ export class MealGenerationService {
     
     if (restrictions >= 2) {
       console.log(`  ⚠️ Multiple dietary restrictions detected (${restrictions}) - using GPT-OSS for macro balancing`);
-      return true;
-    }
-    
-    // Check for macro cycling requirements
-    const hasMacroCycling = batchWeeks.some(week => 
-      week.dailyTargets?.carbs !== firstWeek?.dailyTargets?.carbs ||
-      week.dailyTargets?.fat !== firstWeek?.dailyTargets?.fat
-    );
-    
-    if (hasMacroCycling && batchWeeks.length > 3) {
-      console.log(`  ⚠️ Complex macro cycling detected - using GPT-OSS for macro balancing`);
       return true;
     }
     
@@ -617,7 +606,7 @@ Week ${week.weekNumber}:
 YOUR TASK:
 Analyze the macro distribution across these weeks and provide strategic recommendations for:
 1. How to distribute macros across meals to maintain energy and recovery
-2. When to adjust carb cycling for training days vs rest days
+2. How to distribute carbohydrates optimally throughout the day
 3. How to manage protein distribution for muscle preservation
 4. Fat intake strategies for hormone production and satiety
 

@@ -137,8 +137,7 @@ Key nutritional strategies:
 
 Contest prep considerations:
 - Water manipulation: 50ml/kg normal, 80ml/kg loading, 30ml/kg peak week
-- Sodium cycling: 3000mg normal, 2000mg moderate, 1000mg low, 500mg peak
-- Carb cycling: High/low days based on training and phase
+- Sodium management: 3000mg normal, 2000mg moderate, 1000mg low, 500mg peak
 - Refeed days: 110% TDEE with 60%+ carbs every 7-14 days
 - Diet breaks: 2 weeks at maintenance every 8-12 weeks
 - Peak week protocols: Water loading, sodium depletion, carb loading
@@ -185,11 +184,6 @@ Output format: JSON with detailed nutrition strategy
     "sodium_mg": number,
     "strategy": string,
     "rationale": string
-  }],
-  "carb_cycling": [{
-    "day": string,
-    "carbs_g": number,
-    "strategy": string
   }],
   "special_days": {
     "refeed_schedule": [{"week": number, "day": string, "calories": number}],
@@ -280,6 +274,53 @@ JSON keys (snake_case):
 - references: array of short strings (e.g., study or guideline names)
 Then a 5–8 sentence human-readable summary.`;
 
+import { GoalCategory } from '@/models/UserProfile';
+
+/**
+ * Goal category options for the form
+ */
+export const GOAL_CATEGORY_OPTIONS: Array<{
+  value: GoalCategory;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'lean_bulk',
+    label: 'Lean Bulk',
+    description: 'Build muscle with minimal fat gain (5-10% surplus)',
+  },
+  {
+    value: 'dirty_bulk',
+    label: 'Aggressive Bulk',
+    description: 'Maximum muscle gain, accepting fat gain (15-20% surplus)',
+  },
+  {
+    value: 'mini_cut',
+    label: 'Mini Cut',
+    description: 'Short 2-6 week cut between bulk phases (15-20% deficit)',
+  },
+  {
+    value: 'aggressive_cut',
+    label: 'Aggressive Cut',
+    description: 'Fast fat loss for experienced dieters (25-30% deficit)',
+  },
+  {
+    value: 'recomp',
+    label: 'Body Recomposition',
+    description: 'Lose fat and gain muscle at maintenance calories',
+  },
+  {
+    value: 'maintenance',
+    label: 'Maintenance',
+    description: 'Maintain current physique at TDEE',
+  },
+  {
+    value: 'body_fat_goal',
+    label: 'Body Fat Goal',
+    description: 'Target a specific body fat percentage',
+  },
+];
+
 // Default form values
 export const DEFAULT_FORM_STATE = {
   apiKey: import.meta.env.VITE_GROQ_API_KEY || '',
@@ -289,10 +330,18 @@ export const DEFAULT_FORM_STATE = {
   sex: 'male' as const,
   heightCm: 178,
   weightKg: 80,
-  bodyFat: 22,
+  bodyFat: 22, // Optional: current body fat for more accurate BMR
   trainingDaysPerWeek: 4,
   workoutLevel: 'intermediate' as const,
   workoutSplit: 'upper_lower' as const,
+  // New goal category system
+  goalCategory: 'mini_cut' as GoalCategory,
+  // Body fat goal (only used when goalCategory === 'body_fat_goal')
+  bodyFatGoal: {
+    currentBf: 22,
+    targetBf: 12,
+  },
+  // Legacy fields (deprecated but kept for backward compatibility)
   primaryGoal: 'fat_loss' as const,
   targetBf: 12,
   timelineWeeks: 16,

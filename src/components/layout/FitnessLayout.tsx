@@ -12,6 +12,7 @@ import { useAISdkRag } from '@/hooks/useAISdkRag';
 import { usePlanGenerator } from '@/hooks/usePlanGenerator';
 import { formToUserProfile, formToWeeklyOutlines } from '@/utils/formToPlanModels';
 import { DEFAULT_FORM_STATE } from '@/constants';
+import { GoalCategory, getGoalCategoryLabel } from '@/models/UserProfile';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import {
@@ -445,9 +446,14 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
       setShowChainOfThought(true);
 
       // Optimistically create a new plan object and add to history immediately
+      // Use goalCategory label if available, otherwise fall back to primaryGoal
+      const goalLabel = (dataToUse as any).goalCategory 
+        ? getGoalCategoryLabel((dataToUse as any).goalCategory as GoalCategory)
+        : dataToUse.primaryGoal?.replace(/_/g, ' ') || 'Fitness';
+      
       const optimisticPlan = {
         id: Date.now(),
-        title: `${dataToUse.primaryGoal} Program`,
+        title: `${goalLabel} Program`,
         createdAt: new Date().toISOString(),
         data: {
           isGenerating: true,
@@ -650,9 +656,14 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
 
       // Optimistically create a new plan object and add to history immediately
       // Use skeleton data structure instead of placeholder text
+      // Use goalCategory label if available, otherwise fall back to primaryGoal
+      const goalLabel = (dataToUse as any).goalCategory 
+        ? getGoalCategoryLabel((dataToUse as any).goalCategory as GoalCategory)
+        : dataToUse.primaryGoal?.replace(/_/g, ' ') || 'Fitness';
+      
       const optimisticPlan = {
         id: Date.now(),
-        title: `${dataToUse.primaryGoal} Program`,
+        title: `${goalLabel} Program`,
         createdAt: new Date().toISOString(),
         data: {
           isGenerating: true,
@@ -840,7 +851,11 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
         if (framework?.trainingApproach?.split) {
           return `${framework.trainingApproach.split} Program`;
         }
-        // Fallback to form goal
+        // Fallback to form goal - use goalCategory (new) or primaryGoal (legacy)
+        const goalCategory = (form as any)?.goalCategory as GoalCategory | undefined;
+        if (goalCategory) {
+          return `${getGoalCategoryLabel(goalCategory)} Program`;
+        }
         const goal = form?.primaryGoal || 'Fitness';
         return `${goal.charAt(0).toUpperCase() + goal.slice(1).replace('_', ' ')} Program`;
       })();
@@ -858,6 +873,11 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
           gender: form.sex || 'male',
           height: form.heightCm,
           weight: form.weightKg,
+          // ✅ New goal category system (takes priority)
+          goalCategory: (form as any).goalCategory || undefined,
+          // ✅ Body fat goal (for body_fat_goal category)
+          bodyFatGoal: (form as any).bodyFatGoal || undefined,
+          // Legacy field for backward compatibility
           primaryGoal: form.primaryGoal || (form as any).goal || 'general fitness',
           // ✅ Add body composition data
           bodyFat: form.bodyFat,

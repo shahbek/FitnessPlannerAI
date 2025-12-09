@@ -26,9 +26,9 @@ Cardio is not generic; it is tailored to the user's specific goal (fat loss vs. 
     2.  **Scheduling**: Cardio sessions are integrated into the `WeeklyOutline`, ensuring they don't interfere with resistance training recovery (e.g., separating heavy leg days from intense running).
     3.  **Output**: The plan details frequency, duration, intensity, and specific type (e.g., "30 min Zone 2 Jog").
 
-## 3. Nutrition & Macro Cycling
+## 3. Nutrition & Macro Targets
 
-The nutrition engine goes beyond simple calorie counting, implementing macro cycling and phase-specific targets.
+The nutrition engine calculates evidence-based calorie and macro targets with phase-specific adjustments.
 
 - **Logic Location**: `src/services/NutritionCalculationService.ts`, `src/services/BatchMealGenerator.ts`, `src/models/PlanModels.ts` (`MetabolicMetrics`, `TrainingFramework`).
 - **Workflow**:
@@ -36,7 +36,6 @@ The nutrition engine goes beyond simple calorie counting, implementing macro cyc
     2.  **Goal Targeting**: Applies a caloric surplus (muscle gain) or deficit (fat loss) based on the user's goal and timeline.
     3.  **Macro Split**: Determines the optimal ratio of Protein, Carbs, and Fats.
         -   *High Protein*: Prioritized for all goals to support muscle retention/growth (typically 1.6-2.2g/kg).
-        -   *Carb Cycling*: (If enabled) Adjusts carbohydrate intake based on training days (higher carbs) vs. rest days (lower carbs) to optimize insulin sensitivity and fuel workouts.
     4.  **Meal Generation**: `BatchMealGenerator` creates meals that strictly adhere to these macro targets, using USDA data for accuracy.
 
 ## 4. Grocery List Generation

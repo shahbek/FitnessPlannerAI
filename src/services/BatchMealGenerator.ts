@@ -24,9 +24,6 @@ import { MacroValues, NutritionErrorType } from '../types/nutrition';
 import { calculateMacrosForAmount, extractMacrosFromUSDA, normalizeFoodName } from '../utils/usdaMapper';
 import { HybridMealOptimizer } from './optimizers/HybridMealOptimizer';
 import { isZeroImpactIngredient, stripDescriptorWords } from '../constants/ingredients';
-import {
-  MACRO_CYCLING,
-} from './NutritionCalculationService';
 
 /**
  * Meal Schema for Batch Generation
@@ -137,6 +134,10 @@ export class BatchMealGenerator {
   private lastAdjustmentSummary: AdjustmentDaySummary[] = [];
   private hybridOptimizer: HybridMealOptimizer;
   private optimizerInitialized: boolean = false;
+  
+  // AI-generated supplement meals for protein backup
+  private supplementMeals: import('./SupplementMealGenerator').SupplementMeal[] = [];
+  private apiConfig: { apiKey: string; endpoint: string; model: string } | null = null;
 
   constructor(
     usdaService: USDANutritionService,
@@ -154,6 +155,13 @@ export class BatchMealGenerator {
       console.warn('⚠️ [BATCH] Hybrid optimizer initialization failed, will use fallback:', err);
       this.optimizerInitialized = false;
     });
+  }
+  
+  /**
+   * Set API configuration for AI-based generation
+   */
+  setApiConfig(apiKey: string, endpoint: string, model: string): void {
+    this.apiConfig = { apiKey, endpoint, model };
   }
 
   public getLastAdjustmentSummary(): AdjustmentDaySummary[] {
@@ -205,6 +213,11 @@ export class BatchMealGenerator {
     });
     console.log('📊 [BATCH] Day-by-Day Macro Targets:', dayTargets);
 
+    // Step 0: Generate high-protein supplement meals for backup
+    options?.onProgress?.('Generating protein supplement meals...', 5);
+    await this.generateSupplementMealsForPlan(userProfile);
+    console.log(`✅ [BATCH] Generated ${this.supplementMeals.length} protein supplement meals for backup`);
+
     // Step 1: Generate all meals with single AI call
     options?.onProgress?.('Generating all meals with AI...', 10);
     const aiGeneratedMeals = await this.generateWithAI(
@@ -246,10 +259,16 @@ export class BatchMealGenerator {
     console.log(`✅ [BATCH] Adjusted meals to match targets`);
 
     // Convert to day-by-day format (array of arrays)
-    const dayMeals: MealWithUSDA[][] = [];
+    let dayMeals: MealWithUSDA[][] = [];
     for (let day = 1; day <= 7; day++) {
       dayMeals.push(adjustedMeals.filter((meal: MealWithUSDA) => meal.dayNumber === day));
     }
+
+    // Step 6: PROTEIN SUPPLEMENTATION - Ensure protein targets are ALWAYS met
+    // This is a CRITICAL fallback when LP optimizer can't hit protein targets
+    options?.onProgress?.('Ensuring protein targets...', 90);
+    dayMeals = await this.ensureProteinTargets(dayMeals, weeklyOutline, trainingSplit, usdaData);
+    console.log(`✅ [BATCH] Ensured protein targets are met for all days`);
 
     // COMPREHENSIVE VALIDATION - Check all targets are met
     const validation = this.validateAndReportAccuracy(
@@ -263,6 +282,51 @@ export class BatchMealGenerator {
     console.log('='.repeat(80));
     console.log(JSON.stringify(validation, null, 2));
     console.log('='.repeat(80) + '\n');
+
+    // HARD VALIDATION: Protein targets MUST be met
+    // If protein is more than threshold below target on ANY day, throw an error
+    // Using centralized validation constants
+    const { HARD_FAILURE_THRESHOLDS } = await import('@/constants/validation');
+    const PROTEIN_TOLERANCE_PERCENTAGE = HARD_FAILURE_THRESHOLDS.PROTEIN_DEFICIT_PERCENTAGE;
+    const proteinErrors: string[] = [];
+    
+    validation.dailyBreakdown.forEach((day: any) => {
+      const proteinAccuracy = parseFloat(day.accuracy.protein) / 100;
+      if (proteinAccuracy < (1 - PROTEIN_TOLERANCE_PERCENTAGE)) {
+        const deficit = day.target.protein - day.actual.protein;
+        proteinErrors.push(
+          `Day ${day.dayNumber} (${day.dayName}): Protein ${day.actual.protein.toFixed(1)}g vs target ${day.target.protein}g (${deficit.toFixed(1)}g deficit, ${day.accuracy.protein} accuracy)`
+        );
+      }
+    });
+
+    if (proteinErrors.length > 0) {
+      console.error('\n🚨 CRITICAL: PROTEIN TARGETS NOT MET!');
+      console.error('The following days have protein below acceptable threshold:');
+      proteinErrors.forEach(err => console.error(`  ❌ ${err}`));
+      console.error('\nThis is a HARD FAILURE - protein targets are critical for muscle retention.');
+      
+      // Throw error to prevent invalid plan from being saved
+      throw new Error(
+        `PROTEIN VALIDATION FAILED: ${proteinErrors.length} day(s) below protein target.\n` +
+        proteinErrors.join('\n') +
+        '\n\nProtein targets are critical for muscle retention and cannot be compromised.'
+      );
+    }
+
+    // Also check weekly protein totals
+    const weeklyProteinAccuracy = parseFloat(validation.weeklyTotals.accuracy.protein) / 100;
+    if (weeklyProteinAccuracy < (1 - PROTEIN_TOLERANCE_PERCENTAGE)) {
+      const weeklyDeficit = validation.weeklyTotals.target.protein - validation.weeklyTotals.actual.protein;
+      throw new Error(
+        `WEEKLY PROTEIN VALIDATION FAILED: Total weekly protein ${validation.weeklyTotals.actual.protein.toFixed(1)}g ` +
+        `vs target ${validation.weeklyTotals.target.protein.toFixed(1)}g (${weeklyDeficit.toFixed(1)}g deficit).\n` +
+        `Weekly accuracy: ${validation.weeklyTotals.accuracy.protein}\n` +
+        `Protein targets are critical for muscle retention and cannot be compromised.`
+      );
+    }
+
+    console.log('✅ PROTEIN VALIDATION PASSED: All days meet protein targets');
 
     options?.onProgress?.('Batch meal generation complete!', 100);
     return dayMeals;
@@ -667,7 +731,7 @@ ${mealFrequency === 3 ? `
 - Evening Snack: 5% (~${mealDistribution.snacks?.[2] || 0} cal)
 `}
 
-DAY-BY-DAY TARGETS (with macro cycling):
+DAY-BY-DAY TARGETS:
 ${dayInfo.map((day: { dayNumber: number; dayName: string; isTrainingDay: boolean; macros: MacroValues; mealTargets: any }) => `
 Day ${day.dayNumber} (${day.dayName} - ${day.isTrainingDay ? 'Training' : 'Rest'}):
 - Daily Calories: ${day.macros.calories} kcal
@@ -1041,31 +1105,19 @@ Examples of how to interpret preferences:
   }
 
   /**
-   * Calculate day macros with cycling
+   * Calculate day macros
    *
-   * NOTE: Now uses NutritionCalculationService constants for evidence-based macro cycling.
-   * Training days: +5% calories, +20% carbs, -15% fat (optimized for performance)
-   * Rest days: -5% calories, -20% carbs, +15% fat (optimized for recovery)
-   * Protein remains constant across all days.
+   * Returns consistent daily macro targets (same for all days).
    */
-  private calculateDayMacros(weeklyOutline: WeeklyOutline, isRestDay: boolean): MacroValues {
+  private calculateDayMacros(weeklyOutline: WeeklyOutline, _isRestDay: boolean): MacroValues {
     const base = weeklyOutline.dailyTargets;
 
-    if (isRestDay) {
-      return {
-        calories: Math.round(base.calories * (1 - MACRO_CYCLING.REST_DAY_CALORIE_REDUCTION)),
-        protein: base.protein, // Constant
-        carbs: Math.round(base.carbs * (1 - MACRO_CYCLING.REST_DAY_CARB_REDUCTION)),
-        fats: Math.round(base.fat * (1 + MACRO_CYCLING.REST_DAY_FAT_BOOST)),
-      };
-    } else {
-      return {
-        calories: Math.round(base.calories * (1 + MACRO_CYCLING.TRAINING_DAY_CALORIE_BOOST)),
-        protein: base.protein, // Constant
-        carbs: Math.round(base.carbs * (1 + MACRO_CYCLING.TRAINING_DAY_CARB_BOOST)),
-        fats: Math.round(base.fat * (1 - MACRO_CYCLING.TRAINING_DAY_FAT_REDUCTION)),
-      };
-    }
+    return {
+      calories: base.calories,
+      protein: base.protein,
+      carbs: base.carbs,
+      fats: base.fat,
+    };
   }
 
   /**
@@ -2180,5 +2232,230 @@ Examples of how to interpret preferences:
     });
 
     return recomputed;
+  }
+
+  /**
+   * Generate high-protein supplement meals for backup using AI
+   * These will be used when regular meals don't hit protein targets
+   */
+  private async generateSupplementMealsForPlan(userProfile: UserProfile): Promise<void> {
+    const { generateSupplementMeals } = await import('./SupplementMealGenerator');
+    
+    // Use API config if set, otherwise try to get from userProfile or env
+    const apiKey = this.apiConfig?.apiKey || userProfile.apiKey || '';
+    const endpoint = this.apiConfig?.endpoint || userProfile.endpoint || 'groq';
+    const model = this.apiConfig?.model || 'llama-3.3-70b-versatile';
+    
+    if (!apiKey) {
+      console.warn('⚠️ [BATCH] No API key for supplement meal generation, using defaults');
+      const { getDefaultSupplementMeals } = await import('./SupplementMealGenerator');
+      // @ts-ignore - we'll handle this
+      this.supplementMeals = (await import('./SupplementMealGenerator')).getDefaultSupplementMeals?.() || [];
+      return;
+    }
+    
+    try {
+      this.supplementMeals = await generateSupplementMeals(
+        userProfile,
+        apiKey,
+        endpoint,
+        model,
+        {
+          count: 4,
+          preferences: userProfile.preferences,
+        }
+      );
+    } catch (error) {
+      console.warn('⚠️ [BATCH] Failed to generate supplement meals with AI, using defaults:', error);
+      // Fallback to default meals
+      this.supplementMeals = [];
+    }
+  }
+
+  /**
+   * PROTEIN SUPPLEMENTATION - GUARANTEED to meet protein targets
+   * 
+   * Uses AI-generated supplement meals from the plan, adjusted with LP algorithm
+   * to hit exact protein targets. Zero tolerance for failures.
+   */
+  private async ensureProteinTargets(
+    dayMeals: MealWithUSDA[][],
+    weeklyOutline: WeeklyOutline,
+    trainingSplit: any,
+    usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>
+  ): Promise<MealWithUSDA[][]> {
+    const { GENERATION_TOLERANCES } = await import('@/constants/validation');
+    const { selectAndAdjustSupplementMeal, adjustSupplementMealToTarget } = await import('./SupplementMealGenerator');
+    
+    const PROTEIN_TOLERANCE = GENERATION_TOLERANCES.PROTEIN_PERCENTAGE; // 10%
+    const usedMealNames: string[] = []; // Track used supplement meals for variety
+
+    const supplementedDayMeals: MealWithUSDA[][] = [];
+
+    for (let dayIdx = 0; dayIdx < dayMeals.length; dayIdx++) {
+      const dayNum = dayIdx + 1;
+      let meals = [...dayMeals[dayIdx]];
+      const day = trainingSplit.days[dayIdx];
+      const dayTargets = this.calculateDayMacros(weeklyOutline, day?.isRestDay || false);
+      
+      // Helper to calculate totals
+      const calculateTotals = (mealList: MealWithUSDA[]) => mealList.reduce(
+        (sum, meal) => ({
+          calories: sum.calories + meal.totalMacros.calories,
+          protein: sum.protein + meal.totalMacros.protein,
+          carbs: sum.carbs + meal.totalMacros.carbs,
+          fats: sum.fats + meal.totalMacros.fats,
+        }),
+        { calories: 0, protein: 0, carbs: 0, fats: 0 }
+      );
+
+      let currentTotals = calculateTotals(meals);
+      let proteinAccuracy = currentTotals.protein / dayTargets.protein;
+      let proteinDeficit = dayTargets.protein - currentTotals.protein;
+      
+      let supplementsAdded = 0;
+      const MAX_SUPPLEMENTS = 3;
+
+      // LOOP: Add supplement meals until protein target is met
+      while (proteinAccuracy < (1 - PROTEIN_TOLERANCE) && proteinDeficit > 2 && supplementsAdded < MAX_SUPPLEMENTS) {
+        console.log(`⚠️ [PROTEIN] Day ${dayNum}: ${currentTotals.protein.toFixed(1)}g vs target ${dayTargets.protein}g (${(proteinAccuracy * 100).toFixed(1)}%)`);
+        console.log(`   Need to add ${proteinDeficit.toFixed(1)}g protein`);
+        
+        // Select and adjust a supplement meal
+        const adjusted = this.supplementMeals.length > 0
+          ? selectAndAdjustSupplementMeal(this.supplementMeals, proteinDeficit, {
+              maxCalories: proteinDeficit > 40 ? 500 : 400,
+              usedMealNames,
+            })
+          : null;
+        
+        if (adjusted) {
+          usedMealNames.push(adjusted.originalMeal.name);
+          
+          // Convert to MealWithUSDA format
+          const supplementMeal = this.convertSupplementToMeal(adjusted, dayNum, day?.dayName || `Day ${dayNum}`);
+          meals.push(supplementMeal);
+          supplementsAdded++;
+          
+          console.log(`   ✅ Added "${adjusted.originalMeal.name}" (scale: ${adjusted.scaleFactor.toFixed(2)}x):`);
+          console.log(`      +${adjusted.adjustedMacros.protein.toFixed(1)}g protein, +${adjusted.adjustedMacros.calories} kcal`);
+        } else {
+          // Fallback: create precision shake
+          console.log(`   ⚠️ No supplement meals available, using precision fallback`);
+          const fallback = this.createPrecisionProteinShake(proteinDeficit, dayNum, day?.dayName || `Day ${dayNum}`);
+          meals.push(fallback);
+          supplementsAdded++;
+          
+          console.log(`   ✅ Added precision shake: +${fallback.totalMacros.protein}g protein`);
+        }
+        
+        // Recalculate
+        currentTotals = calculateTotals(meals);
+        proteinAccuracy = currentTotals.protein / dayTargets.protein;
+        proteinDeficit = dayTargets.protein - currentTotals.protein;
+      }
+      
+      // FINAL FALLBACK: Precision shake if still short
+      if (proteinAccuracy < (1 - PROTEIN_TOLERANCE) && proteinDeficit > 2) {
+        console.log(`🚨 [FINAL FALLBACK] Day ${dayNum}: Still ${proteinDeficit.toFixed(1)}g short`);
+        const fallback = this.createPrecisionProteinShake(proteinDeficit, dayNum, day?.dayName || `Day ${dayNum}`);
+        meals.push(fallback);
+        currentTotals = calculateTotals(meals);
+        console.log(`   ✅ GUARANTEED: ${currentTotals.protein.toFixed(1)}g protein (${(currentTotals.protein / dayTargets.protein * 100).toFixed(1)}%)`);
+      }
+      
+      if (supplementsAdded > 0) {
+        console.log(`📊 Day ${dayNum} Final: ${currentTotals.protein.toFixed(1)}g protein (${(currentTotals.protein / dayTargets.protein * 100).toFixed(1)}% of ${dayTargets.protein}g target)`);
+      }
+      
+      supplementedDayMeals.push(meals);
+    }
+    
+    return supplementedDayMeals;
+  }
+
+  /**
+   * Convert an adjusted supplement meal to MealWithUSDA format
+   */
+  private convertSupplementToMeal(
+    adjusted: import('./SupplementMealGenerator').AdjustedSupplementMeal,
+    dayNum: number,
+    dayName: string
+  ): MealWithUSDA {
+    return {
+      mealName: adjusted.originalMeal.name,
+      mealType: 'snack',
+      instructions: adjusted.originalMeal.instructions,
+      ingredients: adjusted.adjustedIngredients.map(ing => ({
+        name: ing.name,
+        amount: ing.adjustedAmount,
+        nutrition: ing.macros,
+        fdcId: 0, // Will be looked up if needed
+      })),
+      totalMacros: adjusted.adjustedMacros,
+      dayNumber: dayNum,
+      dayName: dayName,
+      adjustmentLog: [
+        `Protein supplement meal (scale: ${adjusted.scaleFactor.toFixed(2)}x)`,
+        `Provides: ${adjusted.adjustedMacros.protein.toFixed(1)}g protein, ${adjusted.adjustedMacros.calories} kcal`,
+      ],
+    };
+  }
+
+  /**
+   * Create a precision protein shake that EXACTLY fills the protein gap
+   * This is the final fallback that GUARANTEES protein targets are met
+   */
+  private createPrecisionProteinShake(
+    proteinNeeded: number,
+    dayNum: number,
+    dayName: string
+  ): MealWithUSDA {
+    const WHEY_PROTEIN_PER_GRAM = 0.80;
+    const WHEY_CALORIES_PER_GRAM = 3.6;
+    const WHEY_CARBS_PER_GRAM = 0.05;
+    const WHEY_FAT_PER_GRAM = 0.02;
+    
+    const proteinWithBuffer = proteinNeeded * 1.05;
+    const wheyAmount = Math.ceil(proteinWithBuffer / WHEY_PROTEIN_PER_GRAM);
+    
+    const macros: MacroValues = {
+      protein: Math.round(wheyAmount * WHEY_PROTEIN_PER_GRAM * 10) / 10,
+      carbs: Math.round(wheyAmount * WHEY_CARBS_PER_GRAM * 10) / 10,
+      fats: Math.round(wheyAmount * WHEY_FAT_PER_GRAM * 10) / 10,
+      calories: Math.round(wheyAmount * WHEY_CALORIES_PER_GRAM),
+    };
+    
+    return {
+      mealName: 'Protein Shake (Target Boost)',
+      mealType: 'snack',
+      instructions: [
+        `Add ${wheyAmount}g whey protein powder to shaker bottle`,
+        'Add 300ml cold water',
+        'Shake vigorously for 30 seconds',
+        'Drink immediately',
+      ],
+      ingredients: [
+        {
+          name: 'Whey Protein Powder',
+          amount: wheyAmount,
+          nutrition: macros,
+          fdcId: 172120,
+        },
+        {
+          name: 'Water',
+          amount: 300,
+          nutrition: { protein: 0, carbs: 0, fats: 0, calories: 0 },
+          fdcId: 0,
+        },
+      ],
+      totalMacros: macros,
+      dayNumber: dayNum,
+      dayName: dayName,
+      adjustmentLog: [
+        `Precision fallback to guarantee protein target`,
+        `Required: ${proteinNeeded.toFixed(1)}g, Provides: ${macros.protein}g protein`,
+      ],
+    };
   }
 }

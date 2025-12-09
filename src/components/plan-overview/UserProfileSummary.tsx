@@ -1,8 +1,7 @@
-import { useMemo } from 'react';
 import { Badge } from '@/components/ui/badge';
 import { User, Target, Dumbbell, Calendar, Activity, Heart, Zap } from 'lucide-react';
-import { calculateBMI, getBMIClassification } from '@/utils/planCalculations';
-import { type UserMetrics } from '@/services/NutritionCalculationService';
+import { calculateBMI, getBMIClassification, getTDEE } from '@/utils/planCalculations';
+import { GoalCategory, getGoalCategoryLabel } from '@/models/UserProfile';
 
 // BMI Gauge Component
 interface BMIGaugeProps {
@@ -159,8 +158,12 @@ interface UserProfileSummaryProps {
     gender?: string;
     height?: number;
     weight?: number;
+    // New goal category system
+    goalCategory?: GoalCategory;
+    // Legacy field (deprecated)
     primaryGoal?: string;
     experienceLevel?: string;
+    workoutLevel?: string; // Alternative field name
     workoutDaysPerWeek?: number;
     sessionDuration?: number;
     equipmentAccess?: string[];
@@ -171,6 +174,8 @@ interface UserProfileSummaryProps {
       tdee?: { value: number };
       bmi?: { value: number };
     };
+    // Plan may also have goalCategory at top level
+    goalCategory?: GoalCategory;
   };
 }
 
@@ -183,78 +188,44 @@ export function UserProfileSummary({ userProfile, plan }: UserProfileSummaryProp
 
   const bmiClassification = bmi ? getBMIClassification(bmi) : null;
 
-  // Calculate TDEE/maintenance if missing from plan
-  const maintenanceCalories = useMemo(() => {
-    // First try to get from plan
-    if (plan?.metrics?.tdee?.value && plan.metrics.tdee.value > 0) {
-      return plan.metrics.tdee.value;
+  // Use CENTRALIZED TDEE calculation for consistency across all components
+  const maintenanceCalories = getTDEE(plan as any, userProfile as any);
+
+
+
+  // Format goal for display - prioritizes goalCategory over legacy primaryGoal
+  const formatGoal = () => {
+    // Check for goalCategory first (new system)
+    const goalCategory = userProfile?.goalCategory || (plan as any)?.goalCategory;
+    if (goalCategory) {
+      return getGoalCategoryLabel(goalCategory);
     }
-
-    // Fallback: calculate from userProfile if we have enough data
-    if (userProfile?.weight && userProfile?.height && userProfile?.age && userProfile?.gender) {
-      try {
-        const metrics: UserMetrics = {
-          weightKg: userProfile.weight,
-          heightCm: userProfile.height,
-          age: userProfile.age,
-          sex: userProfile.gender.toLowerCase() === 'male' || userProfile.gender.toLowerCase() === 'm' ? 'male' : 'female',
-          trainingDaysPerWeek: userProfile.workoutDaysPerWeek || 3,
-        };
-
-        // Calculate synchronously using simplified formula
-        // BMR using Mifflin-St Jeor
-        const bmr = metrics.sex === 'male'
-          ? 10 * metrics.weightKg + 6.25 * metrics.heightCm - 5 * metrics.age + 5
-          : 10 * metrics.weightKg + 6.25 * metrics.heightCm - 5 * metrics.age - 161;
-
-        // Activity factor based on experience level first, then training days
-        const experienceLevel = userProfile.experienceLevel || '';
-        const trainingDays = metrics.trainingDaysPerWeek || 3;
-        let activityFactor = 1.55; // Moderate default
-        const levelLower = experienceLevel?.toLowerCase() || '';
-        
-        if (levelLower === 'beginner' || levelLower === 'sedentary') {
-          activityFactor = 1.375; // Light activity
-        } else if (levelLower === 'intermediate' || levelLower === 'moderate') {
-          activityFactor = 1.55; // Moderate activity
-        } else if (levelLower === 'advanced' || levelLower === 'expert' || levelLower === 'active') {
-          activityFactor = 1.725; // Active
-        } else if (levelLower === 'athlete' || levelLower === 'very_active') {
-          activityFactor = 1.9; // Very active
-        } else {
-          // Fallback to training days if no valid experience level
-          if (trainingDays <= 2) activityFactor = 1.375;
-          else if (trainingDays <= 3) activityFactor = 1.55;
-          else if (trainingDays <= 5) activityFactor = 1.725;
-          else activityFactor = 1.9;
-        }
-
-        const tdee = Math.round(bmr * activityFactor);
-        return tdee;
-      } catch (error) {
-        console.error('Error calculating TDEE:', error);
-        return null;
-      }
-    }
-
-    return null;
-  }, [plan?.metrics?.tdee?.value, userProfile?.weight, userProfile?.height, userProfile?.age, userProfile?.gender, userProfile?.workoutDaysPerWeek]);
-
-
-
-  // Format goal for display
-  const formatGoal = (goal?: string) => {
-    if (!goal) return '—';
-    return goal
+    
+    // Fall back to legacy primaryGoal
+    const legacyGoal = userProfile?.primaryGoal;
+    if (!legacyGoal) return '—';
+    
+    return legacyGoal
       .split('_')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
   };
 
-  // Format experience level
-  const formatExperience = (level?: string) => {
+  // Format experience level with proper labels
+  const formatExperience = () => {
+    const level = userProfile?.experienceLevel || userProfile?.workoutLevel;
     if (!level) return '—';
-    return level.charAt(0).toUpperCase() + level.slice(1);
+    
+    // Map common values to proper labels
+    const levelMap: Record<string, string> = {
+      'beginner': 'Beginner (0-1 year)',
+      'intermediate': 'Intermediate (1-4 years)',
+      'advanced': 'Advanced (4-7 years)',
+      'expert': 'Expert (7+ years)',
+    };
+    
+    const lowerLevel = level.toLowerCase();
+    return levelMap[lowerLevel] || level.charAt(0).toUpperCase() + level.slice(1);
   };
 
   return (
@@ -314,10 +285,10 @@ export function UserProfileSummary({ userProfile, plan }: UserProfileSummaryProp
               <span className="text-xs font-bold text-orange-50 uppercase tracking-wide drop-shadow-md">Goal</span>
             </div>
             <div className={`font-black text-white drop-shadow-lg leading-tight ${
-              (formatGoal(userProfile?.primaryGoal)?.length || 0) > 12 ? 'text-lg' : 
-              (formatGoal(userProfile?.primaryGoal)?.length || 0) > 8 ? 'text-xl' : 'text-2xl'
+              (formatGoal()?.length || 0) > 12 ? 'text-lg' : 
+              (formatGoal()?.length || 0) > 8 ? 'text-xl' : 'text-2xl'
             }`}>
-              {formatGoal(userProfile?.primaryGoal)}
+              {formatGoal()}
             </div>
           </div>
         </div>
@@ -332,8 +303,10 @@ export function UserProfileSummary({ userProfile, plan }: UserProfileSummaryProp
               <Dumbbell className="h-5 w-5 text-white drop-shadow-md" />
               <span className="text-xs font-bold text-purple-50 uppercase tracking-wide drop-shadow-md">Level</span>
             </div>
-            <div className="text-2xl font-black text-white drop-shadow-lg leading-tight">
-              {formatExperience(userProfile?.experienceLevel)}
+            <div className={`font-black text-white drop-shadow-lg leading-tight ${
+              (formatExperience()?.length || 0) > 15 ? 'text-base' : 'text-xl'
+            }`}>
+              {formatExperience()}
             </div>
           </div>
         </div>

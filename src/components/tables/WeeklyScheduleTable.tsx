@@ -88,26 +88,29 @@ export function WeeklyScheduleTable({ data, plan }: WeeklyScheduleTableProps) {
     return weekSchedule.sessions
       .filter((session: any) => session.dayNumber === dayNumber)
       .map((session: any) => {
-        // Use full cardioTemplate if available, otherwise fallback
-        const template = session.cardioTemplate || {};
+        // NO FALLBACK: All cardio data MUST come from CardioGenerationService
+        const template = session.cardioTemplate;
+        if (!template) {
+          console.warn(`[WeeklyScheduleTable] Week ${weekNumber}, Day ${dayNumber}: Missing cardioTemplate - CardioGenerationService may have failed`);
+        }
         return {
-          sessionId: session.templateId || template.templateId || `cardio-${weekNumber}-${dayNumber}`,
-          name: template.name || session.name || 'Cardio Session',
-          type: template.type || 'Cardio',
-          intensity: template.intensity || 'Moderate',
-          durationMinutes: template.durationMinutes || 30,
-          templateId: template.templateId,
-          timing: session.timing || 'afternoon',
-          structure: template.structure, // Full structure with warmup, mainWorkout, cooldown
-          caloriesBurned: template.caloriesBurned,
-          targetHeartRate: template.targetHeartRate, // Full HR zone data
-          equipment: template.equipment || [],
-          progressionOptions: template.progressionOptions || [],
-          regressionOptions: template.regressionOptions || [],
-          formCues: template.formCues || [],
-          contraindications: template.contraindications || [],
-          recoveryTime: template.recoveryTime,
-          notes: template.notes || session.notes,
+          sessionId: session.templateId || template?.templateId || `cardio-${weekNumber}-${dayNumber}`,
+          name: template?.name || session.name, // No fallback to generic "Cardio Session"
+          type: template?.type, // No fallback to generic "Cardio"
+          intensity: template?.intensity, // No fallback to "Moderate"
+          durationMinutes: template?.durationMinutes, // No fallback to 30
+          templateId: template?.templateId,
+          timing: session.timing,
+          structure: template?.structure, // Full structure with warmup, mainWorkout, cooldown
+          caloriesBurned: template?.caloriesBurned,
+          targetHeartRate: template?.targetHeartRate, // Full HR zone data
+          equipment: template?.equipment || [],
+          progressionOptions: template?.progressionOptions || [],
+          regressionOptions: template?.regressionOptions || [],
+          formCues: template?.formCues || [],
+          contraindications: template?.contraindications || [],
+          recoveryTime: template?.recoveryTime,
+          notes: template?.notes || session.notes,
         };
       });
   };

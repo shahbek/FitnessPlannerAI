@@ -123,8 +123,9 @@ export function CardioOverview({ plan, userProfile }: CardioOverviewProps) {
       });
     });
 
-    const mostCommonType = Object.entries(typeCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Cardio';
-    const mostCommonIntensity = Object.entries(intensityCount).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Moderate';
+    // NO FALLBACK: Data must come from CardioGenerationService
+    const mostCommonType = Object.entries(typeCount).sort((a, b) => b[1] - a[1])[0]?.[0];
+    const mostCommonIntensity = Object.entries(intensityCount).sort((a, b) => b[1] - a[1])[0]?.[0];
 
     return {
       type: mostCommonType,

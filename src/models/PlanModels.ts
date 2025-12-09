@@ -154,7 +154,8 @@ export interface WeeklyOutline {
     weeklyVolume: string;
     focusAreas: string[];
   };
-  cardioSchedule: {
+  // Optional - will be populated by CardioGenerationService
+  cardioSchedule?: {
     sessions: number;
     duration: number;
     intensity: string;

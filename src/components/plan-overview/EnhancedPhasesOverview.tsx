@@ -163,6 +163,7 @@ export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile, work
         <div className="md:col-span-12">
           <BodyCompositionProjection
             plan={plan}
+            weeklySchedule={weeklySchedule}
             userProfile={userProfile}
           />
         </div>

@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dumbbell, Activity, Zap, Coffee, Info, Apple, Drumstick, Salad } from 'lucide-react';
+import { Dumbbell, Activity, Zap, Coffee, Info } from 'lucide-react';
 import {
   Tooltip,
   TooltipContent,
@@ -9,6 +9,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { DailyTimeline } from './DailyTimeline';
+import { calculateWeeklyDeficitSummary, getTDEE, WeeklyDeficitSummary } from '@/utils/planCalculations';
 
 interface WeeklyProgressionTimelineProps {
   plan: any;
@@ -57,10 +58,16 @@ interface WeekData {
   notes?: string;
   selectedDay?: string;
   selectedDayTimeline?: TimelineEvent[];
+  deficitSummary?: WeeklyDeficitSummary | null;
 }
 
 export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgressionTimelineProps) {
   const [selectedDays, setSelectedDays] = useState<Record<number, string>>({});
+  // Track which day tooltip is open (for click support on mobile)
+  const [openDayTooltip, setOpenDayTooltip] = useState<string | null>(null);
+  // Track which deficit tooltip is open
+  const [openDeficitTooltip, setOpenDeficitTooltip] = useState<number | null>(null);
+  
   const weeklyOutlines = Array.isArray(plan?.weeklyOutlines) ? plan.weeklyOutlines : [];
 
   if (weeklyOutlines.length === 0) {
@@ -120,19 +127,15 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
     const scheduleDay = scheduleWeek.days.find((d: any) => d.day === day);
     if (!scheduleDay) return events;
 
-    const trainingSchedule = week?.trainingSchedule || {};
-    const cardioDays = trainingSchedule.cardioDays || [];
-    const isCardioDay = cardioDays.includes(day);
-
-    // Get detailed cardio schedule from plan
+    // Get detailed cardio schedule from CardioGenerationService (the ONLY source of truth)
     const weeklyCardioSchedules = plan?.weeklyCardioSchedules || [];
     const weekCardioSchedule = weeklyCardioSchedules.find((s: any) => s.weekNumber === weekNumber);
     const dayCardioSessions = weekCardioSchedule?.sessions?.filter((s: any) =>
       s.dayName === day || s.dayNumber === (['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].indexOf(day) + 1)
     ) || [];
 
-    // Fallback to basic cardioSchedule if no detailed schedule
-    const cardioSchedule = week?.cardioSchedule || {};
+    // Cardio is determined ONLY by actual sessions from CardioGenerationService
+    // NOT from placeholder trainingSchedule.cardioDays
 
     const getMealTiming = (mealType: string): string => {
       const type = mealType.toLowerCase();
@@ -170,62 +173,47 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
       });
     }
 
-    if (isCardioDay || dayCardioSessions.length > 0) {
-      // Use detailed cardio sessions if available
-      if (dayCardioSessions.length > 0) {
-        dayCardioSessions.forEach((session: any, idx: number) => {
-          const template = session.cardioTemplate || {};
-          const sessionName = template.name || 'Cardio Session';
-          const sessionType = template.type || 'Cardio';
-          const sessionDuration = template.durationMinutes || template.totalDurationMinutes || 30;
-          const sessionIntensity = template.intensity || 'Moderate';
+    // Only show cardio if there are actual sessions from CardioGenerationService
+    if (dayCardioSessions.length > 0) {
+      dayCardioSessions.forEach((session: any) => {
+        const template = session.cardioTemplate;
+        if (!template) {
+          console.warn(`[DayTimeline] Week ${weekNumber}, ${day}: Missing cardioTemplate in session`);
+          return;
+        }
 
-          // Determine timing based on session timing or default
-          let cardioTime = '5:30 PM';
-          if (session.timing === 'morning') cardioTime = '7:00 AM';
-          else if (session.timing === 'afternoon') cardioTime = '2:00 PM';
-          else if (session.timing === 'evening') cardioTime = '6:00 PM';
-          else if (session.timing === 'post_workout') {
-            cardioTime = scheduleDay.workouts && scheduleDay.workouts.length > 0 ? '6:30 PM' : '5:30 PM';
-          }
+        // NO FALLBACK VALUES: All data must come from CardioGenerationService
+        const sessionName = template.name || template.type;
+        const sessionType = template.type;
+        const sessionDuration = template.durationMinutes || template.totalDurationMinutes;
+        const sessionIntensity = template.intensity;
 
-          let cardioDetails = sessionName;
-          if (sessionType !== sessionName) cardioDetails += ` (${sessionType})`;
-          cardioDetails += ` - ${sessionDuration} min`;
-          if (sessionIntensity) cardioDetails += ` @ ${sessionIntensity}`;
+        // Determine timing based on session timing
+        let cardioTime = '5:30 PM';
+        if (session.timing === 'morning') cardioTime = '7:00 AM';
+        else if (session.timing === 'afternoon') cardioTime = '2:00 PM';
+        else if (session.timing === 'evening') cardioTime = '6:00 PM';
+        else if (session.timing === 'post_workout') {
+          cardioTime = scheduleDay.workouts && scheduleDay.workouts.length > 0 ? '6:30 PM' : '5:30 PM';
+        }
 
-          if (template.caloriesBurned) {
-            cardioDetails += ` (~${Math.round(template.caloriesBurned)} cal)`;
-          }
+        let cardioDetailsStr = sessionName || 'Cardio';
+        if (sessionType && sessionType !== sessionName) cardioDetailsStr += ` (${sessionType})`;
+        if (sessionDuration) cardioDetailsStr += ` - ${sessionDuration} min`;
+        if (sessionIntensity) cardioDetailsStr += ` @ ${sessionIntensity}`;
 
-          events.push({
-            time: cardioTime,
-            type: 'cardio',
-            emoji: '🏃',
-            label: sessionName,
-            details: cardioDetails
-          });
-        });
-      } else {
-        // Fallback to basic cardioSchedule
-        const cardioType = cardioSchedule.type || 'Cardio';
-        const cardioDuration = cardioSchedule.duration;
-        const cardioIntensity = cardioSchedule.intensity;
-
-        const cardioTime = scheduleDay.workouts && scheduleDay.workouts.length > 0 ? '6:30 PM' : '5:30 PM';
-
-        let cardioDetails = cardioType;
-        if (cardioDuration) cardioDetails += ` (${cardioDuration} min)`;
-        if (cardioIntensity) cardioDetails += ` - ${cardioIntensity}`;
+        if (template.caloriesBurned) {
+          cardioDetailsStr += ` (~${Math.round(template.caloriesBurned)} cal)`;
+        }
 
         events.push({
           time: cardioTime,
           type: 'cardio',
           emoji: '🏃',
-          label: 'Cardio',
-          details: cardioDetails
+          label: sessionName || 'Cardio',
+          details: cardioDetailsStr
         });
-      }
+      });
     }
 
     events.sort((a, b) => parseTime(a.time) - parseTime(b.time));
@@ -237,27 +225,39 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     const trainingSchedule = week.trainingSchedule || {};
     const resistanceDays = trainingSchedule.resistanceDays || [];
-    const cardioDays = trainingSchedule.cardioDays || [];
 
-    // Get detailed cardio schedule for this week
+    // Get detailed cardio schedule from CardioGenerationService (the ONLY source of truth)
     const weeklyCardioSchedules = plan?.weeklyCardioSchedules || [];
     const weekCardioSchedule = weeklyCardioSchedules.find((s: any) => s.weekNumber === week.weekNumber);
 
-    // Fallback to basic cardioSchedule
-    const cardioSchedule = week?.cardioSchedule || {};
+    // Build a set of actual cardio days from weeklyCardioSchedules
+    // This is the REAL cardio data, NOT the placeholder trainingSchedule.cardioDays
+    const actualCardioDays = new Set<string>();
+    if (weekCardioSchedule?.sessions) {
+      weekCardioSchedule.sessions.forEach((session: any) => {
+        if (session.dayName) {
+          actualCardioDays.add(session.dayName);
+        } else if (session.dayNumber) {
+          // Convert dayNumber to day name
+          const dayName = days[session.dayNumber - 1];
+          if (dayName) actualCardioDays.add(dayName);
+        }
+      });
+    }
 
     const scheduleWeek = weeklySchedule?.find((w: any) => w.weekNumber === week.weekNumber);
 
     return days.map((day, dayIndex) => {
       const isResistance = resistanceDays.includes(day);
-      const isCardio = cardioDays.includes(day);
+      // Use ACTUAL cardio days from CardioGenerationService, not placeholder data
+      const hasCardioSession = actualCardioDays.has(day);
 
       let type: 'resistance' | 'cardio' | 'hybrid' | 'rest';
-      if (isResistance && isCardio) {
+      if (isResistance && hasCardioSession) {
         type = 'hybrid';
       } else if (isResistance) {
         type = 'resistance';
-      } else if (isCardio) {
+      } else if (hasCardioSession) {
         type = 'cardio';
       } else {
         type = 'rest';
@@ -301,8 +301,8 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
         }
       }
 
-      if (isCardio) {
-        // Get detailed cardio session for this day
+      // Get cardio details from the actual CardioGenerationService data
+      if (hasCardioSession) {
         const dayCardioSession = weekCardioSchedule?.sessions?.find((s: any) =>
           s.dayName === day || s.dayNumber === (dayIndex + 1)
         );
@@ -310,18 +310,11 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
         if (dayCardioSession && dayCardioSession.cardioTemplate) {
           const template = dayCardioSession.cardioTemplate;
           cardioDetails = {
-            type: template.name || template.type || 'Cardio',
-            duration: template.durationMinutes || template.totalDurationMinutes || 30,
-            intensity: template.intensity || 'Moderate',
+            type: template.name || template.type,
+            duration: template.durationMinutes || template.totalDurationMinutes,
+            intensity: template.intensity,
             template: template, // Store full template for tooltip
             timing: dayCardioSession.timing
-          };
-        } else {
-          // Fallback to basic cardioSchedule
-          cardioDetails = {
-            type: cardioSchedule.type || 'Cardio',
-            duration: cardioSchedule.duration,
-            intensity: cardioSchedule.intensity
           };
         }
       }
@@ -341,6 +334,16 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
     return objectives[0];
   };
 
+  // Get TDEE from plan metrics or calculate from user profile
+  const tdee = useMemo(() => {
+    return getTDEE(plan, plan?.userProfile) || 2200; // Fallback to reasonable default
+  }, [plan]);
+
+  // Get user weight for resistance calorie calculations
+  const userWeightKg = useMemo(() => {
+    return plan?.userProfile?.weight || plan?.userProfile?.weightKg || 70; // Fallback default
+  }, [plan]);
+
   const transformWeekData = (week: any, weeklySchedule?: any[]): WeekData => {
     const dailyTargets = week.dailyTargets || {};
     const schedule = buildWeekSchedule(week, weeklySchedule);
@@ -357,6 +360,11 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
       ? buildDayTimeline(week.weekNumber, dayToShow, weeklySchedule, week)
       : [];
 
+    // Calculate weekly deficit summary
+    const deficitSummary = weeklySchedule 
+      ? calculateWeeklyDeficitSummary(week.weekNumber, tdee, weeklySchedule, plan, userWeightKg)
+      : null;
+
     return {
       weekNumber: week.weekNumber,
       phase: week.phase || 'Training',
@@ -368,7 +376,8 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
       },
       notes: week.specialNotes || week.adjustments,
       selectedDay: dayToShow,
-      selectedDayTimeline
+      selectedDayTimeline,
+      deficitSummary
     };
   };
 
@@ -435,12 +444,13 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
         {weeklyData.map((week: WeekData) => (
           <Card
             key={week.weekNumber}
-            className="rounded-3xl border-2 border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)] hover:shadow-[0_16px_50px_rgba(0,0,0,0.12),inset_0_4px_8px_rgba(0,0,0,0.06),inset_0_-2px_4px_rgba(255,255,255,1),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all duration-300 overflow-hidden aspect-square flex flex-col"
+            className="rounded-3xl border-2 border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)] hover:shadow-[0_16px_50px_rgba(0,0,0,0.12),inset_0_4px_8px_rgba(0,0,0,0.06),inset_0_-2px_4px_rgba(255,255,255,1),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all duration-300 overflow-visible aspect-square flex flex-col"
           >
-            <CardContent className="p-5 space-y-3 flex flex-col flex-1">
+            <CardContent className="p-4 flex flex-col flex-1 justify-between">
+              {/* Header: Week number and phase */}
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
+                  <div className="flex items-center gap-2">
                     <span className="text-sm font-bold text-slate-700">WEEK {week.weekNumber}</span>
                     <Badge className={`${getPhaseColor(week.phase)} rounded-full px-3 py-1 text-xs font-bold`}>
                       {week.phase}
@@ -468,26 +478,29 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                   const hasDetails = daySchedule.workoutDetails || daySchedule.cardioDetails;
 
                   const tooltipContent = (
-                    <div className="space-y-1.5">
-                      <div className="font-semibold text-lg text-white" style={{ fontFamily: 'ITC Garamond Std, Garamond, serif' }}>{daySchedule.day}</div>
+                    <div className="space-y-2">
+                      <div className="font-semibold text-lg text-slate-800" style={{ fontFamily: 'ITC Garamond Std, Garamond, serif' }}>{daySchedule.day}</div>
 
                       {daySchedule.workoutDetails && (
-                        <div className="space-y-1">
+                        <div className="space-y-1.5">
                           {daySchedule.workoutDetails.sessionName && (
-                            <div className="text-xs font-medium text-white">{daySchedule.workoutDetails.sessionName}</div>
+                            <div className="text-xs font-semibold text-purple-700">{daySchedule.workoutDetails.sessionName}</div>
                           )}
                           {daySchedule.workoutDetails.targetMuscles && daySchedule.workoutDetails.targetMuscles.length > 0 && (
-                            <div className="text-xs text-white">
+                            <div className="text-xs text-slate-600">
                               Target: {daySchedule.workoutDetails.targetMuscles.join(', ')}
                             </div>
                           )}
                           {daySchedule.workoutDetails.exercises && daySchedule.workoutDetails.exercises.length > 0 && (
-                            <div className="space-y-0.5 mt-1">
-                              {daySchedule.workoutDetails.exercises.map((ex, i) => (
-                                <div key={i} className="text-xs text-white">
-                                  {ex.name} {ex.sets && ex.reps ? `(${ex.sets}x${ex.reps})` : ''}
+                            <div className="space-y-0.5 mt-1.5 pt-1.5 border-t border-slate-100">
+                              {daySchedule.workoutDetails.exercises.slice(0, 4).map((ex, i) => (
+                                <div key={i} className="text-[11px] text-slate-700">
+                                  {ex.name} {ex.sets && ex.reps ? <span className="text-slate-500">({ex.sets}×{ex.reps})</span> : ''}
                                 </div>
                               ))}
+                              {daySchedule.workoutDetails.exercises.length > 4 && (
+                                <div className="text-[10px] text-slate-400">+{daySchedule.workoutDetails.exercises.length - 4} more</div>
+                              )}
                             </div>
                           )}
                         </div>
@@ -495,59 +508,64 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
 
                       {daySchedule.cardioDetails && (
                         <div className="space-y-1">
-                          <div className="text-xs font-medium text-white">{daySchedule.cardioDetails.type}</div>
-                          {daySchedule.cardioDetails.duration && (
-                            <div className="text-xs text-white">Duration: {daySchedule.cardioDetails.duration} min</div>
-                          )}
-                          {daySchedule.cardioDetails.intensity && (
-                            <div className="text-xs text-white">Intensity: {daySchedule.cardioDetails.intensity}</div>
-                          )}
-                          {daySchedule.cardioDetails.timing && (
-                            <div className="text-xs text-white/80">Timing: {daySchedule.cardioDetails.timing.replace('_', ' ')}</div>
-                          )}
-                          {daySchedule.cardioDetails.template && (
-                            <>
-                              {daySchedule.cardioDetails.template.caloriesBurned && (
-                                <div className="text-xs text-white/80">Calories: ~{Math.round(daySchedule.cardioDetails.template.caloriesBurned)} cal</div>
-                              )}
-                              {daySchedule.cardioDetails.template.targetHeartRate && (
-                                <div className="text-xs text-white/80">
-                                  HR: {daySchedule.cardioDetails.template.targetHeartRate.zone} ({daySchedule.cardioDetails.template.targetHeartRate.min}-{daySchedule.cardioDetails.template.targetHeartRate.max} bpm)
-                                </div>
-                              )}
-                              {daySchedule.cardioDetails.template.equipment && daySchedule.cardioDetails.template.equipment.length > 0 && (
-                                <div className="text-xs text-white/80">Equipment: {daySchedule.cardioDetails.template.equipment.join(', ')}</div>
-                              )}
-                            </>
+                          <div className="text-xs font-semibold text-orange-700">{daySchedule.cardioDetails.type}</div>
+                          <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                            {daySchedule.cardioDetails.duration && (
+                              <span>{daySchedule.cardioDetails.duration} min</span>
+                            )}
+                            {daySchedule.cardioDetails.intensity && (
+                              <span>{daySchedule.cardioDetails.intensity}</span>
+                            )}
+                            {daySchedule.cardioDetails.timing && (
+                              <span className="text-slate-500">{daySchedule.cardioDetails.timing.replace('_', ' ')}</span>
+                            )}
+                          </div>
+                          {daySchedule.cardioDetails.template?.caloriesBurned && (
+                            <div className="text-[11px] text-orange-600 font-medium">
+                              ~{Math.round(daySchedule.cardioDetails.template.caloriesBurned)} cal burn
+                            </div>
                           )}
                         </div>
                       )}
 
                       {daySchedule.type === 'rest' && (
-                        <div className="text-xs text-white">Rest & Recovery</div>
+                        <div className="text-xs text-slate-500">Rest & Recovery Day</div>
                       )}
                     </div>
                   );
 
                   const isSelected = week.selectedDay === daySchedule.day;
+                  const dayTooltipId = `${week.weekNumber}-${daySchedule.day}`;
+                  const isTooltipOpen = openDayTooltip === dayTooltipId;
 
                   return (
                     <div key={idx} className="flex flex-col items-center gap-1.5">
-                      <span className={`text-xs font-bold transition-colors ${isSelected ? 'text-orange-600' : 'text-slate-600'
-                        }`}>
+                      <span className={`text-xs font-bold transition-colors ${isSelected ? 'text-orange-600' : 'text-slate-600'}`}>
                         {daySchedule.dayLetter}
                       </span>
                       {hasDetails ? (
                         <TooltipProvider delayDuration={200}>
-                          <Tooltip>
+                          <Tooltip 
+                            open={isTooltipOpen}
+                            onOpenChange={(open) => {
+                              if (open) setOpenDayTooltip(dayTooltipId);
+                              else if (isTooltipOpen) setOpenDayTooltip(null);
+                            }}
+                          >
                             <TooltipTrigger asChild>
                               <div
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // Toggle tooltip on click
+                                  setOpenDayTooltip(isTooltipOpen ? null : dayTooltipId);
+                                  // Also select the day
                                   setSelectedDays(prev => ({
                                     ...prev,
                                     [week.weekNumber]: daySchedule.day
                                   }));
                                 }}
+                                onMouseEnter={() => setOpenDayTooltip(dayTooltipId)}
+                                onMouseLeave={() => setOpenDayTooltip(null)}
                                 className={`w-9 h-9 flex items-center justify-center transition-all cursor-pointer hover:scale-110 ${getDayStyles(daySchedule.type)
                                   } ${isSelected ? 'scale-110 ring-2 ring-orange-400' : ''}`}
                               >
@@ -556,7 +574,7 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                                 </div>
                               </div>
                             </TooltipTrigger>
-                            <TooltipContent className="max-w-xs rounded-lg" side="top">
+                            <TooltipContent className="max-w-xs rounded-xl bg-white border border-slate-200 shadow-lg p-3" side="top">
                               {tooltipContent}
                             </TooltipContent>
                           </Tooltip>
@@ -582,33 +600,131 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                 })}
               </div>
 
-              <div className="flex items-start gap-2 text-sm flex-1">
+              {/* Weekly Deficit & Projected Weight Loss */}
+              {week.deficitSummary && (
+                (() => {
+                  const isDeficit = week.deficitSummary.totalWeeklyDeficit > 0;
+                  const absoluteDeficit = Math.abs(week.deficitSummary.totalWeeklyDeficit);
+                  const absoluteWeightChange = Math.abs(week.deficitSummary.projectedWeightLossKg);
+                  const isDeficitTooltipOpen = openDeficitTooltip === week.weekNumber;
+                  
+                  return (
+                    <TooltipProvider delayDuration={200}>
+                      <Tooltip
+                        open={isDeficitTooltipOpen}
+                        onOpenChange={(open) => {
+                          if (open) setOpenDeficitTooltip(week.weekNumber);
+                          else if (isDeficitTooltipOpen) setOpenDeficitTooltip(null);
+                        }}
+                      >
+                        <TooltipTrigger asChild>
+                          <div 
+                            className="flex items-center justify-center cursor-help py-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenDeficitTooltip(isDeficitTooltipOpen ? null : week.weekNumber);
+                            }}
+                            onMouseEnter={() => setOpenDeficitTooltip(week.weekNumber)}
+                            onMouseLeave={() => setOpenDeficitTooltip(null)}
+                          >
+                            <div className="flex items-baseline gap-3">
+                              {/* Deficit Value */}
+                              <div className="flex items-baseline">
+                                <span 
+                                  className={`text-3xl font-black tabular-nums tracking-tight ${
+                                    isDeficit 
+                                      ? 'bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-500' 
+                                      : 'bg-gradient-to-br from-amber-400 via-orange-500 to-rose-500'
+                                  } bg-clip-text text-transparent drop-shadow-sm`}
+                                >
+                                  {isDeficit ? '−' : '+'}{absoluteDeficit.toLocaleString()}
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-wide">kcal</span>
+                              </div>
+                              
+                              {/* Animated Arrow */}
+                              <div className={`flex items-center ${isDeficit ? 'text-teal-400' : 'text-orange-400'}`}>
+                                <svg width="20" height="12" viewBox="0 0 20 12" fill="none" className="opacity-60">
+                                  <path d="M0 6H16M16 6L11 1M16 6L11 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                </svg>
+                              </div>
+                              
+                              {/* Weight Change Value */}
+                              <div className="flex items-baseline">
+                                <span 
+                                  className={`text-3xl font-black tabular-nums tracking-tight ${
+                                    isDeficit 
+                                      ? 'bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-500' 
+                                      : 'bg-gradient-to-br from-rose-400 via-pink-500 to-purple-500'
+                                  } bg-clip-text text-transparent drop-shadow-sm`}
+                                >
+                                  {isDeficit ? '−' : '+'}{absoluteWeightChange.toFixed(2)}
+                                </span>
+                                <span className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-wide">kg</span>
+                              </div>
+                            </div>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs rounded-xl bg-slate-900/95 backdrop-blur-xl text-white p-4 shadow-2xl border border-white/10" side="top">
+                          <div className="space-y-3 text-xs">
+                            <div className="flex items-center gap-2">
+                              <div className={`w-2 h-2 rounded-full ${isDeficit ? 'bg-gradient-to-r from-emerald-400 to-cyan-400' : 'bg-gradient-to-r from-amber-400 to-rose-400'}`}></div>
+                              <p className={`font-semibold text-sm ${isDeficit ? 'text-emerald-300' : 'text-amber-300'}`}>
+                                Weekly {isDeficit ? 'Deficit' : 'Surplus'}
+                              </p>
+                            </div>
+                            <p className="text-slate-300 leading-relaxed">
+                              Based on your TDEE, exercise burn, and calorie intake from your meal plan.
+                            </p>
+                            <div className="pt-2 border-t border-slate-700/50 space-y-1.5 text-slate-400">
+                              <div className="flex justify-between">
+                                <span>TDEE</span>
+                                <span className="font-mono text-slate-300">{tdee.toLocaleString()} kcal/day</span>
+                              </div>
+                              <div className="flex justify-between">
+                                <span>Avg Daily {isDeficit ? 'Deficit' : 'Surplus'}</span>
+                                <span className="font-mono text-slate-300">{Math.abs(week.deficitSummary!.averageDailyDeficit).toLocaleString()} kcal</span>
+                              </div>
+                              <div className="flex justify-between text-[10px] pt-1 text-slate-500">
+                                <span>7,700 kcal ≈ 1 kg body weight</span>
+                              </div>
+                            </div>
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  );
+                })()
+              )}
+
+              {/* Focus text */}
+              <div className="flex items-start gap-1.5 text-xs">
                 <span className="text-muted-foreground shrink-0">🎯</span>
-                <span className="font-medium leading-tight text-slate-700">{week.focus}</span>
+                <span className="font-medium leading-tight text-slate-600 line-clamp-2">{week.focus}</span>
               </div>
 
+              {/* Daily Timeline */}
               {week.selectedDayTimeline && week.selectedDayTimeline.length > 0 && (
                 <DailyTimeline events={week.selectedDayTimeline} />
               )}
 
-              <div className="mt-auto">
-                <div className="relative overflow-hidden rounded-full shadow-[0_8px_28px_rgba(251,146,60,0.4),inset_0_3px_6px_rgba(0,0,0,0.15),inset_0_-2px_4px_rgba(255,255,255,0.6),0_2px_8px_rgba(234,88,12,0.3)]">
-                  <div className="bg-gradient-to-br from-yellow-300 via-orange-500 to-red-600 rounded-full px-4 py-3 relative">
-                    <div className="absolute top-0 left-[10%] w-[50%] h-[60%] bg-gradient-to-br from-white/80 via-white/40 to-transparent rounded-full blur-lg pointer-events-none"></div>
-                    <div className="absolute bottom-0 right-[10%] w-[40%] h-[50%] bg-gradient-to-tl from-black/20 to-transparent rounded-full blur-md pointer-events-none"></div>
+              {/* Weekly Targets Footer */}
+              <div className="relative overflow-hidden rounded-full shadow-[0_8px_28px_rgba(251,146,60,0.4),inset_0_3px_6px_rgba(0,0,0,0.15),inset_0_-2px_4px_rgba(255,255,255,0.6),0_2px_8px_rgba(234,88,12,0.3)]">
+                <div className="bg-gradient-to-br from-yellow-300 via-orange-500 to-red-600 rounded-full px-4 py-2.5 relative">
+                  <div className="absolute top-0 left-[10%] w-[50%] h-[60%] bg-gradient-to-br from-white/80 via-white/40 to-transparent rounded-full blur-lg pointer-events-none"></div>
+                  <div className="absolute bottom-0 right-[10%] w-[40%] h-[50%] bg-gradient-to-tl from-black/20 to-transparent rounded-full blur-md pointer-events-none"></div>
 
-                    <div className="relative flex items-center justify-center gap-6 text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">🍎</span>
-                        <span className="font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">{week.targets.calories}</span>
-                        <span className="text-xs font-bold text-orange-50 uppercase tracking-wider drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">kcal</span>
-                      </div>
-                      <div className="w-px h-5 bg-gradient-to-b from-transparent via-orange-200/80 to-transparent shadow-[0_0_4px_rgba(255,255,255,0.5)]"></div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">🥩</span>
-                        <span className="font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">{week.targets.protein}g</span>
-                        <span className="text-xs font-bold text-orange-50 uppercase tracking-wider drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">pro</span>
-                      </div>
+                  <div className="relative flex items-center justify-center gap-5 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">🍎</span>
+                      <span className="font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">{week.targets.calories}</span>
+                      <span className="text-xs font-bold text-orange-50 uppercase tracking-wider drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">kcal</span>
+                    </div>
+                    <div className="w-px h-5 bg-gradient-to-b from-transparent via-orange-200/80 to-transparent shadow-[0_0_4px_rgba(255,255,255,0.5)]"></div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-base drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">🥩</span>
+                      <span className="font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">{week.targets.protein}g</span>
+                      <span className="text-xs font-bold text-orange-50 uppercase tracking-wider drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">pro</span>
                     </div>
                   </div>
                 </div>
