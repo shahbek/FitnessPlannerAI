@@ -9,7 +9,6 @@ import { HydrationAndMealTiming } from './HydrationAndMealTiming';
 import { CardioOverview } from './CardioOverview';
 import { DailyMacroTrends } from './DailyMacroTrends';
 import { BMRAndMetabolicAge } from './BMRAndMetabolicAge';
-import { MacroTrackingTable } from './MacroTrackingTable';
 import { WeighingTiming } from './WeighingTiming';
 import type { PhaseProgressionRow } from '@/utils/workoutDataParser';
 
@@ -144,18 +143,6 @@ export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile, work
         {weeklySchedule && weeklySchedule.length > 0 && (
           <div className="md:col-span-12">
             <DailyMacroTrends weeklySchedule={weeklySchedule} />
-          </div>
-        )}
-
-        {/* Area 4.5: Macro Tracking Table (Full Width) - Editable */}
-        {weeklySchedule && weeklySchedule.length > 0 && (
-          <div className="md:col-span-12">
-            <MacroTrackingTable
-              weeklyScheduleData={weeklySchedule}
-              weeklyOutlines={plan?.weeklyOutlines || []}
-              workoutPlanId={workoutPlanId}
-              userProfile={userProfile}
-            />
           </div>
         )}
 

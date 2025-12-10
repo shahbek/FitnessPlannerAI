@@ -37,7 +37,7 @@ import {
   Settings,
   ChevronRight,
   Coins,
-  Dumbbell
+  Dumbbell,
 } from 'lucide-react';
 import logoIcon from '@/assets/logo.svg';
 import { signOut } from '@/lib/auth-client';

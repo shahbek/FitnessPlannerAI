@@ -203,33 +203,100 @@ export default defineSchema({
   }).index("by_user", ["userId"])
     .index("by_user_date", ["userId", "createdAt"])
     .index("by_status", ["status"]),
-
-  // Macro Tracking
-  macroTracking: defineTable({
+  // Custom Meals Database
+  customMeals: defineTable({
     userId: v.string(),
-    workoutPlanId: v.id("workoutPlans"),
-    date: v.number(), // Unix timestamp for the day
-    weekNumber: v.number(),
-    dayNumber: v.number(),
-    actualMacros: v.object({
+    name: v.string(),
+    mealType: v.string(), // Default type (e.g., "Lunch")
+    ingredients: v.array(v.object({
+      name: v.string(),
       calories: v.number(),
       protein: v.number(),
       carbs: v.number(),
       fat: v.number(),
-      bodyWeight: v.number(),
-    }),
-    targetMacros: v.object({
+      servingSize: v.string(),
+      fdcId: v.optional(v.string())
+    })),
+    totalMacros: v.object({
       calories: v.number(),
       protein: v.number(),
       carbs: v.number(),
-      fat: v.number(),
+      fat: v.number()
     }),
     createdAt: v.number(),
-    updatedAt: v.number(),
+  }).index("by_user", ["userId"]),
+
+
+  // Daily Tracking - Comprehensive daily logging for workouts, meals, hydration, weight
+  dailyTracking: defineTable({
+    userId: v.string(),
+    // Optional for backward compatibility with older data
+    workoutPlanId: v.optional(v.id("workoutPlans")),
+    // Date can be number (Unix timestamp) or string (ISO date) for backward compatibility
+    // New entries should always use number (Unix timestamp at midnight UTC)
+    date: v.union(v.number(), v.string()),
+    // Optional for backward compatibility - new entries always include these
+    weekNumber: v.optional(v.number()),
+    dayNumber: v.optional(v.number()),
+
+    // Legacy field from old schema (kept for backward compatibility)
+    mealsCompleted: v.optional(v.number()),
+
+    // Workout tracking (simple complete/skip)
+    workoutStatus: v.optional(v.string()), // "completed" | "skipped" | "partial" | null
+    workoutCompletedAt: v.optional(v.number()),
+    workoutNotes: v.optional(v.string()),
+
+    // Cardio tracking
+    cardioStatus: v.optional(v.string()), // "completed" | "skipped" | null
+    cardioCompletedAt: v.optional(v.number()),
+    cardioDurationActual: v.optional(v.number()), // Actual duration in minutes
+    cardioNotes: v.optional(v.string()),
+
+    // Meals - array of logged meals (plan meals + custom)
+    meals: v.optional(v.array(v.object({
+      mealId: v.string(),
+      mealName: v.string(),
+      mealType: v.string(), // "Breakfast", "Lunch", "Dinner", "Snack", "Custom"
+      isFromPlan: v.boolean(),
+      isConsumed: v.boolean(),
+      consumedAt: v.optional(v.number()),
+      calories: v.number(),
+      protein: v.number(),
+      carbs: v.number(),
+      fat: v.number(),
+      // For custom foods from USDA search
+      usdaFdcId: v.optional(v.string()),
+      servingSize: v.optional(v.string()),
+    }))),
+
+    // Hydration
+    waterIntakeMl: v.optional(v.number()), // Total water intake in ml
+    waterTarget: v.optional(v.number()), // Daily water target in ml
+    waterLogs: v.optional(v.array(v.object({
+      amount: v.number(), // ml
+      timestamp: v.number(),
+    }))),
+
+    // Weight
+    bodyWeight: v.optional(v.number()), // kg
+    previousWeight: v.optional(v.number()), // For trend display
+
+    // Target macros for the day (from plan)
+    targetMacros: v.optional(v.object({
+      calories: v.number(),
+      protein: v.number(),
+      carbs: v.number(),
+      fat: v.number(),
+    })),
+
+    // Temporarily optional for backward compatibility - will be required after cleanup
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
   })
     .index("by_user", ["userId"])
     .index("by_plan", ["workoutPlanId"])
     .index("by_date", ["userId", "date"])
-    .index("by_week", ["userId", "workoutPlanId", "weekNumber"])
-    .index("by_plan_date", ["workoutPlanId", "date"]),
+    .index("by_plan_date", ["workoutPlanId", "date"])
+    .index("by_user_plan_date", ["userId", "workoutPlanId", "date"]),
 });

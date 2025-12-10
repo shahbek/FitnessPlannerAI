@@ -10,11 +10,14 @@ import { PhasesOverview } from '@/components/tables/PhasesOverview';
 import { ComprehensiveMealTable } from '@/components/tables/ComprehensiveMealTable';
 import { WeeklyScheduleTable } from '@/components/tables/WeeklyScheduleTable';
 import { WeeklyShoppingTable } from '@/components/tables/WeeklyShoppingTable';
+
+import { TodayPage } from '@/pages/TodayPage';
 import { useSidebar } from '@/components/ui/sidebar';
 import mealsIcon from '@/assets/images/3dicons/meals.png';
 import dumbellIcon from '@/assets/images/3dicons/dumbell.png';
 import groceriesIcon from '@/assets/images/3dicons/groceries.png';
 import steppingStoolIcon from '@/assets/images/3dicons/stepping_stool.png';
+import targetIcon from '@/assets/images/3dicons/target.png';
 
 interface WorkoutProgramViewProps {
   workoutData: any; // Raw JSON data from AI
@@ -25,7 +28,7 @@ interface WorkoutProgramViewProps {
 export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: WorkoutProgramViewProps) {
   const { state: sidebarState, isMobile } = useSidebar();
   const [parsedData, setParsedData] = useState<ParsedWorkoutData | null>(null);
-  const [activeTab, setActiveTab] = useState('phases');
+  const [activeTab, setActiveTab] = useState('macros');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(planTitle || 'Workout Program');
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -109,7 +112,7 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
         </div>
 
         {/* Tabbed Content with skeleton */}
-        <Tabs defaultValue="comprehensive-meals" className="w-full">
+        <Tabs key="loading-tabs" defaultValue="macros" className="w-full">
           <div
             className="fixed bottom-8 z-50 flex justify-center items-center pointer-events-none transition-all duration-200 px-6"
             style={{
@@ -118,6 +121,18 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
             }}
           >
             <TabsList variant="glass" className="pointer-events-auto flex-shrink-0">
+              <TabsTrigger value="macros" disabled>
+                <div className="flex flex-col items-center gap-0">
+                  <Skeleton className="w-9 h-9 rounded" />
+                  <Skeleton className="h-3 w-12 mt-1" />
+                </div>
+              </TabsTrigger>
+              <TabsTrigger value="phases" disabled>
+                <div className="flex flex-col items-center gap-0">
+                  <Skeleton className="w-9 h-9 rounded" />
+                  <Skeleton className="h-3 w-12 mt-1" />
+                </div>
+              </TabsTrigger>
               <TabsTrigger value="comprehensive-meals" disabled>
                 <div className="flex flex-col items-center gap-0">
                   <Skeleton className="w-9 h-9 rounded" />
@@ -131,12 +146,6 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
                 </div>
               </TabsTrigger>
               <TabsTrigger value="shopping" disabled>
-                <div className="flex flex-col items-center gap-0">
-                  <Skeleton className="w-9 h-9 rounded" />
-                  <Skeleton className="h-3 w-12 mt-1" />
-                </div>
-              </TabsTrigger>
-              <TabsTrigger value="phases" disabled>
                 <div className="flex flex-col items-center gap-0">
                   <Skeleton className="w-9 h-9 rounded" />
                   <Skeleton className="h-3 w-12 mt-1" />
@@ -204,7 +213,7 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
   const handleTitleBlur = async () => {
     setIsEditingTitle(false);
     const newTitle = titleRef.current?.textContent?.trim() || editedTitle;
-    
+
     // Only update if title changed and we have a plan ID
     if (newTitle !== editedTitle && workoutPlanId && newTitle.length > 0) {
       setEditedTitle(newTitle);
@@ -253,6 +262,20 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
 
   const tabs = [
     {
+      value: 'macros',
+      label: 'Macros',
+      icon: targetIcon,
+      content: (
+        <div className="space-y-6">
+          {/* Daily Logging UI */}
+          <TodayPage
+            workoutPlanId={workoutPlanId}
+            planData={workoutData}
+          />
+        </div>
+      )
+    },
+    {
       value: 'phases',
       label: 'Phases',
       icon: steppingStoolIcon,
@@ -299,14 +322,13 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
               onClick={handleTitleClick}
               onBlur={handleTitleBlur}
               onKeyDown={handleTitleKeyDown}
-              className={`text-3xl font-editorial font-light tracking-tight mb-2 ${
-                workoutPlanId 
-                  ? 'cursor-text hover:opacity-80 transition-opacity outline-none focus:outline-none focus:ring-0' 
-                  : ''
-              } ${isEditingTitle ? 'ring-1 ring-border rounded px-2 -mx-2' : ''}`}
+              className={`text-3xl font-editorial font-light tracking-tight mb-2 ${workoutPlanId
+                ? 'cursor-text hover:opacity-80 transition-opacity outline-none focus:outline-none focus:ring-0'
+                : ''
+                } ${isEditingTitle ? 'ring-1 ring-border rounded px-2 -mx-2' : ''}`}
               style={{
                 minHeight: '2.5rem',
-                ...(isEditingTitle ? { 
+                ...(isEditingTitle ? {
                   backgroundColor: 'rgba(0, 0, 0, 0.02)',
                 } : {})
               }}
@@ -338,6 +360,7 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
 
       {/* Tabbed Content - Clean tabs */}
       <Tabs
+        key="main-tabs"
         value={activeTab}
         onValueChange={setActiveTab}
         className="w-full"
