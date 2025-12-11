@@ -77,50 +77,45 @@ export function TodayWeightCard({
   return (
     <Card
       className={cn(
-        'rounded-3xl border-2 transition-all duration-300 overflow-hidden',
-        hasLogged
-          ? 'border-emerald-300/60 bg-gradient-to-br from-emerald-50/80 via-emerald-100/50 to-teal-50/50 backdrop-blur-xl shadow-[0_10px_40px_rgba(16,185,129,0.15),inset_0_3px_6px_rgba(255,255,255,0.4)]'
-          : 'border-white/60 bg-gradient-to-br from-white via-slate-50/50 to-slate-100/50 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)] hover:shadow-[0_16px_50px_rgba(0,0,0,0.12),inset_0_4px_8px_rgba(0,0,0,0.06),inset_0_-2px_4px_rgba(255,255,255,1),inset_0_1px_0_rgba(255,255,255,0.9)]'
+        'rounded-3xl border-2 border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100 backdrop-blur-xl',
+        'shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)]',
+        'hover:shadow-[0_16px_50px_rgba(0,0,0,0.12),inset_0_4px_8px_rgba(0,0,0,0.06),inset_0_-2px_4px_rgba(255,255,255,1),inset_0_1px_0_rgba(255,255,255,0.9)]',
+        'transition-all duration-300 overflow-hidden'
       )}
     >
-      <CardContent className="p-4">
+      <CardContent className="p-6">
         {/* Header */}
-        <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div
-              className={cn(
-                'w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg',
-                hasLogged
-                  ? 'bg-gradient-to-br from-emerald-400 to-teal-500'
-                  : 'bg-gradient-to-br from-slate-400 to-slate-500'
-              )}
-            >
-              {hasLogged ? (
-                <Check className="h-6 w-6 text-white" strokeWidth={3} />
-              ) : (
-                <Scale className="h-6 w-6 text-white" />
-              )}
+        <div className="flex items-start justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <div className="flex-shrink-0 -ml-2">
+              <div className="w-20 h-20 flex items-center justify-center">
+                <img
+                  src="/assets/images/3dIcons/scale.png"
+                  alt="Scale"
+                  className="w-20 h-20 object-contain drop-shadow-xl"
+                />
+              </div>
             </div>
-            <div>
+            <div className="pt-2">
               <div
                 className={cn(
-                  'text-xs font-bold uppercase tracking-wider',
-                  hasLogged ? 'text-emerald-600' : 'text-slate-500'
+                  'text-[11px] font-bold uppercase tracking-widest mb-1',
+                  hasLogged ? 'text-indigo-600/60' : 'text-slate-400'
                 )}
               >
                 Weight
               </div>
-              <div className="text-sm text-slate-500">
-                {hasLogged ? 'Logged today' : 'Not logged yet'}
+              <div className="text-2xl font-black text-slate-900 tracking-tight">
+                {hasLogged ? 'Tracked' : 'Not Logged'}
               </div>
             </div>
           </div>
 
           {/* Trend Badge */}
           {trend && (
-            <div className={cn('flex items-center gap-1 px-2.5 py-1 rounded-full', trend.bg)}>
-              <trend.icon className={cn('h-4 w-4', trend.color)} />
-              <span className={cn('text-xs font-bold', trend.color)}>{trend.text}</span>
+            <div className={cn('flex items-center gap-1.5 px-3 py-1.5 rounded-xl', trend.bg)}>
+              <trend.icon className={cn('h-4 w-4', trend.color)} strokeWidth={2.5} />
+              <span className={cn('text-xs font-bold leading-none', trend.color)}>{trend.text}</span>
             </div>
           )}
         </div>
@@ -139,13 +134,13 @@ export function TodayWeightCard({
                   min="20"
                   max="500"
                   className={cn(
-                    'h-14 text-2xl font-bold text-center font-mono rounded-xl',
-                    'border-2 border-slate-200 focus:border-emerald-400',
+                    'h-14 text-2xl font-bold text-center font-mono rounded-2xl',
+                    'border-2 border-indigo-100 focus:border-indigo-400 focus:ring-0 bg-white',
                     '[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
                   )}
                   autoFocus
                 />
-                <span className="absolute right-4 top-1/2 -translate-y-1/2 text-lg text-slate-400 font-medium">
+                <span className="absolute right-5 top-1/2 -translate-y-1/2 text-lg text-slate-300 font-bold">
                   kg
                 </span>
               </div>
@@ -154,8 +149,8 @@ export function TodayWeightCard({
                 disabled={isSaving}
                 size="lg"
                 className={cn(
-                  'h-14 px-6 rounded-xl font-bold',
-                  'bg-emerald-500 hover:bg-emerald-600'
+                  'h-14 px-6 rounded-2xl font-bold shadow-sm',
+                  'bg-indigo-500 hover:bg-indigo-600'
                 )}
               >
                 {isSaving ? '...' : 'Save'}
@@ -165,22 +160,22 @@ export function TodayWeightCard({
             <button
               onClick={() => setIsEditing(true)}
               className={cn(
-                'w-full h-14 rounded-xl border-2 transition-all',
-                'flex items-center justify-center gap-2',
+                'w-full h-14 rounded-2xl border transition-all duration-300',
+                'flex items-center justify-center gap-3 group',
                 hasLogged
-                  ? 'border-emerald-200 bg-emerald-50/50 hover:bg-emerald-100'
-                  : 'border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100'
+                  ? 'border-indigo-100 bg-indigo-50/30 hover:bg-indigo-50'
+                  : 'border-dashed border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-slate-300'
               )}
             >
               {hasLogged ? (
                 <>
-                  <span className="text-3xl font-bold text-slate-800 font-mono">
+                  <span className="text-3xl font-bold text-indigo-900 font-mono tracking-tight">
                     {currentWeight?.toFixed(1)}
                   </span>
-                  <span className="text-lg text-slate-500 font-medium">kg</span>
+                  <span className="text-lg text-indigo-400 font-medium">kg</span>
                 </>
               ) : (
-                <span className="text-slate-400 font-medium">Tap to log weight</span>
+                <span className="text-slate-400 font-medium group-hover:text-slate-500 transition-colors">Tap to log weight</span>
               )}
             </button>
           )}
@@ -188,9 +183,9 @@ export function TodayWeightCard({
 
         {/* Previous Weight Reference */}
         {previousWeight && !isEditing && (
-          <div className="mt-3 pt-3 border-t border-slate-100 text-center">
-            <span className="text-xs text-slate-400">
-              Yesterday: <span className="font-mono font-medium">{previousWeight.toFixed(1)}kg</span>
+          <div className="mt-4 text-center">
+            <span className="text-xs font-medium text-slate-400 bg-slate-50 px-2 py-1 rounded-md">
+              Yesterday: <span className="font-mono text-slate-600">{previousWeight.toFixed(1)}kg</span>
             </span>
           </div>
         )}

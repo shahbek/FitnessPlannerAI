@@ -145,8 +145,8 @@ export function TodayMealsSection({
     setSwappingMealId(null);
   };
 
-  // Get meal type emoji
-  const getMealEmoji = (mealType: string) => {
+  // Get meal type emoji - simplified/standardized
+  const getMealIcon = (mealType: string) => {
     const type = mealType.toLowerCase();
     if (type.includes('breakfast')) return '🍳';
     if (type.includes('lunch')) return '🥗';
@@ -154,79 +154,80 @@ export function TodayMealsSection({
     if (type.includes('snack')) return '🍎';
     if (type.includes('pre-workout')) return '⚡';
     if (type.includes('post-workout')) return '💪';
-    if (type.includes('custom')) return '✨';
     return '🍴';
-  };
-
-  // Get progress status
-  const getProgressStatus = (consumed: number, target: number) => {
-    const pct = target > 0 ? (consumed / target) * 100 : 0;
-    if (pct >= 90 && pct <= 110) return { color: 'text-emerald-600', status: 'on-track' };
-    if (pct >= 75 && pct <= 125) return { color: 'text-amber-600', status: 'close' };
-    return { color: 'text-slate-500', status: 'off' };
   };
 
   return (
     <>
       <Card
         className={cn(
-          'rounded-3xl border-2 border-white/60 bg-gradient-to-br from-white via-slate-50/50 to-slate-100/50 backdrop-blur-xl',
+          'rounded-3xl border-2 border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100 backdrop-blur-xl',
           'shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)]',
-          'transition-all duration-300 overflow-hidden'
+          'hover:shadow-[0_16px_50px_rgba(0,0,0,0.12),inset_0_4px_8px_rgba(0,0,0,0.06),inset_0_-2px_4px_rgba(255,255,255,1),inset_0_1px_0_rgba(255,255,255,0.9)]',
+          'transition-all duration-300 overflow-hidden group'
         )}
       >
-        <CardContent className="p-4">
+        <CardContent className="p-6">
           {/* Header */}
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center shadow-lg">
-                <Utensils className="h-6 w-6 text-white" />
-              </div>
-              <div>
-                <div className="text-xs font-bold uppercase tracking-wider text-orange-600">
-                  Meals
+          <div className="flex items-start justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <div className="flex-shrink-0 -ml-2">
+                <div className="w-20 h-20 flex items-center justify-center">
+                  <img
+                    src="/assets/images/3dIcons/meals.png"
+                    alt="Meals"
+                    className="w-20 h-20 object-contain drop-shadow-xl"
+                  />
                 </div>
-                <div className="text-lg font-bold text-slate-800">
-                  {consumedCount}
-                  <span className="text-sm text-slate-500 font-normal"> / {totalCount} logged</span>
+              </div>
+              <div className="pt-2">
+                <div className="text-[11px] font-bold uppercase tracking-widest text-orange-600/60 mb-1">
+                  Nutrition
+                </div>
+                <div className="text-2xl font-black text-slate-900 tracking-tight">
+                  Daily Meals
                 </div>
               </div>
             </div>
 
-            {/* Add button */}
             <Button
               onClick={handleAddMeal}
               size="sm"
-              variant="outline"
-              className="rounded-full border-orange-200 hover:bg-orange-50"
+              className="rounded-xl bg-orange-50 text-orange-600 hover:bg-orange-100 border-0 shadow-none font-semibold h-9 px-4"
             >
-              <Plus className="h-4 w-4 mr-1" />
+              <Plus className="h-4 w-4 mr-1.5" strokeWidth={2.5} />
               Add
             </Button>
           </div>
 
-          {/* Macro Progress (compact) */}
+          {/* Macro Progress (compact & clean) */}
           {targetMacros && (
-            <div className="mb-4 p-3 rounded-xl bg-white/60 border border-orange-100">
-              <div className="grid grid-cols-4 gap-2 text-center">
+            <div className="mb-6 w-full">
+              <div className="grid grid-cols-4 gap-2">
                 {[
-                  { key: 'calories', label: 'Cal', unit: '' },
-                  { key: 'protein', label: 'P', unit: 'g' },
-                  { key: 'carbs', label: 'C', unit: 'g' },
-                  { key: 'fat', label: 'F', unit: 'g' },
-                ].map(({ key, label, unit }) => {
-                  const consumed = consumedMacros[key as keyof typeof consumedMacros];
-                  const target = targetMacros[key as keyof typeof targetMacros];
-                  const status = getProgressStatus(consumed, target);
+                  { key: 'calories', label: 'Cal', unit: '', color: 'text-slate-900', bg: 'bg-slate-100', barBg: 'bg-slate-900' },
+                  { key: 'protein', label: 'Pro', unit: 'g', color: 'text-emerald-600', bg: 'bg-emerald-50', barBg: 'bg-emerald-500' },
+                  { key: 'carbs', label: 'Crb', unit: 'g', color: 'text-amber-600', bg: 'bg-amber-50', barBg: 'bg-amber-500' },
+                  { key: 'fat', label: 'Fat', unit: 'g', color: 'text-rose-600', bg: 'bg-rose-50', barBg: 'bg-rose-500' },
+                ].map(({ key, label, unit, color, bg, barBg }) => {
+                  const consumed = Math.round(consumedMacros[key as keyof typeof consumedMacros]);
+                  const target = Math.round(targetMacros[key as keyof typeof targetMacros]);
+                  const pct = Math.min(100, Math.round((consumed / target) * 100));
 
                   return (
-                    <div key={key}>
-                      <div className={cn('text-sm font-bold font-mono', status.color)}>
-                        {Math.round(consumed)}
-                        {unit}
+                    <div key={key} className={cn("rounded-2xl p-3 flex flex-col items-center justify-center border border-slate-100/50", bg)}>
+                      <div className={cn("text-lg font-black tracking-tight leading-none mb-1", color)}>
+                        {consumed}
+                        <span className="text-[10px] font-bold ml-0.5 opacity-60">{unit}</span>
                       </div>
-                      <div className="text-[10px] text-slate-400">
-                        / {Math.round(target)}{unit} {label}
+                      <div className="w-full h-1 bg-black/5 rounded-full overflow-hidden mb-1">
+                        <div
+                          className={cn("h-full rounded-full transition-all duration-500", barBg)}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        {label}
                       </div>
                     </div>
                   );
@@ -236,19 +237,19 @@ export function TodayMealsSection({
           )}
 
           {/* Meal List */}
-          <div className="space-y-2">
+          <div className="space-y-3">
             {meals.length === 0 ? (
-              <div className="text-center py-6 text-slate-400">
-                <Utensils className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                <p className="text-sm">No meals planned</p>
+              <div className="text-center py-8 rounded-2xl border-2 border-dashed border-slate-100">
+                <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center mx-auto mb-3">
+                  <Utensils className="h-5 w-5 text-slate-300" />
+                </div>
+                <p className="text-sm font-medium text-slate-500">No meals logged yet</p>
                 <Button
                   onClick={handleAddMeal}
-                  size="sm"
-                  variant="ghost"
-                  className="mt-2 text-orange-600 hover:text-orange-700"
+                  variant="link"
+                  className="text-orange-500 font-bold text-xs"
                 >
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add a meal
+                  Start tracking
                 </Button>
               </div>
             ) : (
@@ -256,10 +257,10 @@ export function TodayMealsSection({
                 <div
                   key={meal.mealId}
                   className={cn(
-                    'flex items-center gap-3 p-3 rounded-xl transition-all',
+                    'group relative flex items-center gap-4 p-4 rounded-2xl transition-all duration-300',
                     meal.isConsumed
-                      ? 'bg-emerald-50 border border-emerald-200'
-                      : 'bg-white/60 border border-orange-100 hover:bg-white'
+                      ? 'bg-emerald-50/30 border border-emerald-100/50'
+                      : 'bg-white border border-slate-100 hover:border-orange-100 hover:shadow-md hover:shadow-orange-500/5'
                   )}
                 >
                   {/* Checkbox */}
@@ -267,67 +268,73 @@ export function TodayMealsSection({
                     onClick={() => handleToggleMeal(meal.mealId)}
                     disabled={loadingMealId === meal.mealId}
                     className={cn(
-                      'w-7 h-7 rounded-full flex items-center justify-center transition-all',
+                      'w-6 h-6 rounded-full flex items-center justify-center transition-all duration-300',
                       'border-2 flex-shrink-0',
                       meal.isConsumed
-                        ? 'bg-emerald-500 border-emerald-500'
-                        : 'border-slate-300 hover:border-orange-400'
+                        ? 'bg-emerald-500 border-emerald-500 scale-110'
+                        : 'border-slate-300 bg-white group-hover:border-orange-400'
                     )}
                   >
-                    {meal.isConsumed && <Check className="h-4 w-4 text-white" strokeWidth={3} />}
+                    {meal.isConsumed && <Check className="h-3.5 w-3.5 text-white" strokeWidth={4} />}
                   </button>
 
                   {/* Meal Info */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base">{getMealEmoji(meal.mealType)}</span>
-                      <span
-                        className={cn(
-                          'font-medium truncate',
-                          meal.isConsumed ? 'text-emerald-800' : 'text-slate-800'
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-lg leading-none">{getMealIcon(meal.mealType)}</span>
+                        <span
+                          className={cn(
+                            'font-bold text-sm truncate transition-colors',
+                            meal.isConsumed ? 'text-emerald-900 line-through decoration-emerald-200' : 'text-slate-800'
+                          )}
+                        >
+                          {meal.mealName}
+                        </span>
+                      </div>
+
+                      {/* Actions (visible on hover) */}
+                      <div className="flex items-center gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                        {meal.isFromPlan && !meal.isConsumed && (
+                          <button
+                            onClick={() => handleSwapMeal(meal.mealId)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" />
+                          </button>
                         )}
-                      >
-                        {meal.mealName}
-                      </span>
+                        {!meal.isFromPlan && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (confirm('Delete this meal?')) handleDeleteMeal(meal.mealId);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
-                      <span className="font-mono">{meal.calories} kcal</span>
-                      <span>•</span>
-                      <span className="font-mono text-emerald-600">{meal.protein}g P</span>
-                      <span className="font-mono text-amber-600">{meal.carbs}g C</span>
-                      <span className="font-mono text-rose-600">{meal.fat}g F</span>
+
+                    {/* Macros Row */}
+                    <div className="flex items-center gap-3 text-[11px] font-medium text-slate-400">
+                      <span className="text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-md font-bold">
+                        {Math.round(meal.calories)} kcal
+                      </span>
+                      <div className="flex items-center gap-2 pl-1 border-l border-slate-200">
+                        <span className={cn(meal.isConsumed && "opacity-50")}>
+                          <span className="text-emerald-600 font-bold">{Math.round(meal.protein)}</span>p
+                        </span>
+                        <span className={cn(meal.isConsumed && "opacity-50")}>
+                          <span className="text-amber-600 font-bold">{Math.round(meal.carbs)}</span>c
+                        </span>
+                        <span className={cn(meal.isConsumed && "opacity-50")}>
+                          <span className="text-rose-600 font-bold">{Math.round(meal.fat)}</span>f
+                        </span>
+                      </div>
                     </div>
                   </div>
-
-                  {/* Swap Button */}
-                  {meal.isFromPlan && !meal.isConsumed && (
-                    <button
-                      onClick={() => handleSwapMeal(meal.mealId)}
-                      className={cn(
-                        'p-2 rounded-lg transition-all',
-                        'text-slate-400 hover:text-orange-600 hover:bg-orange-50'
-                      )}
-                      title="Swap meal"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                    </button>
-                  )}
-
-                  {/* Delete Button for Custom Meals */}
-                  {!meal.isFromPlan && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (confirm('Delete this meal?')) {
-                          handleDeleteMeal(meal.mealId);
-                        }
-                      }}
-                      className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-all"
-                      title="Delete meal"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  )}
                 </div>
               ))
             )}

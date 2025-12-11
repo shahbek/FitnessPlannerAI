@@ -29,8 +29,8 @@ export const searchFoods = action({
                     dataType: ['Foundation', 'SR Legacy', 'Survey (FNDDS)', 'Branded'],
                     pageSize,
                     pageNumber,
-                    sortBy: 'dataType.keyword',
-                    sortOrder: 'asc',
+                    // sortBy: 'dataType.keyword', // Removed to default to relevance
+                    // sortOrder: 'asc',
                 }),
             });
 

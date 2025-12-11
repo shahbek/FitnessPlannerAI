@@ -565,3 +565,52 @@ export const deleteMeal = mutation({
     return existing._id;
   },
 });
+
+// Remove the last water log (undo)
+export const removeLastWaterLog = mutation({
+  args: {
+    workoutPlanId: v.id("workoutPlans"),
+    date: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const user = await authComponent.getAuthUser(ctx);
+    if (!user) {
+      throw new Error("Not authenticated");
+    }
+    const userId = user._id as any;
+    const now = Date.now();
+
+    const existing = await ctx.db
+      .query("dailyTracking")
+      .withIndex("by_user_plan_date", (q) =>
+        q
+          .eq("userId", userId)
+          .eq("workoutPlanId", args.workoutPlanId)
+          .eq("date", args.date)
+      )
+      .first();
+
+    if (!existing) {
+      throw new Error("Daily tracking entry not found");
+    }
+
+    const waterLogs = existing.waterLogs || [];
+    if (waterLogs.length === 0) {
+      return existing._id; // Nothing to remove
+    }
+
+    // Remove the last log
+    const updatedLogs = waterLogs.slice(0, -1);
+
+    // Recalculate total
+    const updatedWaterIntake = updatedLogs.reduce((sum, log) => sum + log.amount, 0);
+
+    await ctx.db.patch(existing._id, {
+      waterLogs: updatedLogs,
+      waterIntakeMl: updatedWaterIntake,
+      updatedAt: now,
+    });
+
+    return existing._id;
+  },
+});

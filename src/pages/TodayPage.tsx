@@ -19,6 +19,8 @@ interface TodayPageProps {
   planData?: any;
 }
 
+import '@/components/daily-tracker/TodayHeader.css';
+
 export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
   // Date state
   const [selectedDate, setSelectedDate] = useState(() => {
@@ -144,6 +146,8 @@ export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
       : 'skip'
   );
 
+  const isLoading = trackingData === undefined;
+
   // Calculate overall progress
   const overallProgress = useMemo(() => {
     if (!trackingData) return 0;
@@ -268,58 +272,161 @@ export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
     );
   }
 
+  const filterId = "header-liquid-filter";
+
   return (
-    <div className="min-h-screen pb-24">
-      {/* Sticky Header */}
-      <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-lg border-b border-slate-100">
-        <div className="px-4 py-3 flex items-center justify-between max-w-lg mx-auto">
+    <div className="min-h-screen pb-24 pt-2">
+      {/* SVG Filter for Liquid Glass Effect */}
+      <svg
+        width="0"
+        height="0"
+        style={{
+          position: 'fixed',
+          top: '0px',
+          left: '0px',
+          pointerEvents: 'none',
+          zIndex: -1
+        }}
+        aria-hidden="true"
+      >
+        <defs>
+          <filter
+            id={filterId}
+            filterUnits="objectBoundingBox"
+            primitiveUnits="objectBoundingBox"
+            colorInterpolationFilters="sRGB"
+            x="0%"
+            y="0%"
+            width="100%"
+            height="100%"
+          >
+            <feImage
+              href={`data:image/svg+xml,${encodeURIComponent(`
+                <svg width="400" height="100" xmlns="http://www.w3.org/2000/svg">
+                  <defs>
+                    <radialGradient id="center-mask" cx="50%" cy="50%">
+                      <stop offset="0%" stop-color="#808080" />
+                      <stop offset="60%" stop-color="#808080" />
+                      <stop offset="100%" stop-color="#000000" />
+                    </radialGradient>
+                    <linearGradient id="edge-top" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stop-color="#000000" />
+                      <stop offset="8%" stop-color="#808080" />
+                      <stop offset="100%" stop-color="#808080" />
+                    </linearGradient>
+                    <linearGradient id="edge-bottom" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stop-color="#808080" />
+                      <stop offset="92%" stop-color="#808080" />
+                      <stop offset="100%" stop-color="#000000" />
+                    </linearGradient>
+                    <linearGradient id="edge-left" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stop-color="#000000" />
+                      <stop offset="8%" stop-color="#808080" />
+                      <stop offset="100%" stop-color="#808080" />
+                    </linearGradient>
+                    <linearGradient id="edge-right" x1="0%" y1="0%" x2="100%" y2="0%">
+                      <stop offset="0%" stop-color="#808080" />
+                      <stop offset="92%" stop-color="#808080" />
+                      <stop offset="100%" stop-color="#000000" />
+                    </linearGradient>
+                  </defs>
+                  <rect width="400" height="100" fill="#808080" rx="50" />
+                  <rect width="400" height="100" fill="url(#center-mask)" rx="50" />
+                  <rect width="400" height="100" fill="url(#edge-top)" rx="50" />
+                  <rect width="400" height="100" fill="url(#edge-bottom)" rx="50" />
+                  <rect width="400" height="100" fill="url(#edge-left)" rx="50" style="mix-blend-mode: multiply" />
+                  <rect width="400" height="100" fill="url(#edge-right)" rx="50" style="mix-blend-mode: multiply" />
+                  <rect width="400" height="100" fill="#808080" rx="50" style="filter: blur(2px); opacity: 0.3" />
+                </svg>
+              `)}`}
+              preserveAspectRatio="none"
+              result="borderMap"
+            />
+            <feTurbulence
+              type="fractalNoise"
+              baseFrequency="0.015 0.03"
+              numOctaves="2"
+              seed="5"
+              result="turbulence"
+            />
+            <feGaussianBlur in="turbulence" stdDeviation="1.5" result="noise" />
+            <feComposite in="noise" in2="borderMap" operator="multiply" result="combinedMap" />
+            <feGaussianBlur in="combinedMap" stdDeviation="0.8" result="displacementMap" />
+            <feDisplacementMap
+              in="SourceGraphic"
+              in2="displacementMap"
+              scale="8"
+              xChannelSelector="R"
+              yChannelSelector="G"
+            />
+          </filter>
+        </defs>
+      </svg>
+
+      {/* Floating Header */}
+      <div className="sticky top-4 z-40 px-4 mb-4">
+        <div
+          className="liquid-header transition-all transform hover:scale-[1.01]"
+          style={{
+            backdropFilter: `url("#${filterId}") blur(1px) saturate(120%) brightness(1)`,
+            WebkitBackdropFilter: `url("#${filterId}") blur(1px) saturate(120%) brightness(1)`,
+            '--liquid-filter': `url("#${filterId}")`,
+          } as React.CSSProperties & { '--liquid-filter': string }}
+        >
           {/* Date Navigation */}
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 rounded-full hover:bg-black/5"
               onClick={() => navigateDate('prev')}
             >
-              <ChevronLeft className="h-5 w-5" />
+              <ChevronLeft className="h-5 w-5 text-slate-600" />
             </Button>
             <div className="text-center min-w-[120px]">
-              <div className="text-lg font-bold text-slate-900">
+              <div className="text-sm font-bold text-slate-900">
                 {formatDateDisplay(selectedDate)}
               </div>
-              <div className="text-xs text-slate-500">
-                Week {weekNumber} · {dayName}
+              <div className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">
+                {dayName}
               </div>
             </div>
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-8 w-8 rounded-full hover:bg-black/5"
               onClick={() => navigateDate('next')}
             >
-              <ChevronRight className="h-5 w-5" />
+              <ChevronRight className="h-5 w-5 text-slate-600" />
             </Button>
           </div>
 
-          {/* Progress Ring */}
-          <DailyProgressRing progress={overallProgress} size={48} />
+          {/* Progress Ring with mini skeleton when loading */}
+          <div className="relative">
+            {isLoading && (
+              <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/50 backdrop-blur-[1px] rounded-full">
+                <div className="animate-spin h-4 w-4 border-2 border-slate-300 border-t-blue-500 rounded-full"></div>
+              </div>
+            )}
+            <DailyProgressRing progress={overallProgress} size={42} strokeWidth={4} />
+          </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="px-4 py-4 max-w-lg mx-auto space-y-4">
+      <div className={cn("px-4 max-w-lg mx-auto space-y-4 transition-opacity duration-300", isLoading ? "opacity-60 pointer-events-none" : "opacity-100")}>
         {/* Quick Stats Bar */}
-        <Card className="border-2 border-white/60 bg-gradient-to-br from-white via-slate-50/50 to-slate-100/50 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)]">
-          <CardContent className="p-5">
+        <Card className="rounded-3xl border-2 border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)]">
+          <CardContent className="p-6">
             {/* Live Energy Balance */}
             <div className="flex flex-col items-center justify-center mb-6 pb-6 border-b border-slate-100">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">
+              <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-2">
                 Live Energy Balance
               </span>
               <div className="flex items-baseline gap-2">
                 <span
                   className={cn(
-                    "text-5xl font-black tracking-tighter bg-clip-text text-transparent",
+                    "text-6xl font-black tracking-tighter bg-clip-text text-transparent transform -ml-4",
                     dailyDeficit > 0
                       ? "bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-600"
                       : "bg-gradient-to-br from-rose-400 via-pink-500 to-orange-500"
@@ -327,11 +434,13 @@ export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
                 >
                   {dailyDeficit > 0 ? '-' : '+'}{Math.abs(Math.round(dailyDeficit))}
                 </span>
-                <span className="text-sm font-bold text-slate-400">kcal</span>
+                <span className="text-base font-bold text-slate-300">kcal</span>
               </div>
               <span className={cn(
-                "text-xs font-medium mt-1",
-                dailyDeficit > 0 ? "text-emerald-600" : "text-rose-500"
+                "text-xs font-bold mt-3 px-4 py-1.5 rounded-full shadow-md transition-all border",
+                dailyDeficit > 0
+                  ? "bg-gradient-to-br from-emerald-400 to-emerald-600 text-white border-emerald-400 shadow-[0_2px_8px_rgba(16,185,129,0.4),inset_0_1px_0_rgba(255,255,255,0.4),inset_0_-1px_0_rgba(0,0,0,0.2)]"
+                  : "bg-gradient-to-br from-rose-400 to-rose-600 text-white border-rose-400 shadow-[0_2px_8px_rgba(244,63,94,0.4),inset_0_1px_0_rgba(255,255,255,0.4),inset_0_-1px_0_rgba(0,0,0,0.2)]"
               )}>
                 {dailyDeficit > 0 ? "Deficit (Weight Loss)" : "Surplus (Weight Gain)"}
               </span>
@@ -339,7 +448,7 @@ export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
 
             <div className="grid grid-cols-4 gap-4 text-center">
               <div className="flex flex-col gap-1">
-                <div className="text-2xl font-black font-sans tracking-tight bg-gradient-to-br from-slate-700 to-slate-900 bg-clip-text text-transparent">
+                <div className="text-2xl font-black font-sans tracking-tight text-slate-800">
                   {Math.round(consumedMacros.calories)}
                 </div>
                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
@@ -347,7 +456,7 @@ export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
                 </div>
               </div>
               <div className="flex flex-col gap-1">
-                <div className="text-2xl font-black font-sans tracking-tight bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-500 bg-clip-text text-transparent">
+                <div className="text-2xl font-black font-sans tracking-tight text-emerald-500">
                   {Math.round(consumedMacros.protein)}g
                 </div>
                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
@@ -355,7 +464,7 @@ export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
                 </div>
               </div>
               <div className="flex flex-col gap-1">
-                <div className="text-2xl font-black font-sans tracking-tight bg-gradient-to-br from-amber-400 via-orange-400 to-amber-500 bg-clip-text text-transparent">
+                <div className="text-2xl font-black font-sans tracking-tight text-amber-500">
                   {Math.round(consumedMacros.carbs)}g
                 </div>
                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
@@ -363,7 +472,7 @@ export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
                 </div>
               </div>
               <div className="flex flex-col gap-1">
-                <div className="text-2xl font-black font-sans tracking-tight bg-gradient-to-br from-rose-400 via-pink-500 to-rose-500 bg-clip-text text-transparent">
+                <div className="text-2xl font-black font-sans tracking-tight text-rose-500">
                   {Math.round(consumedMacros.fat)}g
                 </div>
                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
@@ -454,4 +563,5 @@ export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
     </div>
   );
 }
+
 

@@ -1,0 +1,71 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,100..1000&display=swap');
+
+.liquid-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    max-width: 400px;
+    /* height: 70px; */
+    /* Let content define height */
+    box-sizing: border-box;
+    padding: 8px 16px;
+    margin: 0 auto;
+    border: none;
+    border-radius: 99em;
+    font-family: "DM Sans", sans-serif;
+
+    /* Glass Base */
+    background-color: color-mix(in srgb, var(--c-glass, #bbbbbc) 3%, transparent);
+
+    /* Glass Reflection/Shadows */
+    box-shadow:
+        inset 0 0 0 1px color-mix(in srgb, var(--c-light, #fff) calc(var(--glass-reflex-light, 1) * 10%), transparent),
+        inset 1.8px 3px 0px -2px color-mix(in srgb, var(--c-light, #fff) calc(var(--glass-reflex-light, 1) * 90%), transparent),
+        inset -2px -2px 0px -2px color-mix(in srgb, var(--c-light, #fff) calc(var(--glass-reflex-light, 1) * 80%), transparent),
+        inset -3px -8px 1px -6px color-mix(in srgb, var(--c-light, #fff) calc(var(--glass-reflex-light, 1) * 60%), transparent),
+        inset -0.3px -1px 4px 0px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 12%), transparent),
+        inset -1.5px 2.5px 0px -2px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 20%), transparent),
+        inset 0px 3px 4px -2px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 20%), transparent),
+        inset 2px -6.5px 1px -4px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 10%), transparent),
+        0px 1px 5px 0px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 10%), transparent),
+        0px 6px 16px 0px color-mix(in srgb, var(--c-dark, #000) calc(var(--glass-reflex-dark, 1) * 8%), transparent);
+
+    transition: all 400ms cubic-bezier(1, 0.0, 0.4, 1);
+}
+
+.liquid-header::before {
+    content: '';
+    position: absolute;
+    inset: 5px;
+    /* Slightly tighter than tabs */
+    border-radius: inherit;
+    background:
+        radial-gradient(60% 60% at 20% 20%, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.0) 70%),
+        radial-gradient(50% 45% at 75% 30%, rgba(135, 206, 250, 0.12) 0%, rgba(135, 206, 250, 0.0) 65%),
+        radial-gradient(80% 60% at 50% 80%, rgba(255, 182, 193, 0.08) 0%, rgba(255, 182, 193, 0.0) 60%);
+    mix-blend-mode: screen;
+    filter: var(--liquid-filter, none) blur(6px);
+    opacity: 0.35;
+    animation: liquidGlassFlow 16s ease-in-out infinite alternate;
+    pointer-events: none;
+    z-index: -2;
+}
+
+@keyframes liquidGlassFlow {
+    0% {
+        transform: scale(1);
+        background-position: 0% 0%, 100% 20%, 50% 80%;
+    }
+
+    50% {
+        transform: scale(1.02);
+        background-position: 40% 30%, 80% 70%, 30% 20%;
+    }
+
+    100% {
+        transform: scale(1);
+        background-position: 80% 60%, 20% 40%, 70% 10%;
+    }
+}

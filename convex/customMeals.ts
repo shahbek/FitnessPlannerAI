@@ -57,3 +57,21 @@ export const getUserCustomMeals = query({
         return meals;
     },
 });
+export const deleteCustomMeal = mutation({
+    args: {
+        id: v.id("customMeals"),
+    },
+    handler: async (ctx, args) => {
+        const userId = await getAuthUserId(ctx);
+        if (!userId) {
+            throw new Error("Unauthorized");
+        }
+
+        const meal = await ctx.db.get(args.id);
+        if (!meal || meal.userId !== userId) {
+            throw new Error("Meal not found or unauthorized");
+        }
+
+        await ctx.db.delete(args.id);
+    },
+});

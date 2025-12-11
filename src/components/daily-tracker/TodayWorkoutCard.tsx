@@ -36,7 +36,7 @@ export function TodayWorkoutCard({
   const updateWorkoutStatus = useMutation(api.dailyTracking.updateWorkoutStatus);
 
   const handleComplete = async () => {
-    if (status === 'completed') return; // Already completed
+    if (status === 'completed') return;
 
     try {
       await updateWorkoutStatus({
@@ -69,20 +69,20 @@ export function TodayWorkoutCard({
     return (
       <Card
         className={cn(
-          'rounded-3xl border-2 border-white/60 bg-gradient-to-br from-white via-slate-50/50 to-slate-100/50 backdrop-blur-xl',
-          'shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)]'
+          'rounded-3xl border-0 bg-white/60 backdrop-blur-xl',
+          'shadow-[0_8px_30px_rgb(0,0,0,0.04)]', // Softer shadow
+          'p-6' // Increased padding consistency
         )}
       >
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-slate-200 to-slate-300 flex items-center justify-center">
-              <Bed className="h-6 w-6 text-slate-600" />
+        <CardContent className="p-0">
+          <div className="flex items-center gap-5">
+            <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center shadow-sm">
+              <Bed className="h-7 w-7 text-slate-400" strokeWidth={2} />
             </div>
             <div className="flex-1">
-              <div className="text-lg font-bold text-slate-700">Rest Day</div>
-              <div className="text-sm text-slate-500">Recovery & Regeneration</div>
+              <div className="text-xl font-bold text-slate-800 tracking-tight">Rest Day</div>
+              <div className="text-sm text-slate-500 font-medium">Recovery & Regeneration</div>
             </div>
-            <div className="text-2xl">😴</div>
           </div>
         </CardContent>
       </Card>
@@ -93,49 +93,41 @@ export function TodayWorkoutCard({
     <Card
       onClick={!isCompleted && !isSkipped ? handleComplete : undefined}
       className={cn(
-        'rounded-3xl border-2 transition-all duration-300 overflow-hidden cursor-pointer active:scale-[0.98]',
+        'rounded-3xl transition-all duration-300 overflow-hidden cursor-pointer group relative',
         isCompleted
-          ? 'border-emerald-300/60 bg-gradient-to-br from-emerald-50/80 via-emerald-100/50 to-teal-50/50 backdrop-blur-xl shadow-[0_10px_40px_rgba(16,185,129,0.15),inset_0_3px_6px_rgba(255,255,255,0.4)]'
+          ? 'border-0 bg-gradient-to-br from-emerald-500 to-teal-600 shadow-[0_35px_60px_-15px_rgba(16,185,129,0.6),inset_0_2px_20px_rgba(255,255,255,0.5)]'
           : isSkipped
-            ? 'border-slate-200/60 bg-slate-50/50 opacity-60 backdrop-blur-sm shadow-none'
-            : 'border-white/60 bg-gradient-to-br from-white via-slate-50/50 to-slate-100/50 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)] hover:shadow-[0_16px_50px_rgba(0,0,0,0.12),inset_0_4px_8px_rgba(0,0,0,0.06),inset_0_-2px_4px_rgba(255,255,255,1),inset_0_1px_0_rgba(255,255,255,0.9)]'
+            ? 'border-2 border-slate-200 bg-slate-50/50 opacity-70'
+            : 'border-2 border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)] hover:shadow-[0_16px_50px_rgba(0,0,0,0.12),inset_0_4px_8px_rgba(0,0,0,0.06),inset_0_-2px_4px_rgba(255,255,255,1),inset_0_1px_0_rgba(255,255,255,0.9)] hover:-translate-y-0.5'
       )}
     >
-      <CardContent className="p-4">
+      <CardContent className="p-6">
         {/* Header */}
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <div
-              className={cn(
-                'w-12 h-12 rounded-2xl flex items-center justify-center transition-all',
-                isCompleted
-                  ? 'bg-gradient-to-br from-emerald-400 to-teal-500 shadow-lg'
-                  : isSkipped
-                    ? 'bg-gradient-to-br from-slate-300 to-slate-400'
-                    : 'bg-gradient-to-br from-indigo-400 to-indigo-600 shadow-lg'
-              )}
-            >
-              {isCompleted ? (
-                <Check className="h-6 w-6 text-white" strokeWidth={3} />
-              ) : isSkipped ? (
-                <X className="h-6 w-6 text-white" strokeWidth={2} />
-              ) : (
-                <Dumbbell className="h-6 w-6 text-white" />
-              )}
+        <div className="flex items-start justify-between mb-6">
+          <div className="flex items-center gap-2">
+            <div className="flex-shrink-0 -ml-2">
+              <img
+                src="/assets/images/3dIcons/dumbell.png"
+                alt="Workout"
+                className={cn(
+                  "w-20 h-20 object-contain drop-shadow-xl transition-all",
+                  isSkipped ? "grayscale opacity-50" : "filter hover:brightness-110"
+                )}
+              />
             </div>
-            <div>
+            <div className="pt-2">
               <div
                 className={cn(
-                  'text-xs font-bold uppercase tracking-wider',
-                  isCompleted ? 'text-emerald-600' : isSkipped ? 'text-slate-500' : 'text-indigo-600'
+                  'text-[11px] font-bold uppercase tracking-widest mb-1',
+                  isCompleted ? 'text-emerald-100' : isSkipped ? 'text-slate-400' : 'text-indigo-500/80'
                 )}
               >
-                Workout
+                Today's Workout
               </div>
               <div
                 className={cn(
-                  'text-lg font-bold',
-                  isCompleted ? 'text-emerald-800' : isSkipped ? 'text-slate-600 line-through' : 'text-slate-800'
+                  'text-2xl font-black leading-none tracking-tight',
+                  isCompleted ? 'text-white' : isSkipped ? 'text-slate-500 line-through decoration-2' : 'text-slate-900'
                 )}
               >
                 {workoutData.sessionName}
@@ -143,71 +135,95 @@ export function TodayWorkoutCard({
             </div>
           </div>
 
-          {/* Status indicator / Skip button */}
+          {/* Action Button */}
           <button
             onClick={(e) => {
               e.stopPropagation();
               handleSkip();
             }}
             className={cn(
-              'px-3 py-1.5 rounded-full text-xs font-bold transition-all',
+              'px-4 py-2 rounded-xl text-xs font-bold transition-all border shadow-sm',
               isCompleted
-                ? 'bg-emerald-200 text-emerald-700'
+                ? 'bg-white/20 border-white/40 text-white hover:bg-white/30 backdrop-blur-md'
                 : isSkipped
-                  ? 'bg-slate-300 text-slate-600'
-                  : 'bg-indigo-100 text-indigo-600 hover:bg-indigo-200'
+                  ? 'bg-slate-200 border-slate-300 text-slate-500'
+                  : 'bg-white border-slate-100 text-slate-400 hover:text-rose-500 hover:border-rose-100 hover:bg-rose-50'
             )}
           >
-            {isCompleted ? '✓ Done' : isSkipped ? 'Skipped' : 'Skip'}
+            {isCompleted ? 'Done' : isSkipped ? 'Skipped' : 'Skip'}
           </button>
         </div>
 
-        {/* Details */}
-        <div className="flex items-center gap-4 mb-3">
-          <div className="flex items-center gap-1.5 text-sm text-slate-600">
-            <Clock className="h-4 w-4" />
-            <span className="font-mono">{workoutData.duration} min</span>
+        {/* Stats Row */}
+        <div className={cn(
+          "flex items-center gap-6 mb-6 pb-6 border-b mx-1",
+          isCompleted ? "border-white/20" : "border-slate-100"
+        )}>
+          <div className={cn("flex items-center gap-2", isCompleted ? "text-emerald-50" : "text-slate-600")}>
+            <Clock className={cn("h-4 w-4", isCompleted ? "text-emerald-100" : "text-indigo-400")} />
+            <span className="text-sm font-medium">{workoutData.duration} min</span>
           </div>
-          <div className="flex items-center gap-1.5 text-sm text-slate-600">
-            <Target className="h-4 w-4" />
-            <span>{workoutData.exercises?.length || 0} exercises</span>
+          <div className={cn("flex items-center gap-2", isCompleted ? "text-emerald-50" : "text-slate-600")}>
+            <Target className={cn("h-4 w-4", isCompleted ? "text-emerald-100" : "text-purple-400")} />
+            <span className="text-sm font-medium">{workoutData.exercises?.length || 0} exercises</span>
           </div>
         </div>
 
-        {/* Target Muscles */}
-        {workoutData.targetMuscles && workoutData.targetMuscles.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {workoutData.targetMuscles.slice(0, 4).map((muscle) => (
-              <span
-                key={muscle}
+        {/* Exercises Preview */}
+        {workoutData.exercises && workoutData.exercises.length > 0 && (
+          <div className="space-y-2 px-1">
+            <div className={cn(
+              "text-[10px] font-bold uppercase tracking-widest pl-1 mb-2",
+              isCompleted ? "text-emerald-100" : "text-slate-400"
+            )}>
+              Exercises
+            </div>
+            {workoutData.exercises.map((exercise, idx) => (
+              <div
+                key={idx}
                 className={cn(
-                  'px-2 py-0.5 rounded-full text-xs font-medium',
+                  "flex items-center justify-between p-2.5 rounded-xl transition-all",
                   isCompleted
-                    ? 'bg-emerald-200/50 text-emerald-700'
-                    : isSkipped
-                      ? 'bg-slate-200 text-slate-500'
-                      : 'bg-indigo-100 text-indigo-700'
+                    ? "bg-white/10 border border-white/10 hover:bg-white/20 text-white"
+                    : "bg-white border border-slate-100 group-hover:border-indigo-100 group-hover:shadow-sm"
                 )}
               >
-                {muscle}
-              </span>
+                <div className="flex items-center gap-3 overflow-hidden">
+                  <div className={cn(
+                    "w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0",
+                    isCompleted ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500 group-hover:bg-indigo-50 group-hover:text-indigo-600"
+                  )}>
+                    {idx + 1}
+                  </div>
+                  <span className={cn(
+                    "text-sm font-medium truncate",
+                    isCompleted ? "text-white" : "text-slate-700"
+                  )}>
+                    {exercise.name}
+                  </span>
+                </div>
+                <div className={cn(
+                  "font-mono text-xs px-2 py-1 rounded-md border shrink-0",
+                  isCompleted ? "text-emerald-100 bg-white/10 border-white/20" : "text-slate-500 bg-slate-50 border-slate-100"
+                )}>
+                  {exercise.sets} × {exercise.reps}
+                </div>
+              </div>
             ))}
-            {workoutData.targetMuscles.length > 4 && (
-              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-500">
-                +{workoutData.targetMuscles.length - 4}
-              </span>
-            )}
           </div>
         )}
 
         {/* Tap hint */}
         {!isCompleted && !isSkipped && (
-          <div className="mt-3 pt-3 border-t border-indigo-100 text-center">
-            <span className="text-xs text-indigo-400 font-medium">Tap to mark complete</span>
+          <div className="mt-6 text-center">
+            <span className="text-xs font-bold text-indigo-400/60 uppercase tracking-widest group-hover:text-indigo-500 transition-colors">
+              Tap to complete
+            </span>
           </div>
         )}
       </CardContent>
     </Card>
   );
 }
+
 

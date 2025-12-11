@@ -5,19 +5,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { parseWorkoutData, ParsedWorkoutData } from '@/utils/workoutDataParser';
-import { PhaseProgressionTable } from '@/components/tables/PhaseProgressionTable';
 import { PhasesOverview } from '@/components/tables/PhasesOverview';
-import { ComprehensiveMealTable } from '@/components/tables/ComprehensiveMealTable';
 import { WeeklyScheduleTable } from '@/components/tables/WeeklyScheduleTable';
-import { WeeklyShoppingTable } from '@/components/tables/WeeklyShoppingTable';
+import { MealsAndGroceriesView } from '@/components/workout/MealsAndGroceriesView';
 
 import { TodayPage } from '@/pages/TodayPage';
 import { useSidebar } from '@/components/ui/sidebar';
 import mealsIcon from '@/assets/images/3dicons/meals.png';
 import dumbellIcon from '@/assets/images/3dicons/dumbell.png';
-import groceriesIcon from '@/assets/images/3dicons/groceries.png';
+import notebookIcon from '@/assets/images/3dicons/notebook.png';
+// import groceriesIcon from '@/assets/images/3dicons/groceries.png';
 import steppingStoolIcon from '@/assets/images/3dicons/stepping_stool.png';
-import targetIcon from '@/assets/images/3dicons/target.png';
+// import targetIcon from '@/assets/images/3dicons/target.png';
 
 interface WorkoutProgramViewProps {
   workoutData: any; // Raw JSON data from AI
@@ -28,7 +27,7 @@ interface WorkoutProgramViewProps {
 export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: WorkoutProgramViewProps) {
   const { state: sidebarState, isMobile } = useSidebar();
   const [parsedData, setParsedData] = useState<ParsedWorkoutData | null>(null);
-  const [activeTab, setActiveTab] = useState('macros');
+  const [activeTab, setActiveTab] = useState('journal');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState(planTitle || 'Workout Program');
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -62,7 +61,7 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
   const isGenerating = workoutData?.isGenerating;
 
   useEffect(() => {
-    if (activeTab === 'comprehensive-meals' && parsedData?.comprehensiveMeals?.length) {
+    if (activeTab === 'meals' && parsedData?.comprehensiveMeals?.length) {
       console.log('\n🍽️ [UI] Meal names for current plan:');
       parsedData.comprehensiveMeals.forEach((meal, index) => {
         console.log(`  Meal ${index + 1}: ${meal.name}`);
@@ -112,7 +111,7 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
         </div>
 
         {/* Tabbed Content with skeleton */}
-        <Tabs key="loading-tabs" defaultValue="macros" className="w-full">
+        <Tabs key="loading-tabs" defaultValue="journal" className="w-full">
           <div
             className="fixed bottom-8 z-50 flex justify-center items-center pointer-events-none transition-all duration-200 px-6"
             style={{
@@ -121,7 +120,7 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
             }}
           >
             <TabsList variant="glass" className="pointer-events-auto flex-shrink-0">
-              <TabsTrigger value="macros" disabled>
+              <TabsTrigger value="journal" disabled>
                 <div className="flex flex-col items-center gap-0">
                   <Skeleton className="w-9 h-9 rounded" />
                   <Skeleton className="h-3 w-12 mt-1" />
@@ -133,19 +132,13 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
                   <Skeleton className="h-3 w-12 mt-1" />
                 </div>
               </TabsTrigger>
-              <TabsTrigger value="comprehensive-meals" disabled>
+              <TabsTrigger value="meals" disabled>
                 <div className="flex flex-col items-center gap-0">
                   <Skeleton className="w-9 h-9 rounded" />
                   <Skeleton className="h-3 w-12 mt-1" />
                 </div>
               </TabsTrigger>
               <TabsTrigger value="weekly-schedule" disabled>
-                <div className="flex flex-col items-center gap-0">
-                  <Skeleton className="w-9 h-9 rounded" />
-                  <Skeleton className="h-3 w-12 mt-1" />
-                </div>
-              </TabsTrigger>
-              <TabsTrigger value="shopping" disabled>
                 <div className="flex flex-col items-center gap-0">
                   <Skeleton className="w-9 h-9 rounded" />
                   <Skeleton className="h-3 w-12 mt-1" />
@@ -262,9 +255,9 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
 
   const tabs = [
     {
-      value: 'macros',
-      label: 'Macros',
-      icon: targetIcon,
+      value: 'journal',
+      label: 'Journal',
+      icon: notebookIcon,
       content: (
         <div className="space-y-6">
           {/* Daily Logging UI */}
@@ -290,22 +283,21 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
       )
     },
     {
-      value: 'comprehensive-meals',
+      value: 'meals',
       label: 'Meals',
       icon: mealsIcon,
-      content: <ComprehensiveMealTable data={parsedData.comprehensiveMeals} />
+      content: (
+        <MealsAndGroceriesView
+          mealsData={parsedData.comprehensiveMeals}
+          shoppingData={parsedData.weeklyShopping}
+        />
+      )
     },
     {
       value: 'weekly-schedule',
       label: 'Schedule',
       icon: dumbellIcon,
       content: <WeeklyScheduleTable data={parsedData.weeklySchedule} plan={workoutData} />
-    },
-    {
-      value: 'shopping',
-      label: 'Groceries',
-      icon: groceriesIcon,
-      content: <WeeklyShoppingTable data={parsedData.weeklyShopping} />
     }
   ];
 
