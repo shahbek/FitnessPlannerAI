@@ -17,11 +17,12 @@ import { getTDEE, estimateResistanceCalories } from '@/utils/planCalculations';
 interface TodayPageProps {
   workoutPlanId?: string;
   planData?: any;
+  isAuthFresh?: boolean;
 }
 
 import '@/components/daily-tracker/TodayHeader.css';
 
-export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
+export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: TodayPageProps) {
   // Date state
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
@@ -102,9 +103,9 @@ export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
   // Get or create daily tracking
   const getOrCreate = useMutation(api.dailyTracking.getOrCreateDailyTracking);
 
-  // Initialize tracking for the day
+  // Initialize tracking for the day (Only if auth is fresh)
   React.useEffect(() => {
-    if (!workoutPlanId || !todayPlanData) return;
+    if (!workoutPlanId || !todayPlanData || !isAuthFresh) return;
 
     const targetMacros = todayPlanData.dailyMacros
       ? {
@@ -136,12 +137,12 @@ export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
     }).catch((err) => {
       console.error('Failed to init daily tracking:', err);
     });
-  }, [workoutPlanId, dateTimestamp, weekNumber, dayNumber, todayPlanData, waterTarget, getOrCreate]);
+  }, [workoutPlanId, dateTimestamp, weekNumber, dayNumber, todayPlanData, waterTarget, getOrCreate, isAuthFresh]);
 
   // Query tracking data
   const trackingData = useQuery(
     api.dailyTracking.getDailyTracking,
-    workoutPlanId
+    (workoutPlanId && isAuthFresh)
       ? { workoutPlanId: workoutPlanId as any, date: dateTimestamp }
       : 'skip'
   );
@@ -364,12 +365,12 @@ export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
       </svg>
 
       {/* Floating Header */}
-      <div className="sticky top-4 z-40 px-4 mb-4">
+      <div className="sticky top-4 z-40 px-2 sm:px-4 mb-4">
         <div
           className="liquid-header transition-all transform hover:scale-[1.01]"
           style={{
-            backdropFilter: `url("#${filterId}") blur(1px) saturate(120%) brightness(1)`,
-            WebkitBackdropFilter: `url("#${filterId}") blur(1px) saturate(120%) brightness(1)`,
+            backdropFilter: `url("#${filterId}") blur(12px) saturate(120%) brightness(1)`,
+            WebkitBackdropFilter: `url("#${filterId}") blur(12px) saturate(120%) brightness(1)`,
             '--liquid-filter': `url("#${filterId}")`,
           } as React.CSSProperties & { '--liquid-filter': string }}
         >
@@ -414,10 +415,10 @@ export function TodayPage({ workoutPlanId, planData }: TodayPageProps) {
       </div>
 
       {/* Main Content */}
-      <div className={cn("px-4 max-w-lg mx-auto space-y-4 transition-opacity duration-300", isLoading ? "opacity-60 pointer-events-none" : "opacity-100")}>
+      <div className={cn("px-2 sm:px-4 max-w-lg mx-auto space-y-4 transition-opacity duration-300", isLoading ? "opacity-60 pointer-events-none" : "opacity-100")}>
         {/* Quick Stats Bar */}
         <Card className="rounded-3xl border-2 border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)]">
-          <CardContent className="p-6">
+          <CardContent className="p-4 sm:p-6">
             {/* Live Energy Balance */}
             <div className="flex flex-col items-center justify-center mb-6 pb-6 border-b border-slate-100">
               <span className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mb-2">

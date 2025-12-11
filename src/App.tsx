@@ -8,6 +8,8 @@ import { useEffect, lazy, Suspense, useState } from 'react';
 import Lottie from "lottie-react";
 import logoAnimation from "@/assets/lottieanimations/LogoLoading.json";
 
+import { useAuthWithCache } from './hooks/useAuthWithCache';
+
 // Lazy load LiquidGlassCursor to avoid SSR issues and reduce initial bundle
 const LiquidGlassCursor = lazy(() =>
   import('@/components/LiquidGlassCursor').then(module => ({ default: module.LiquidGlassCursor }))
@@ -19,21 +21,19 @@ const LandingPage = lazy(() =>
 );
 
 export default function App() {
-  // Fetch current user from Convex (Better Auth is handled internally)
-  const currentUser = useQuery(api.users.getCurrentUser);
+  // Use our new cached auth hook
+  // This will return the cached user immediately if available
+  const { user: currentUser, isLoading, isFresh } = useAuthWithCache();
 
   // State to track if we should show the landing page
   const [showLanding, setShowLanding] = useState(true);
-
-  // Loading state
-  const isLoading = currentUser === undefined;
 
   // Authenticated: we have a user
   const isAuthenticated = currentUser !== null && currentUser !== undefined;
 
   // Debug logging
   useEffect(() => {
-    console.log('🔐 Better Auth state:', {
+    console.log('🔐 Better Auth state (Cached):', {
       isLoading,
       isAuthenticated,
       hasUser: !!currentUser,
@@ -66,7 +66,7 @@ export default function App() {
         </Suspense>
       </ErrorBoundary>
       {isAuthenticated ? (
-        <FitnessLayout />
+        <FitnessLayout isAuthFresh={isFresh} />
       ) : showLanding ? (
         <Suspense fallback={null}>
           <LandingPage onLogin={() => setShowLanding(false)} />

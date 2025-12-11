@@ -94,13 +94,13 @@ export function TodayHydrationCard({
   return (
     <Card
       className={cn(
-        'rounded-3xl transition-all duration-300 overflow-hidden group',
+        'rounded-3xl transition-all duration-300 overflow-hidden relative',
         progress >= 100
           ? 'border-0 bg-gradient-to-br from-cyan-400 to-blue-600 shadow-[0_35px_60px_-15px_rgba(6,182,212,0.6),inset_0_2px_20px_rgba(255,255,255,0.5)]' // No borders, heavy 3D shadow + inner glow
           : 'border-2 border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)] hover:shadow-[0_16px_50px_rgba(0,0,0,0.12),inset_0_4px_8px_rgba(0,0,0,0.06),inset_0_-2px_4px_rgba(255,255,255,1),inset_0_1px_0_rgba(255,255,255,0.9)]'
       )}
     >
-      <CardContent className="p-6">
+      <CardContent className="p-4 sm:p-6 relative z-10">
         {/* Header */}
         <div className="flex items-start justify-between mb-8">
           <div className="flex items-center gap-2">

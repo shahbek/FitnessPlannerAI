@@ -15,6 +15,7 @@ import { DEFAULT_FORM_STATE } from '@/constants';
 import { GoalCategory, getGoalCategoryLabel } from '@/models/UserProfile';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
+import { useWorkoutPlansWithCache } from '@/hooks/useWorkoutPlansWithCache';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -44,9 +45,10 @@ type NavigationView = 'home' | 'settings' | 'settings-account' | 'settings-token
 
 interface FitnessLayoutProps {
   children?: React.ReactNode;
+  isAuthFresh?: boolean;
 }
 
-export function FitnessLayout({ children }: FitnessLayoutProps) {
+export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutProps) {
   const [showNewWorkoutForm, setShowNewWorkoutForm] = useState(false);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<number | undefined>();
   const [showChainOfThought, setShowChainOfThought] = useState(false);
@@ -90,197 +92,62 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
 
   // Token system mutations and queries
   const recordTokenUsage = useMutation(api.accounts.recordTokenUsage);
-  const getUserAccount = useQuery(api.accounts.getUserAccount);
+  // Only fetch tokens if auth knows we are fresh (to avoid Unauthenticated error on immediate render)
+  const getUserAccount = useQuery(api.accounts.getUserAccount, isAuthFresh ? {} : "skip");
 
-  // Convex queries for loading saved plans
-  const savedWorkoutPlans = useQuery(api.workoutPlans.getUserWorkoutPlans);
+  // Use our new cached plans hook
+  const { plans: savedWorkoutPlans, isLoaded: plansLoaded } = useWorkoutPlansWithCache(workoutHistory, isAuthFresh);
   // Note: savedMealPlans can be used for future meal plan features
   // const savedMealPlans = useQuery(api.mealPlans.getUserMealPlans);
 
-  // Load saved plans from Convex when they're available
+  // Load saved plans from Convex via Cache Hook
   useEffect(() => {
-    console.log('🔄 useEffect triggered - savedWorkoutPlans:', savedWorkoutPlans?.length || 0, 'plans');
+    console.log('🔄 useEffect triggered - savedWorkoutPlans (via Cache):', savedWorkoutPlans?.length || 0, 'plans');
 
     if (savedWorkoutPlans && savedWorkoutPlans.length > 0) {
-      console.log('📥 Loading saved workout plans from Convex:', savedWorkoutPlans);
-
-      // Convert Convex workout plans to local state format
-      const convertedPlans = savedWorkoutPlans.map(plan => {
-        // ✅ Prioritize fullPlanData - it contains the complete plan structure
-        let planData = plan.fullPlanData;
-
-        // If fullPlanData exists, use it directly (it should have the correct structure)
-        if (planData) {
-          console.log('✅ Using fullPlanData from Convex for plan:', plan.name);
-          // Ensure isActive is preserved
-          if (!planData.hasOwnProperty('isActive')) {
-            planData = { ...planData, isActive: plan.isActive };
-          }
-        } else {
-          // Fallback: Reconstruct from stored phases (for backward compatibility)
-          console.warn('⚠️ No fullPlanData found, reconstructing from phases for plan:', plan.name);
-          planData = {
-            weeklyOutlines: Array.isArray(plan.phases) ? plan.phases : [],
-            phaseAwareFramework: {
-              trainingApproach: {
-                split: plan.description?.includes('Full Body') ? 'Full Body' : 'Progressive',
-                periodization: plan.description || 'Progressive',
-              }
-            },
-            isActive: plan.isActive,
-          };
-        }
-
-        // ✅ Generate unique numeric ID from Convex ID string
-        // Use a more robust hash that combines multiple factors
-        const hashString = (str: string): number => {
-          let hash = 0;
-          for (let i = 0; i < str.length; i++) {
-            const char = str.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash; // Convert to 32-bit integer
-          }
-          return Math.abs(hash); // Ensure positive number
-        };
-
-        // Use Convex ID as the basis for unique ID
-        // Combine hash with createdAt and plan name to ensure uniqueness
-        const convexIdString = plan._id.toString();
-        const hashValue = hashString(convexIdString);
-        const nameHash = hashString(plan.name || '');
-        // Combine multiple factors to ensure uniqueness
-        const createdAtSuffix = plan.createdAt % 1000000; // Last 6 digits
-        // Use combination that's very unlikely to collide
-        const numericId = (hashValue * 1000000000 + nameHash * 1000 + createdAtSuffix) % Number.MAX_SAFE_INTEGER;
-
-        return {
-          id: numericId,
-          convexId: plan._id, // Store Convex ID for deletion
-          title: plan.name,
-          createdAt: new Date(plan.createdAt).toISOString(),
-          data: planData,
-        };
-      });
-
       // Merge with local state (keep any generating plans)
       setWorkoutHistory(prev => {
         // ✅ Build maps for efficient lookup
         const convexIdToLocalPlan = new Map<string, typeof prev[0]>();
-        const convexIdToSavedPlan = new Map<string, typeof convertedPlans[0]>();
 
-        // Map local plans (both generating and completed) by convexId
+        // Map local plans (optimistic/generating)
         for (const plan of prev) {
           if (plan.convexId) {
             convexIdToLocalPlan.set(plan.convexId.toString(), plan);
           }
         }
 
-        // Map saved plans from Convex by convexId
-        for (const plan of convertedPlans) {
-          if (plan.convexId) {
-            convexIdToSavedPlan.set(plan.convexId.toString(), plan);
-          }
-        }
+        // Filter out any local versions that are now present in the saved/cached plans
+        // We fundamentally trust the savedWorkoutPlans (checked against cache/server) more than local state
+        // EXCEPT for "generating" plans which might not be in saved yet.
 
-        // ✅ Build deduplicated list: prefer saved versions over local optimistic ones
-        const seenIds = new Set<number>();
-        const seenConvexIds = new Set<string>();
-        const deduplicated: typeof prev = [];
-        let selectedPlanReplaced = false;
-        let newSelectedId: number | undefined = undefined;
+        // 1. Keep "generating" plans (no convexId yet, or specifically marked)
+        const generatingPlans = prev.filter(p => p.data?.isGenerating && !p.convexId);
 
-        // First, process saved plans from Convex (prefer these over local optimistic ones)
-        for (const savedPlan of convertedPlans) {
-          if (savedPlan.convexId) {
-            const convexIdStr = savedPlan.convexId.toString();
-            const localPlan = convexIdToLocalPlan.get(convexIdStr);
+        // 2. Keep saved plans
+        const merged = [...generatingPlans, ...savedWorkoutPlans];
 
-            // Check if we've already processed this convexId (prevent duplicates from rapid clicks)
-            if (seenConvexIds.has(convexIdStr)) {
-              console.log('⏭️ Skipping duplicate saved plan (already processed):', savedPlan.id, savedPlan.title);
-              continue;
-            }
+        // 3. Update selected ID if we replaced a local pending plan with a real one?
+        // Actually, the cached hook handles ID consistency (using same hash logic).
+        // If IDs match, we don't need to do anything special for selection preservation hopefully.
 
-            // If we have a local plan with the same convexId, replace it with saved version
-            if (localPlan) {
-              console.log('🔄 Replacing local plan with saved version:', localPlan.id, '->', savedPlan.id, savedPlan.title);
-
-              // Update selection if needed
-              if (selectedWorkoutId === localPlan.id && !selectedPlanReplaced) {
-                console.log('📌 Updating selectedWorkoutId from local to saved:', localPlan.id, '->', savedPlan.id);
-                newSelectedId = savedPlan.id;
-                selectedPlanReplaced = true;
-              }
-            }
-
-            // Add the saved plan (preferred version) - only if we haven't seen this ID or convexId
-            if (!seenIds.has(savedPlan.id) && !seenConvexIds.has(convexIdStr)) {
-              seenIds.add(savedPlan.id);
-              seenConvexIds.add(convexIdStr);
-              deduplicated.push(savedPlan);
-            }
-          } else {
-            // Saved plan without convexId (shouldn't happen, but handle it)
-            if (!seenIds.has(savedPlan.id)) {
-              seenIds.add(savedPlan.id);
-              deduplicated.push(savedPlan);
-            }
-          }
-        }
-
-        // Then, process local plans that haven't been replaced by saved versions
-        for (const localPlan of prev) {
-          // Skip if this convexId was already handled by a saved plan
-          if (localPlan.convexId && seenConvexIds.has(localPlan.convexId.toString())) {
-            console.log('⏭️ Skipping local plan, saved version already added:', localPlan.id, localPlan.title);
-            continue;
-          }
-
-          // Skip if we've seen this ID before
-          if (seenIds.has(localPlan.id)) {
-            console.warn('⚠️ Duplicate ID detected, skipping:', localPlan.id, localPlan.title);
-            continue;
-          }
-
-          // Skip if we've seen this convexId before
-          if (localPlan.convexId && seenConvexIds.has(localPlan.convexId.toString())) {
-            console.warn('⚠️ Duplicate convexId detected, skipping:', localPlan.convexId, localPlan.title);
-            continue;
-          }
-
-          seenIds.add(localPlan.id);
-          if (localPlan.convexId) {
-            seenConvexIds.add(localPlan.convexId.toString());
-          }
-          deduplicated.push(localPlan);
-        }
-
-        // Update selectedWorkoutId if it was replaced
-        if (selectedPlanReplaced && newSelectedId !== undefined) {
-          setSelectedWorkoutId(newSelectedId);
-        }
-
-        console.log('✅ Updated workoutHistory with', deduplicated.length, 'plans (filtered duplicates)');
-        return deduplicated;
+        return merged;
       });
 
-      // Auto-select the most recent active plan ONLY if nothing is currently selected
-      // This prevents deselecting after a plan is generated
-      if (!selectedWorkoutId) {
-        const activePlan = convertedPlans.find(p => p.data?.isActive);
+      // Auto-select logic
+      if (!selectedWorkoutId && savedWorkoutPlans.length > 0) {
+        // Try to find active plan
+        const activePlan = savedWorkoutPlans.find((p: any) => p.data?.isActive);
         if (activePlan) {
-          console.log('📌 Auto-selecting active plan:', activePlan.title);
           setSelectedWorkoutId(activePlan.id);
-        } else if (convertedPlans.length > 0) {
-          // If no active plan, select the most recent one
-          console.log('📌 Auto-selecting most recent plan:', convertedPlans[0].title);
-          setSelectedWorkoutId(convertedPlans[0].id);
+        } else {
+          // Default to most recent
+          setSelectedWorkoutId(savedWorkoutPlans[0].id);
         }
       }
-    } else if (savedWorkoutPlans && savedWorkoutPlans.length === 0) {
-      console.log('ℹ️ No saved workout plans found in Convex');
     }
   }, [savedWorkoutPlans]);
+
 
   const handleNewWorkout = () => {
     setShowNewWorkoutForm(true);
@@ -447,10 +314,10 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
 
       // Optimistically create a new plan object and add to history immediately
       // Use goalCategory label if available, otherwise fall back to primaryGoal
-      const goalLabel = (dataToUse as any).goalCategory 
+      const goalLabel = (dataToUse as any).goalCategory
         ? getGoalCategoryLabel((dataToUse as any).goalCategory as GoalCategory)
         : dataToUse.primaryGoal?.replace(/_/g, ' ') || 'Fitness';
-      
+
       const optimisticPlan = {
         id: Date.now(),
         title: `${goalLabel} Program`,
@@ -657,10 +524,10 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
       // Optimistically create a new plan object and add to history immediately
       // Use skeleton data structure instead of placeholder text
       // Use goalCategory label if available, otherwise fall back to primaryGoal
-      const goalLabel = (dataToUse as any).goalCategory 
+      const goalLabel = (dataToUse as any).goalCategory
         ? getGoalCategoryLabel((dataToUse as any).goalCategory as GoalCategory)
         : dataToUse.primaryGoal?.replace(/_/g, ' ') || 'Fitness';
-      
+
       const optimisticPlan = {
         id: Date.now(),
         title: `${goalLabel} Program`,
@@ -1232,7 +1099,8 @@ export function FitnessLayout({ children }: FitnessLayoutProps) {
                           <WorkoutProgramView
                             workoutData={selectedWorkout.data}
                             planTitle={selectedWorkout.title}
-                            workoutPlanId={selectedWorkout.convexId}
+                            workoutPlanId={selectedWorkout.convexId ? selectedWorkout.convexId.toString() : undefined}
+                            isAuthFresh={isAuthFresh}
                           />
                         ) : null;
                       })()}

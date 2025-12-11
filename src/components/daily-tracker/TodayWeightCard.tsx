@@ -83,7 +83,7 @@ export function TodayWeightCard({
         'transition-all duration-300 overflow-hidden'
       )}
     >
-      <CardContent className="p-6">
+      <CardContent className="p-4 sm:p-6">
         {/* Header */}
         <div className="flex items-start justify-between mb-6">
           <div className="flex items-center gap-2">

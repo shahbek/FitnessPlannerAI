@@ -22,9 +22,10 @@ interface WorkoutProgramViewProps {
   workoutData: any; // Raw JSON data from AI
   planTitle?: string;
   workoutPlanId?: string; // Convex ID for the workout plan
+  isAuthFresh?: boolean;
 }
 
-export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: WorkoutProgramViewProps) {
+export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId, isAuthFresh = false }: WorkoutProgramViewProps) {
   const { state: sidebarState, isMobile } = useSidebar();
   const [parsedData, setParsedData] = useState<ParsedWorkoutData | null>(null);
   const [activeTab, setActiveTab] = useState('journal');
@@ -41,7 +42,8 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
   // Extract user profile from plan data (plan-specific profile)
   // Fallback to logged-in user's profile if plan doesn't have one
   const planUserProfile = workoutData?.userProfile;
-  const loggedInUserProfile = useQuery(api.users.getUserProfile);
+  // Skip query if auth is not fresh to avoid Unauthenticated error
+  const loggedInUserProfile = useQuery(api.users.getUserProfile, isAuthFresh ? {} : "skip");
   const userProfile = planUserProfile || loggedInUserProfile || undefined;
 
   // Parse the data when component mounts or data changes
@@ -264,6 +266,7 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId }: Wo
           <TodayPage
             workoutPlanId={workoutPlanId}
             planData={workoutData}
+            isAuthFresh={isAuthFresh}
           />
         </div>
       )
