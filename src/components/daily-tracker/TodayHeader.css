@@ -34,38 +34,3 @@
 
     transition: all 400ms cubic-bezier(1, 0.0, 0.4, 1);
 }
-
-.liquid-header::before {
-    content: '';
-    position: absolute;
-    inset: 5px;
-    /* Slightly tighter than tabs */
-    border-radius: inherit;
-    background:
-        radial-gradient(60% 60% at 20% 20%, rgba(255, 255, 255, 0.18) 0%, rgba(255, 255, 255, 0.0) 70%),
-        radial-gradient(50% 45% at 75% 30%, rgba(135, 206, 250, 0.12) 0%, rgba(135, 206, 250, 0.0) 65%),
-        radial-gradient(80% 60% at 50% 80%, rgba(255, 182, 193, 0.08) 0%, rgba(255, 182, 193, 0.0) 60%);
-    mix-blend-mode: screen;
-    filter: var(--liquid-filter, none) blur(6px);
-    opacity: 0.35;
-    animation: liquidGlassFlow 16s ease-in-out infinite alternate;
-    pointer-events: none;
-    z-index: -2;
-}
-
-@keyframes liquidGlassFlow {
-    0% {
-        transform: scale(1);
-        background-position: 0% 0%, 100% 20%, 50% 80%;
-    }
-
-    50% {
-        transform: scale(1.02);
-        background-position: 40% 30%, 80% 70%, 30% 20%;
-    }
-
-    100% {
-        transform: scale(1);
-        background-position: 80% 60%, 20% 40%, 70% 10%;
-    }
-}

@@ -273,106 +273,16 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
     );
   }
 
-  const filterId = "header-liquid-filter";
-
   return (
     <div className="min-h-screen pb-24 pt-2">
-      {/* SVG Filter for Liquid Glass Effect */}
-      <svg
-        width="0"
-        height="0"
-        style={{
-          position: 'fixed',
-          top: '0px',
-          left: '0px',
-          pointerEvents: 'none',
-          zIndex: -1
-        }}
-        aria-hidden="true"
-      >
-        <defs>
-          <filter
-            id={filterId}
-            filterUnits="objectBoundingBox"
-            primitiveUnits="objectBoundingBox"
-            colorInterpolationFilters="sRGB"
-            x="0%"
-            y="0%"
-            width="100%"
-            height="100%"
-          >
-            <feImage
-              href={`data:image/svg+xml,${encodeURIComponent(`
-                <svg width="400" height="100" xmlns="http://www.w3.org/2000/svg">
-                  <defs>
-                    <radialGradient id="center-mask" cx="50%" cy="50%">
-                      <stop offset="0%" stop-color="#808080" />
-                      <stop offset="60%" stop-color="#808080" />
-                      <stop offset="100%" stop-color="#000000" />
-                    </radialGradient>
-                    <linearGradient id="edge-top" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" stop-color="#000000" />
-                      <stop offset="8%" stop-color="#808080" />
-                      <stop offset="100%" stop-color="#808080" />
-                    </linearGradient>
-                    <linearGradient id="edge-bottom" x1="0%" y1="0%" x2="0%" y2="100%">
-                      <stop offset="0%" stop-color="#808080" />
-                      <stop offset="92%" stop-color="#808080" />
-                      <stop offset="100%" stop-color="#000000" />
-                    </linearGradient>
-                    <linearGradient id="edge-left" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stop-color="#000000" />
-                      <stop offset="8%" stop-color="#808080" />
-                      <stop offset="100%" stop-color="#808080" />
-                    </linearGradient>
-                    <linearGradient id="edge-right" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stop-color="#808080" />
-                      <stop offset="92%" stop-color="#808080" />
-                      <stop offset="100%" stop-color="#000000" />
-                    </linearGradient>
-                  </defs>
-                  <rect width="400" height="100" fill="#808080" rx="50" />
-                  <rect width="400" height="100" fill="url(#center-mask)" rx="50" />
-                  <rect width="400" height="100" fill="url(#edge-top)" rx="50" />
-                  <rect width="400" height="100" fill="url(#edge-bottom)" rx="50" />
-                  <rect width="400" height="100" fill="url(#edge-left)" rx="50" style="mix-blend-mode: multiply" />
-                  <rect width="400" height="100" fill="url(#edge-right)" rx="50" style="mix-blend-mode: multiply" />
-                  <rect width="400" height="100" fill="#808080" rx="50" style="filter: blur(2px); opacity: 0.3" />
-                </svg>
-              `)}`}
-              preserveAspectRatio="none"
-              result="borderMap"
-            />
-            <feTurbulence
-              type="fractalNoise"
-              baseFrequency="0.015 0.03"
-              numOctaves="2"
-              seed="5"
-              result="turbulence"
-            />
-            <feGaussianBlur in="turbulence" stdDeviation="1.5" result="noise" />
-            <feComposite in="noise" in2="borderMap" operator="multiply" result="combinedMap" />
-            <feGaussianBlur in="combinedMap" stdDeviation="0.8" result="displacementMap" />
-            <feDisplacementMap
-              in="SourceGraphic"
-              in2="displacementMap"
-              scale="8"
-              xChannelSelector="R"
-              yChannelSelector="G"
-            />
-          </filter>
-        </defs>
-      </svg>
-
       {/* Floating Header */}
       <div className="sticky top-4 z-40 px-2 sm:px-4 mb-4">
         <div
           className="liquid-header transition-all transform hover:scale-[1.01]"
           style={{
-            backdropFilter: `url("#${filterId}") blur(12px) saturate(120%) brightness(1)`,
-            WebkitBackdropFilter: `url("#${filterId}") blur(12px) saturate(120%) brightness(1)`,
-            '--liquid-filter': `url("#${filterId}")`,
-          } as React.CSSProperties & { '--liquid-filter': string }}
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+          }}
         >
           {/* Date Navigation */}
           <div className="flex items-center gap-2">
@@ -402,13 +312,8 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
             </Button>
           </div>
 
-          {/* Progress Ring with mini skeleton when loading */}
+          {/* Progress Ring */}
           <div className="relative">
-            {isLoading && (
-              <div className="absolute inset-0 z-50 flex items-center justify-center bg-white/50 backdrop-blur-[1px] rounded-full">
-                <div className="animate-spin h-4 w-4 border-2 border-slate-300 border-t-blue-500 rounded-full"></div>
-              </div>
-            )}
             <DailyProgressRing progress={overallProgress} size={42} strokeWidth={4} />
           </div>
         </div>

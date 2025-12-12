@@ -81,3 +81,24 @@ The workout system ensures users don't stagnate by programming week-over-week pr
 | **Macros** | `src/services/NutritionCalculationService.ts`, `BatchMealGenerator.ts` |
 | **Grocery** | `src/services/ShoppingListGenerationService.ts` |
 | **Progression** | `src/services/WeeklyWorkoutGenerator.ts` |
+
+## TODO: Food Photo Analysis - USDA Integration
+
+**Current Implementation**: Food photo analysis (`convex/groqFoodAnalysis.ts`) uses AI to estimate macros directly for identified ingredients.
+
+**Future Enhancement**: Replace AI macro estimation with USDA database lookups for improved accuracy.
+
+**Implementation Steps**:
+1. Keep AI for ingredient identification and portion estimation
+2. For each identified ingredient, search USDA database (`convex/usda.ts`)
+3. Calculate macros using formula: `(macros per 100g × grams) / 100`
+4. Aggregate totals across all ingredients
+5. See `convex/foodMacroCalculator.ts` (currently unused) for reference implementation
+
+**Why**: USDA data provides verified nutrition information, while AI estimates may vary in accuracy.
+
+**Files to Update**:
+- `convex/groqFoodAnalysis.ts` - Remove macro fields from AI prompt, add USDA lookup step
+- `convex/foodMacroCalculator.ts` - Integrate this service into the analysis flow
+- `src/components/daily-tracker/FoodSearchSheet.tsx` - Update to call both actions sequentially
+

@@ -7,12 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { Search, X, Loader2, Plus, Star, Save, Trash2, ChevronLeft } from 'lucide-react';
+import { Search, X, Loader2, Plus, Star, Save, Trash2, ChevronLeft, Camera, Upload, ScanLine } from 'lucide-react';
 import {
   searchCommonFoods,
   COMMON_FOODS,
   type USDAFoodItem,
 } from '@/services/USDAFoodService';
+import { CameraCapture } from './CameraCapture';
 
 interface FoodSearchSheetProps {
   isOpen: boolean;
@@ -51,7 +52,32 @@ export function FoodSearchSheet({
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
   const [customMealName, setCustomMealName] = useState('');
 
+  // Quick Entry State
+  const [quickEntryName, setQuickEntryName] = useState('');
+  const [quickEntryCalories, setQuickEntryCalories] = useState('');
+  const [quickEntryProtein, setQuickEntryProtein] = useState('');
+  const [quickEntryCarbs, setQuickEntryCarbs] = useState('');
+  const [quickEntryFat, setQuickEntryFat] = useState('');
+  const [quickEntrySugar, setQuickEntrySugar] = useState('');
+
+  // OCR State
+  const [ocrImage, setOcrImage] = useState<string>('');
+  const [ocrResult, setOcrResult] = useState<any>(null);
+  const [isProcessingOcr, setIsProcessingOcr] = useState(false);
+  const [ocrError, setOcrError] = useState<string>('');
+  const [showCamera, setShowCamera] = useState(false);
+  const [ocrServingMultiplier, setOcrServingMultiplier] = useState(1);
+
+  // Food Photo Analysis State
+  const [analysisMode, setAnalysisMode] = useState<'label' | 'meal'>('label');
+  const [analyzedMeal, setAnalyzedMeal] = useState<any>(null);
+  const [ingredientPortions, setIngredientPortions] = useState<Record<number, number>>({});
+  const [isAnalyzingFood, setIsAnalyzingFood] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string>('');
+
   const searchUSDA = useAction(api.usda.searchFoods);
+  const extractNutrition = useAction(api.groqOcr.extractNutrition);
+  const analyzeFoodPhoto = useAction(api.groqFoodAnalysis.analyzeFoodPhoto);
 
   // Debounce search
   useEffect(() => {
@@ -101,6 +127,20 @@ export function FoodSearchSheet({
       setShowCommon(true);
       setServingMultiplier({});
       setActiveTab('search');
+      // Reset quick entry form
+      setQuickEntryName('');
+      setQuickEntryCalories('');
+      setQuickEntryProtein('');
+      setQuickEntryCarbs('');
+      setQuickEntryFat('');
+      setQuickEntrySugar('');
+      // Reset OCR state
+      setOcrImage('');
+      setOcrResult(null);
+      setIsProcessingOcr(false);
+      setOcrError('');
+      setShowCamera(false);
+      setOcrServingMultiplier(1);
     }
   }, [isOpen]);
 
@@ -189,6 +229,270 @@ export function FoodSearchSheet({
     } catch (err) {
       console.error("Failed to save custom meal:", err);
     }
+  };
+
+  const handleQuickEntry = async () => {
+    const calories = parseFloat(quickEntryCalories) || 0;
+    const protein = parseFloat(quickEntryProtein) || 0;
+    const carbs = parseFloat(quickEntryCarbs) || 0;
+    const fat = parseFloat(quickEntryFat) || 0;
+    const sugar = parseFloat(quickEntrySugar) || 0;
+
+    if (!quickEntryName.trim() || calories <= 0) {
+      return;
+    }
+
+    const foodData = {
+      name: quickEntryName,
+      calories: Math.round(calories),
+      protein: Math.round(protein * 10) / 10,
+      carbs: Math.round(carbs * 10) / 10,
+      fat: Math.round(fat * 10) / 10,
+      servingSize: '1 serving',
+    };
+
+    // Save to custom meals
+    try {
+      await createCustomMeal({
+        name: quickEntryName,
+        mealType: 'Quick Entry',
+        ingredients: [{
+          name: quickEntryName,
+          calories: foodData.calories,
+          protein: foodData.protein,
+          carbs: foodData.carbs,
+          fat: foodData.fat,
+          servingSize: '1 serving',
+        }],
+        totalMacros: {
+          calories: foodData.calories,
+          protein: foodData.protein,
+          carbs: foodData.carbs,
+          fat: foodData.fat,
+        }
+      });
+    } catch (err) {
+      console.error("Failed to save quick entry to custom meals:", err);
+    }
+
+    // Add to journal
+    onSelectFood(foodData);
+
+    // Reset form
+    setQuickEntryName('');
+    setQuickEntryCalories('');
+    setQuickEntryProtein('');
+    setQuickEntryCarbs('');
+    setQuickEntryFat('');
+    setQuickEntrySugar('');
+  };
+
+  // OCR Handlers
+  const handleCameraCapture = (imageBase64: string) => {
+    setOcrImage(imageBase64);
+    setShowCamera(false);
+  };
+
+  const handleGalleryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setOcrImage(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleExtractNutrition = async () => {
+    if (!ocrImage) return;
+
+    setIsProcessingOcr(true);
+    setOcrError('');
+
+    try {
+      const result = await extractNutrition({ imageBase64: ocrImage });
+      setOcrResult(result);
+    } catch (err) {
+      console.error('OCR extraction failed:', err);
+      setOcrError(err instanceof Error ? err.message : 'Failed to extract nutrition information');
+    } finally {
+      setIsProcessingOcr(false);
+    }
+  };
+
+  const handleSaveOcrResult = async () => {
+    if (!ocrResult) return;
+
+    const multiplier = ocrServingMultiplier;
+    const foodData = {
+      name: ocrResult.productName,
+      calories: Math.round(ocrResult.calories * multiplier),
+      protein: Math.round(ocrResult.protein * multiplier * 10) / 10,
+      carbs: Math.round(ocrResult.carbs * multiplier * 10) / 10,
+      fat: Math.round(ocrResult.fat * multiplier * 10) / 10,
+      servingSize: ocrResult.servingSize,
+    };
+
+    // Save to custom meals
+    try {
+      await createCustomMeal({
+        name: ocrResult.productName,
+        mealType: 'OCR Scan',
+        ingredients: [{
+          name: ocrResult.productName,
+          calories: foodData.calories,
+          protein: foodData.protein,
+          carbs: foodData.carbs,
+          fat: foodData.fat,
+          servingSize: foodData.servingSize,
+        }],
+        totalMacros: {
+          calories: foodData.calories,
+          protein: foodData.protein,
+          carbs: foodData.carbs,
+          fat: foodData.fat,
+        }
+      });
+    } catch (err) {
+      console.error("Failed to save OCR result to custom meals:", err);
+    }
+
+    // Add to journal
+    onSelectFood(foodData);
+
+    // Reset OCR state
+    setOcrImage('');
+    setOcrResult(null);
+    setOcrServingMultiplier(1);
+  };
+
+  const handleResetOcr = () => {
+    setOcrImage('');
+    setOcrResult(null);
+    setOcrError('');
+    setOcrServingMultiplier(1);
+  };
+
+  const updateOcrServingMultiplier = (delta: number) => {
+    setOcrServingMultiplier(prev => Math.max(0.5, Math.min(5, prev + delta)));
+  };
+
+  // Food Photo Analysis Handlers
+  const handleAnalyzeMealPhoto = async () => {
+    if (!ocrImage) return;
+
+    setIsAnalyzingFood(true);
+    setAnalysisError('');
+
+    try {
+      // Analyze photo to identify ingredients AND get macros from AI
+      // TODO: Replace AI macro estimation with USDA lookups (see AGENTS.md)
+      const analysis = await analyzeFoodPhoto({ imageBase64: ocrImage });
+
+      // Initialize portion tracking with estimated grams
+      const initialPortions: Record<number, number> = {};
+      analysis.ingredients.forEach((ing: any, index: number) => {
+        initialPortions[index] = ing.estimatedGrams;
+      });
+
+      setAnalyzedMeal(analysis);
+      setIngredientPortions(initialPortions);
+    } catch (err) {
+      console.error('Food analysis failed:', err);
+      setAnalysisError(err instanceof Error ? err.message : 'Failed to analyze the meal');
+    } finally {
+      setIsAnalyzingFood(false);
+    }
+  };
+
+  const updateIngredientPortion = (index: number, newGrams: number) => {
+    setIngredientPortions(prev => ({
+      ...prev,
+      [index]: Math.max(1, newGrams),
+    }));
+  };
+
+  const recalculateMealMacros = () => {
+    if (!analyzedMeal) return analyzedMeal;
+
+    const updatedIngredients = analyzedMeal.ingredients.map((ing: any, index: number) => {
+      const newGrams = ingredientPortions[index] || ing.estimatedGrams;
+      const originalGrams = ing.estimatedGrams;
+      const multiplier = newGrams / originalGrams;
+
+      return {
+        ...ing,
+        estimatedGrams: newGrams,
+        calories: Math.round(ing.calories * multiplier),
+        protein: Math.round(ing.protein * multiplier * 10) / 10,
+        carbs: Math.round(ing.carbs * multiplier * 10) / 10,
+        fat: Math.round(ing.fat * multiplier * 10) / 10,
+      };
+    });
+
+    const totals = updatedIngredients.reduce((acc: any, ing: any) => ({
+      calories: acc.calories + ing.calories,
+      protein: acc.protein + ing.protein,
+      carbs: acc.carbs + ing.carbs,
+      fat: acc.fat + ing.fat,
+    }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+    return {
+      ...analyzedMeal,
+      ingredients: updatedIngredients,
+      totals: {
+        calories: Math.round(totals.calories),
+        protein: Math.round(totals.protein * 10) / 10,
+        carbs: Math.round(totals.carbs * 10) / 10,
+        fat: Math.round(totals.fat * 10) / 10,
+      },
+    };
+  };
+
+  const handleSaveAnalyzedMeal = async () => {
+    const mealData = recalculateMealMacros();
+    if (!mealData) return;
+
+    try {
+      // Save as custom meal with all ingredients
+      await createCustomMeal({
+        name: mealData.mealName,
+        mealType: 'Photo Analysis',
+        ingredients: mealData.ingredients.map((ing: any) => ({
+          name: ing.name,
+          calories: ing.calories,
+          protein: ing.protein,
+          carbs: ing.carbs,
+          fat: ing.fat,
+          servingSize: `${ing.estimatedGrams}g`,
+        })),
+        totalMacros: mealData.totals,
+      });
+
+      // Add to journal
+      onSelectFood({
+        name: mealData.mealName,
+        ...mealData.totals,
+        servingSize: '1 meal',
+      });
+
+      // Reset state
+      setOcrImage('');
+      setAnalyzedMeal(null);
+      setIngredientPortions({});
+      setAnalysisMode('label');
+    } catch (err) {
+      console.error("Failed to save analyzed meal:", err);
+    }
+  };
+
+  const handleResetAnalysis = () => {
+    setOcrImage('');
+    setAnalyzedMeal(null);
+    setIngredientPortions({});
+    setAnalysisError('');
+    setAnalysisMode('label');
   };
 
   const renderFoodItem = (food: USDAFoodItem, isCommon: boolean = false) => {
@@ -332,16 +636,28 @@ export function FoodSearchSheet({
 
           {!isBuilderOpen && (
             <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mt-4">
-              <TabsList className="grid w-full grid-cols-2 h-11 bg-slate-200/50 p-1 rounded-2xl">
+              <TabsList className="grid w-full grid-cols-4 h-11 bg-slate-200/50 p-1 rounded-2xl">
                 <TabsTrigger
                   value="search"
-                  className="rounded-xl data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-md transition-all font-semibold"
+                  className="rounded-xl data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-md transition-all font-semibold text-xs sm:text-sm"
                 >
                   Search
                 </TabsTrigger>
                 <TabsTrigger
+                  value="quick-entry"
+                  className="rounded-xl data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-md transition-all font-semibold text-xs sm:text-sm"
+                >
+                  Quick Entry
+                </TabsTrigger>
+                <TabsTrigger
+                  value="scan-label"
+                  className="rounded-xl data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-md transition-all font-semibold text-xs sm:text-sm"
+                >
+                  Scan Label
+                </TabsTrigger>
+                <TabsTrigger
                   value="my-meals"
-                  className="rounded-xl data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-md transition-all font-semibold"
+                  className="rounded-xl data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-md transition-all font-semibold text-xs sm:text-sm"
                 >
                   My Meals
                 </TabsTrigger>
@@ -479,6 +795,371 @@ export function FoodSearchSheet({
                     </div>
                   )}
                 </>
+              ) : activeTab === 'quick-entry' ? (
+                /* Quick Entry Tab */
+                <div className="space-y-4 max-w-md mx-auto">
+                  <div className="p-6 rounded-2xl bg-white/60 border border-white/80 backdrop-blur-sm shadow-[0_8px_20px_-6px_rgba(0,0,0,0.08)]">
+                    <h3 className="text-lg font-bold text-slate-800 mb-4">Manual Entry</h3>
+
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-700">Meal Name *</label>
+                        <Input
+                          placeholder="e.g., Homemade Pasta"
+                          value={quickEntryName}
+                          onChange={(e) => setQuickEntryName(e.target.value)}
+                          className="rounded-xl border-slate-200 bg-white/80 focus:bg-white h-11"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-slate-700">Calories (kcal) *</label>
+                        <Input
+                          type="number"
+                          placeholder="0"
+                          value={quickEntryCalories}
+                          onChange={(e) => setQuickEntryCalories(e.target.value)}
+                          className="rounded-xl border-slate-200 bg-white/80 focus:bg-white h-11"
+                          min="0"
+                          step="1"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-emerald-700">Protein (g)</label>
+                          <Input
+                            type="number"
+                            placeholder="0"
+                            value={quickEntryProtein}
+                            onChange={(e) => setQuickEntryProtein(e.target.value)}
+                            className="rounded-xl border-emerald-200 bg-emerald-50/50 focus:bg-white h-11 text-center"
+                            min="0"
+                            step="0.1"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-amber-700">Carbs (g)</label>
+                          <Input
+                            type="number"
+                            placeholder="0"
+                            value={quickEntryCarbs}
+                            onChange={(e) => setQuickEntryCarbs(e.target.value)}
+                            className="rounded-xl border-amber-200 bg-amber-50/50 focus:bg-white h-11 text-center"
+                            min="0"
+                            step="0.1"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-rose-700">Fat (g)</label>
+                          <Input
+                            type="number"
+                            placeholder="0"
+                            value={quickEntryFat}
+                            onChange={(e) => setQuickEntryFat(e.target.value)}
+                            className="rounded-xl border-rose-200 bg-rose-50/50 focus:bg-white h-11 text-center"
+                            min="0"
+                            step="0.1"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-sm font-semibold text-purple-700 flex items-center gap-2">
+                          Sugar (g)
+                          <span className="text-xs font-normal text-slate-500">(Optional)</span>
+                        </label>
+                        <Input
+                          type="number"
+                          placeholder="0"
+                          value={quickEntrySugar}
+                          onChange={(e) => setQuickEntrySugar(e.target.value)}
+                          className="rounded-xl border-purple-200 bg-purple-50/30 focus:bg-white h-11"
+                          min="0"
+                          step="0.1"
+                        />
+                      </div>
+
+                      <Button
+                        onClick={handleQuickEntry}
+                        disabled={!quickEntryName.trim() || !quickEntryCalories || parseFloat(quickEntryCalories) <= 0}
+                        className={cn(
+                          "w-full h-12 rounded-xl text-white font-bold shadow-md transition-all mt-6",
+                          "bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-600",
+                          "shadow-[0_4px_12px_rgba(30,41,59,0.5),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                          "hover:shadow-[0_6px_16px_rgba(30,41,59,0.6),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5",
+                          "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+                        )}
+                      >
+                        Add to Journal
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-xl bg-blue-50/50 border border-blue-100">
+                    <p className="text-xs text-blue-800">
+                      <span className="font-semibold">💡 Tip:</span> Use this when you know your meal's nutrition info but don't want to search for ingredients.
+                    </p>
+                  </div>
+                </div>
+
+              ) : activeTab === 'scan-label' ? (
+                /* OCR Scan Label Tab */
+                <div className="space-y-4 max-w-md mx-auto">
+                  {showCamera ? (
+                    <CameraCapture
+                      onCapture={handleCameraCapture}
+                      onCancel={() => setShowCamera(false)}
+                      mode={analysisMode}
+                    />
+                  ) : !ocrImage ? (
+                    /* Initial state - Choose scan mode */
+                    <div className="space-y-4">
+                      <div className="p-6 rounded-2xl bg-white/60 border border-white/80 backdrop-blur-sm shadow-[0_8px_20px_-6px_rgba(0,0,0,0.08)]">
+                        <div className="text-center mb-6">
+                          <div className="inline-flex p-4 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 mb-4">
+                            <ScanLine className="h-8 w-8 text-slate-700" />
+                          </div>
+                          <h3 className="text-lg font-bold text-slate-800 mb-2">Choose Scan Mode</h3>
+                          <p className="text-sm text-slate-600">
+                            Scan a nutrition label or analyze an entire meal
+                          </p>
+                        </div>
+
+                        <div className="space-y-3">
+                          <Button
+                            onClick={() => {
+                              setAnalysisMode('label');
+                              setShowCamera(true);
+                            }}
+                            className={cn(
+                              "w-full h-16 rounded-xl text-white font-bold shadow-md transition-all flex-col gap-1",
+                              "bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-600",
+                              "shadow-[0_4px_12px_rgba(30,41,59,0.5),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                              "hover:shadow-[0_6px_16px_rgba(30,41,59,0.6),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
+                            )}
+                          >
+                            <div className="flex items-center gap-2">
+                              <ScanLine className="h-5 w-5" />
+                              <span>Scan Nutrition Label</span>
+                            </div>
+                            <span className="text-xs text-white/70 font-normal">Extract macros from product labels</span>
+                          </Button>
+
+                          <Button
+                            onClick={() => {
+                              setAnalysisMode('meal');
+                              setShowCamera(true);
+                            }}
+                            className={cn(
+                              "w-full h-16 rounded-xl text-white font-bold shadow-md transition-all flex-col gap-1",
+                              "bg-gradient-to-br from-emerald-500 to-emerald-700 border border-emerald-400",
+                              "shadow-[0_4px_12px_rgba(16,185,129,0.5),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                              "hover:shadow-[0_6px_16px_rgba(16,185,129,0.6),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
+                            )}
+                          >
+                            <div className="flex items-center gap-2">
+                              <Camera className="h-5 w-5" />
+                              <span>Analyze Meal Photo</span>
+                            </div>
+                            <span className="text-xs text-white/70 font-normal">AI identifies ingredients & calculates macros</span>
+                          </Button>
+
+                          <div className="relative">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                handleGalleryUpload(e);
+                                // Mode will be determined by which button was last clicked
+                              }}
+                              className="hidden"
+                              id="gallery-upload"
+                            />
+                            <Button
+                              onClick={() => document.getElementById('gallery-upload')?.click()}
+                              variant="outline"
+                              className="w-full h-12 rounded-xl font-bold border-2 border-slate-300 hover:border-slate-400 hover:bg-slate-50"
+                            >
+                              <Upload className="h-5 w-5 mr-2" />
+                              Upload from Gallery
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-4 rounded-xl bg-amber-50/50 border border-amber-100">
+                        <p className="text-xs text-amber-800">
+                          <span className="font-semibold">📸 Tip:</span> For best results, ensure good lighting and the food/label is clearly visible.
+                        </p>
+                      </div>
+                    </div>
+                  ) : !ocrResult && !analyzedMeal ? (
+                    /* Image captured - Ready to process */
+                    <div className="space-y-4">
+                      <div className="p-6 rounded-2xl bg-white/60 border border-white/80 backdrop-blur-sm shadow-[0_8px_20px_-6px_rgba(0,0,0,0.08)]">
+                        <h3 className="text-lg font-bold text-slate-800 mb-4">Preview</h3>
+
+                        <div className="relative rounded-xl overflow-hidden mb-4 bg-slate-100">
+                          <img src={ocrImage} alt="Nutrition label" className="w-full h-auto" />
+                        </div>
+
+                        {ocrError && (
+                          <div className="mb-4 p-3 rounded-xl bg-rose-50 border border-rose-200">
+                            <p className="text-sm text-rose-700">{ocrError}</p>
+                          </div>
+                        )}
+
+                        <div className="space-y-3">
+                          <Button
+                            onClick={handleExtractNutrition}
+                            disabled={isProcessingOcr}
+                            className={cn(
+                              "w-full h-12 rounded-xl text-white font-bold shadow-md transition-all",
+                              "bg-gradient-to-br from-emerald-500 to-emerald-700 border border-emerald-400",
+                              "shadow-[0_4px_12px_rgba(16,185,129,0.5),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                              "hover:shadow-[0_6px_16px_rgba(16,185,129,0.6),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5",
+                              "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
+                            )}
+                          >
+                            {isProcessingOcr ? (
+                              <>
+                                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                                Extracting...
+                              </>
+                            ) : (
+                              <>
+                                <ScanLine className="h-5 w-5 mr-2" />
+                                Extract Nutrition Info
+                              </>
+                            )}
+                          </Button>
+
+                          <Button
+                            onClick={handleResetOcr}
+                            variant="outline"
+                            disabled={isProcessingOcr}
+                            className="w-full h-12 rounded-xl font-bold"
+                          >
+                            Try Another Image
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Results extracted - Show nutrition data */
+                    <div className="space-y-4">
+                      <div className="p-6 rounded-2xl bg-white/60 border border-white/80 backdrop-blur-sm shadow-[0_8px_20px_-6px_rgba(0,0,0,0.08)]">
+                        <div className="flex items-center gap-2 mb-4">
+                          <div className="p-2 rounded-full bg-emerald-100">
+                            <ScanLine className="h-5 w-5 text-emerald-600" />
+                          </div>
+                          <h3 className="text-lg font-bold text-slate-800">Extracted Nutrition</h3>
+                        </div>
+
+                        <div className="space-y-4">
+                          <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-700">Product Name *</label>
+                            <Input
+                              value={ocrResult.productName}
+                              onChange={(e) => setOcrResult({ ...ocrResult, productName: e.target.value })}
+                              placeholder="Enter product name"
+                              className="rounded-xl border-slate-200 bg-white/80 focus:bg-white h-11"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-sm font-semibold text-slate-700">Serving Size</label>
+                            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                              <p className="text-sm text-slate-700">{ocrResult.servingSize}</p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <label className="text-sm font-semibold text-slate-700">Portion</label>
+                              <div className="flex items-center bg-white/50 rounded-lg p-0.5 border border-white/60 shadow-sm">
+                                <button
+                                  onClick={() => updateOcrServingMultiplier(-0.5)}
+                                  className="w-8 h-8 rounded-md hover:bg-slate-100/80 text-slate-600 flex items-center justify-center transition-colors font-bold"
+                                >
+                                  -
+                                </button>
+                                <span className="text-sm font-medium w-16 text-center text-slate-700">
+                                  {ocrServingMultiplier}x
+                                </span>
+                                <button
+                                  onClick={() => updateOcrServingMultiplier(0.5)}
+                                  className="w-8 h-8 rounded-md hover:bg-slate-100/80 text-slate-600 flex items-center justify-center transition-colors font-bold"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+
+
+                          <div className="space-y-3">
+                            {/* Calories Display */}
+                            <div className="p-4 rounded-xl bg-gradient-to-br from-slate-50 to-slate-100 border border-slate-200">
+                              <div className="flex items-baseline justify-between">
+                                <span className="text-sm font-semibold text-slate-600">Total Calories</span>
+                                <span className="text-2xl font-bold text-slate-800">
+                                  {Math.round(ocrResult.calories * ocrServingMultiplier)}
+                                  <span className="text-sm font-normal text-slate-500 ml-1">kcal</span>
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Macros Grid */}
+                            <div className="grid grid-cols-3 gap-3">
+                              <div className="p-3 rounded-xl bg-white/80 border border-slate-200 text-center">
+                                <div className="text-lg font-bold text-slate-800">
+                                  {Math.round(ocrResult.protein * ocrServingMultiplier * 10) / 10}g
+                                </div>
+                                <div className="text-xs text-slate-500 font-medium mt-1">Protein</div>
+                              </div>
+                              <div className="p-3 rounded-xl bg-white/80 border border-slate-200 text-center">
+                                <div className="text-lg font-bold text-slate-800">
+                                  {Math.round(ocrResult.carbs * ocrServingMultiplier * 10) / 10}g
+                                </div>
+                                <div className="text-xs text-slate-500 font-medium mt-1">Carbs</div>
+                              </div>
+                              <div className="p-3 rounded-xl bg-white/80 border border-slate-200 text-center">
+                                <div className="text-lg font-bold text-slate-800">
+                                  {Math.round(ocrResult.fat * ocrServingMultiplier * 10) / 10}g
+                                </div>
+                                <div className="text-xs text-slate-500 font-medium mt-1">Fat</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex gap-3">
+                            <Button
+                              onClick={handleResetOcr}
+                              variant="outline"
+                              className="flex-1 h-12 rounded-xl font-bold"
+                            >
+                              Scan Another
+                            </Button>
+                            <Button
+                              onClick={handleSaveOcrResult}
+                              className={cn(
+                                "flex-1 h-12 rounded-xl text-white font-bold shadow-md transition-all",
+                                "bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-600",
+                                "shadow-[0_4px_12px_rgba(30,41,59,0.5),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                                "hover:shadow-[0_6px_16px_rgba(30,41,59,0.6),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
+                              )}
+                            >
+                              Save & Add
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
               ) : (
                 /* My Meals Tab */
                 <div className="space-y-3">
@@ -541,7 +1222,7 @@ export function FoodSearchSheet({
           </ScrollArea>
         )}
       </SheetContent>
-    </Sheet>
+    </Sheet >
   );
 }
 
