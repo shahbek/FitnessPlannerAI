@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { Search, X, Loader2, Plus, Star, Save, Trash2, ChevronLeft, Camera, Upload, ScanLine } from 'lucide-react';
+import { Search, X, Loader2, Plus, Star, Save, Trash2, ChevronLeft, Camera, Upload, ScanLine, Utensils } from 'lucide-react';
 import {
   searchCommonFoods,
   COMMON_FOODS,
@@ -288,9 +288,10 @@ export function FoodSearchSheet({
   };
 
   // OCR Handlers
-  const handleCameraCapture = (imageBase64: string) => {
+  const handleCameraCapture = (imageBase64: string, mode: 'label' | 'meal') => {
     setOcrImage(imageBase64);
     setShowCamera(false);
+    setAnalysisMode(mode); // Set mode based on what was selected in camera
   };
 
   const handleGalleryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -506,100 +507,110 @@ export function FoodSearchSheet({
       <div
         key={food.fdcId}
         className={cn(
-          'p-4 mb-3 rounded-2xl transition-all duration-300 group',
-          'bg-white/40 border border-white/60 backdrop-blur-sm',
-          'hover:bg-white/90 hover:border-white/80',
-          'hover:shadow-[0_8px_20px_-6px_rgba(0,0,0,0.08),0_4px_6px_-2px_rgba(0,0,0,0.04),inset_0_1px_0_rgba(255,255,255,0.8)]',
-          'hover:-translate-y-0.5'
+          'p-5 mb-4 rounded-[1.5rem] transition-all duration-300 group',
+          'bg-white border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]',
+          'hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 hover:border-slate-200'
         )}
       >
-        <div className="flex items-start gap-4">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-2">
-              {isCommon && (
-                <div className="p-1 rounded-full bg-amber-100/50">
-                  <Star className="h-3 w-3 text-amber-500 fill-amber-500 flex-shrink-0" />
-                </div>
-              )}
-              <span className="font-semibold text-slate-800 line-clamp-2 leading-tight">
-                {food.description}
-              </span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 text-xs mb-3">
-              <span className="font-bold text-slate-900 bg-slate-100/80 px-2 py-1 rounded-lg">
-                {adjustedCalories} <span className="text-[10px] font-normal text-slate-500">kcal</span>
-              </span>
-              <div className="w-px h-4 bg-slate-200" />
-              <div className="flex gap-2">
-                <span className="font-medium text-emerald-700 bg-emerald-50/80 px-1.5 py-0.5 rounded-md border border-emerald-100/50">{adjustedProtein}g P</span>
-                <span className="font-medium text-amber-700 bg-amber-50/80 px-1.5 py-0.5 rounded-md border border-amber-100/50">{adjustedCarbs}g C</span>
-                <span className="font-medium text-rose-700 bg-rose-50/80 px-1.5 py-0.5 rounded-md border border-rose-100/50">{adjustedFat}g F</span>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] uppercase tracking-wider font-semibold text-slate-400">
-                Portion
-              </span>
-              <div className="flex items-center bg-white/50 rounded-lg p-0.5 border border-white/60 shadow-sm">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    updateServingMultiplier(food.fdcId, -0.5);
-                  }}
-                  className="w-6 h-6 rounded-md hover:bg-slate-100/80 text-slate-600 flex items-center justify-center transition-colors"
-                >
-                  -
-                </button>
-                <span className="text-xs font-medium w-16 text-center text-slate-700">
-                  {Math.round((food.servingSize || 100) * multiplier)}
-                  {food.servingSizeUnit || 'g'}
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start justify-between">
+            <div className="flex-1 pr-4">
+              <div className="flex items-start gap-2 mb-1">
+                {isCommon && (
+                  <div className="mt-1 p-1 rounded-full bg-amber-50">
+                    <Star className="h-3 w-3 text-amber-500 fill-amber-500 flex-shrink-0" />
+                  </div>
+                )}
+                <span className="font-editorial text-xl text-slate-800 leading-tight">
+                  {food.description}
                 </span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    updateServingMultiplier(food.fdcId, 0.5);
-                  }}
-                  className="w-6 h-6 rounded-md hover:bg-slate-100/80 text-slate-600 flex items-center justify-center transition-colors"
-                >
-                  +
-                </button>
               </div>
+
+              {/* Portion Control - Integrated Clean Look */}
+              <div className="flex items-center mt-3">
+                <div className="flex items-center bg-slate-50 rounded-lg p-1 border border-slate-100">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateServingMultiplier(food.fdcId, -0.5);
+                    }}
+                    className="w-7 h-7 flex items-center justify-center rounded-md bg-white text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all shadow-sm"
+                  >
+                    -
+                  </button>
+                  <span className="min-w-[4rem] text-center text-sm font-bold text-slate-700 font-sans mx-1">
+                    {Math.round((food.servingSize || 100) * multiplier)}
+                    <span className="text-xs font-normal text-slate-400 ml-0.5">{food.servingSizeUnit || 'g'}</span>
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updateServingMultiplier(food.fdcId, 0.5);
+                    }}
+                    className="w-7 h-7 flex items-center justify-center rounded-md bg-white text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all shadow-sm"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col gap-2 flex-shrink-0 pt-1">
+              <Button
+                onClick={() => handleSelectFood(food)}
+                size="sm"
+                className={cn(
+                  "h-9 px-4 rounded-xl text-white font-bold shadow-md transition-all",
+                  "bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-600",
+                  "shadow-[0_2px_8px_rgba(30,41,59,0.5),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                  "hover:shadow-[0_4px_12px_rgba(30,41,59,0.6),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
+                )}
+              >
+                Add
+              </Button>
+              <Button
+                onClick={() => handleAddToBuilder(food)}
+                size="sm"
+                className={cn(
+                  "h-9 px-4 rounded-xl text-white font-bold shadow-md transition-all",
+                  "bg-gradient-to-br from-amber-400 to-orange-600 border border-orange-400",
+                  "shadow-[0_2px_8px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                  "hover:shadow-[0_4px_12px_rgba(249,115,22,0.6),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
+                )}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1.5 stroke-[3px]" />
+                Build
+              </Button>
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 flex-shrink-0 pt-1">
-            <Button
-              onClick={() => handleSelectFood(food)}
-              size="sm"
-              className={cn(
-                "h-9 px-4 rounded-xl text-white font-bold shadow-md transition-all",
-                "bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-600",
-                "shadow-[0_2px_8px_rgba(30,41,59,0.5),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)]",
-                "hover:shadow-[0_4px_12px_rgba(30,41,59,0.6),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
-              )}
-            >
-              Add
-            </Button>
-            <Button
-              onClick={() => handleAddToBuilder(food)}
-              size="sm"
-              className={cn(
-                "h-9 px-4 rounded-xl text-white font-bold shadow-md transition-all",
-                "bg-gradient-to-br from-amber-400 to-orange-600 border border-orange-400",
-                "shadow-[0_2px_8px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)]",
-                "hover:shadow-[0_4px_12px_rgba(249,115,22,0.6),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
-              )}
-            >
-              <Plus className="h-3.5 w-3.5 mr-1.5 stroke-[3px]" />
-              Build
-            </Button>
+          {/* Micro-grid Macros */}
+          <div className="flex items-center gap-5 text-[11px] font-bold text-slate-400 uppercase tracking-wider pt-3 border-t border-slate-50">
+            <span className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-800" />
+              <span className="text-slate-700 font-extrabold text-sm">{adjustedCalories}</span>
+              <span className="text-[10px]">kcal</span>
+            </span>
+            <div className="w-px h-3 bg-slate-200" />
+            <span className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+              <span className="text-slate-600">{adjustedProtein}g</span> P
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span className="text-slate-600">{adjustedCarbs}g</span> C
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
+              <span className="text-slate-600">{adjustedFat}g</span> F
+            </span>
           </div>
         </div>
       </div>
     );
   };
+
 
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -760,9 +771,9 @@ export function FoodSearchSheet({
           </div>
         ) : (
           <ScrollArea className="flex-1">
-            <div className="p-4 space-y-2">
+            <div className="pb-24">
               {activeTab === 'search' ? (
-                <>
+                <div className="px-5 pt-6 space-y-4">
                   {!isBuilderOpen && builderIngredients.length > 0 && (
                     <div className="mb-4 p-3 bg-orange-50 border border-orange-100 rounded-xl flex items-center justify-between">
                       <div>
@@ -777,7 +788,7 @@ export function FoodSearchSheet({
 
                   {showCommon && (
                     <>
-                      <div className="flex items-center gap-2 mb-3">
+                      <div className="flex items-center gap-2 mb-3 px-1">
                         <Star className="h-4 w-4 text-amber-500 fill-amber-500" />
                         <span className="text-sm font-medium text-slate-600">Quick Add Ingredients</span>
                       </div>
@@ -794,112 +805,144 @@ export function FoodSearchSheet({
                       No foods found for "{query}"
                     </div>
                   )}
-                </>
+                </div>
               ) : activeTab === 'quick-entry' ? (
-                /* Quick Entry Tab */
-                <div className="space-y-4 max-w-md mx-auto">
-                  <div className="p-6 rounded-2xl bg-white/60 border border-white/80 backdrop-blur-sm shadow-[0_8px_20px_-6px_rgba(0,0,0,0.08)]">
-                    <h3 className="text-lg font-bold text-slate-800 mb-4">Manual Entry</h3>
+                /* Quick Entry Tab - Premium Meal Analysis Style */
+                <div className="px-6 pt-6 pb-24 max-w-lg mx-auto">
+                  <div className="p-1 rounded-[2rem] bg-gradient-to-br from-white/80 to-white/40 border border-white/60 shadow-xl backdrop-blur-xl">
+                    <div className="bg-white/50 rounded-[1.8rem] p-6">
 
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <label className="text-sm font-semibold text-slate-700">Meal Name *</label>
-                        <Input
-                          placeholder="e.g., Homemade Pasta"
-                          value={quickEntryName}
-                          onChange={(e) => setQuickEntryName(e.target.value)}
-                          className="rounded-xl border-slate-200 bg-white/80 focus:bg-white h-11"
-                        />
+                      {/* Header */}
+                      <div className="text-center mb-8">
+                        <h3 className="text-3xl font-editorial font-normal text-slate-800 mb-2">Manual Entry</h3>
+                        <div className="w-12 h-1 bg-slate-800/10 mx-auto rounded-full" />
                       </div>
 
-                      <div className="space-y-2">
-                        <label className="text-sm font-semibold text-slate-700">Calories (kcal) *</label>
-                        <Input
-                          type="number"
-                          placeholder="0"
-                          value={quickEntryCalories}
-                          onChange={(e) => setQuickEntryCalories(e.target.value)}
-                          className="rounded-xl border-slate-200 bg-white/80 focus:bg-white h-11"
-                          min="0"
-                          step="1"
-                        />
-                      </div>
+                      <div className="space-y-6">
 
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="space-y-2">
-                          <label className="text-xs font-semibold text-emerald-700">Protein (g)</label>
+                        {/* Meal Name Input */}
+                        <div className="relative group">
+                          <label className="absolute -top-2.5 left-4 px-2 z-10 bg-gradient-to-b from-white/0 via-white to-white/0 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            Meal Name
+                          </label>
                           <Input
-                            type="number"
-                            placeholder="0"
-                            value={quickEntryProtein}
-                            onChange={(e) => setQuickEntryProtein(e.target.value)}
-                            className="rounded-xl border-emerald-200 bg-emerald-50/50 focus:bg-white h-11 text-center"
-                            min="0"
-                            step="0.1"
+                            placeholder="e.g. Grandma's Lasagna"
+                            value={quickEntryName}
+                            onChange={(e) => setQuickEntryName(e.target.value)}
+                            className="h-14 px-6 rounded-2xl bg-white border-slate-200 text-lg font-editorial text-slate-800 shadow-sm focus:ring-slate-200 focus:border-slate-300 transition-all font-normal placeholder:text-slate-300 placeholder:font-sans relative z-0"
                           />
                         </div>
-                        <div className="space-y-2">
-                          <label className="text-xs font-semibold text-amber-700">Carbs (g)</label>
-                          <Input
-                            type="number"
-                            placeholder="0"
-                            value={quickEntryCarbs}
-                            onChange={(e) => setQuickEntryCarbs(e.target.value)}
-                            className="rounded-xl border-amber-200 bg-amber-50/50 focus:bg-white h-11 text-center"
-                            min="0"
-                            step="0.1"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-xs font-semibold text-rose-700">Fat (g)</label>
-                          <Input
-                            type="number"
-                            placeholder="0"
-                            value={quickEntryFat}
-                            onChange={(e) => setQuickEntryFat(e.target.value)}
-                            className="rounded-xl border-rose-200 bg-rose-50/50 focus:bg-white h-11 text-center"
-                            min="0"
-                            step="0.1"
-                          />
-                        </div>
-                      </div>
 
-                      <div className="space-y-2">
-                        <label className="text-sm font-semibold text-purple-700 flex items-center gap-2">
-                          Sugar (g)
-                          <span className="text-xs font-normal text-slate-500">(Optional)</span>
-                        </label>
-                        <Input
-                          type="number"
-                          placeholder="0"
-                          value={quickEntrySugar}
-                          onChange={(e) => setQuickEntrySugar(e.target.value)}
-                          className="rounded-xl border-purple-200 bg-purple-50/30 focus:bg-white h-11"
-                          min="0"
-                          step="0.1"
-                        />
-                      </div>
+                        {/* Calories Input */}
+                        <div className="relative group">
+                          <label className="absolute -top-2.5 left-4 px-2 z-10 bg-gradient-to-b from-white/0 via-white to-white/0 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            Energy
+                          </label>
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              placeholder="0"
+                              value={quickEntryCalories}
+                              onChange={(e) => setQuickEntryCalories(e.target.value)}
+                              className="h-14 px-6 pr-16 rounded-2xl bg-white border-slate-200 text-lg font-editorial text-slate-800 shadow-sm focus:ring-slate-200 focus:border-slate-300 transition-all font-normal placeholder:text-slate-300 placeholder:font-sans"
+                              min="0"
+                            />
+                            <span className="absolute right-6 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">kcal</span>
+                          </div>
+                        </div>
 
-                      <Button
-                        onClick={handleQuickEntry}
-                        disabled={!quickEntryName.trim() || !quickEntryCalories || parseFloat(quickEntryCalories) <= 0}
-                        className={cn(
-                          "w-full h-12 rounded-xl text-white font-bold shadow-md transition-all mt-6",
-                          "bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-600",
-                          "shadow-[0_4px_12px_rgba(30,41,59,0.5),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)]",
-                          "hover:shadow-[0_6px_16px_rgba(30,41,59,0.6),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5",
-                          "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
-                        )}
-                      >
-                        Add to Journal
-                      </Button>
+                        {/* Macros Input Section - Mimicking 'Total Energy' Card */}
+                        <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
+                          <div className="flex items-center gap-4 mb-4">
+                            <h4 className="font-editorial text-lg text-slate-700">Macro Profile</h4>
+                            <div className="h-px flex-1 bg-slate-200/60" />
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-4">
+                            {/* Protein */}
+                            <div className="text-center">
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  placeholder="0"
+                                  value={quickEntryProtein}
+                                  onChange={(e) => setQuickEntryProtein(e.target.value)}
+                                  className="h-12 w-full rounded-xl border-slate-200 bg-white text-center font-bold text-slate-700 shadow-sm focus:border-blue-300 focus:ring-blue-100 placeholder:font-normal placeholder:text-slate-300 px-1"
+                                  min="0"
+                                  step="0.1"
+                                />
+                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-300 pointer-events-none">g</span>
+                              </div>
+                              <div className="mt-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Protein</div>
+                            </div>
+
+                            {/* Carbs */}
+                            <div className="text-center relative">
+                              {/* Dividers */}
+                              <div className="absolute -left-2 top-2 bottom-6 w-px bg-slate-200/50" />
+                              <div className="absolute -right-2 top-2 bottom-6 w-px bg-slate-200/50" />
+
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  placeholder="0"
+                                  value={quickEntryCarbs}
+                                  onChange={(e) => setQuickEntryCarbs(e.target.value)}
+                                  className="h-12 w-full rounded-xl border-slate-200 bg-white text-center font-bold text-slate-700 shadow-sm focus:border-emerald-300 focus:ring-emerald-100 placeholder:font-normal placeholder:text-slate-300 px-1"
+                                  min="0"
+                                  step="0.1"
+                                />
+                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-300 pointer-events-none">g</span>
+                              </div>
+                              <div className="mt-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Carbs</div>
+                            </div>
+
+                            {/* Fat */}
+                            <div className="text-center">
+                              <div className="relative">
+                                <Input
+                                  type="number"
+                                  placeholder="0"
+                                  value={quickEntryFat}
+                                  onChange={(e) => setQuickEntryFat(e.target.value)}
+                                  className="h-12 w-full rounded-xl border-slate-200 bg-white text-center font-bold text-slate-700 shadow-sm focus:border-yellow-300 focus:ring-yellow-100 placeholder:font-normal placeholder:text-slate-300 px-1"
+                                  min="0"
+                                  step="0.1"
+                                />
+                                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-300 pointer-events-none">g</span>
+                              </div>
+                              <div className="mt-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fat</div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Action Button - Amber (Matching Build Button) */}
+                        <div className="pt-2">
+                          <Button
+                            onClick={handleQuickEntry}
+                            disabled={!quickEntryName.trim() || !quickEntryCalories || parseFloat(quickEntryCalories) <= 0}
+                            className={cn(
+                              "w-full h-12 rounded-xl text-white font-bold shadow-md transition-all",
+                              "bg-gradient-to-br from-amber-400 to-orange-600 border border-orange-400",
+                              "shadow-[0_4px_12px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                              "hover:shadow-[0_6px_16px_rgba(249,115,22,0.6),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5",
+                              "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-none disabled:bg-slate-200 disabled:border-none disabled:text-slate-400 disabled:from-slate-200 disabled:to-slate-200"
+                            )}
+                          >
+                            Add to Journal <Plus className="ml-2 h-5 w-5 stroke-[3px]" />
+                          </Button>
+                        </div>
+
+                        {/* Usage Tip */}
+                        <div className="mt-6 p-4 rounded-2xl bg-blue-50/50 border border-blue-100/50 text-center">
+                          <p className="text-xs text-blue-900/70 font-medium">
+                            <span className="font-bold mr-1">💡 Tip:</span>
+                            Use this when you know nutrition info but don't want to search for ingredients.
+                          </p>
+                        </div>
+
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="p-4 rounded-xl bg-blue-50/50 border border-blue-100">
-                    <p className="text-xs text-blue-800">
-                      <span className="font-semibold">💡 Tip:</span> Use this when you know your meal's nutrition info but don't want to search for ingredients.
-                    </p>
                   </div>
                 </div>
 
@@ -910,87 +953,39 @@ export function FoodSearchSheet({
                     <CameraCapture
                       onCapture={handleCameraCapture}
                       onCancel={() => setShowCamera(false)}
-                      mode={analysisMode}
+                      initialMode={analysisMode}
                     />
                   ) : !ocrImage ? (
-                    /* Initial state - Choose scan mode */
+                    /* Initial state - Open Camera */
                     <div className="space-y-4">
-                      <div className="p-6 rounded-2xl bg-white/60 border border-white/80 backdrop-blur-sm shadow-[0_8px_20px_-6px_rgba(0,0,0,0.08)]">
+                      <div className="p-8 rounded-2xl bg-white/60 border border-white/80 backdrop-blur-sm shadow-[0_8px_20px_-6px_rgba(0,0,0,0.08)]">
                         <div className="text-center mb-6">
-                          <div className="inline-flex p-4 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 mb-4">
-                            <ScanLine className="h-8 w-8 text-slate-700" />
+                          <div className="inline-flex p-5 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 mb-4">
+                            <Camera className="h-10 w-10 text-slate-700" />
                           </div>
-                          <h3 className="text-lg font-bold text-slate-800 mb-2">Choose Scan Mode</h3>
+                          <h3 className="text-xl font-bold text-slate-800 mb-2">Scan Food</h3>
                           <p className="text-sm text-slate-600">
-                            Scan a nutrition label or analyze an entire meal
+                            Scan nutrition labels or analyze meal photos with AI
                           </p>
                         </div>
 
-                        <div className="space-y-3">
-                          <Button
-                            onClick={() => {
-                              setAnalysisMode('label');
-                              setShowCamera(true);
-                            }}
-                            className={cn(
-                              "w-full h-16 rounded-xl text-white font-bold shadow-md transition-all flex-col gap-1",
-                              "bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-600",
-                              "shadow-[0_4px_12px_rgba(30,41,59,0.5),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)]",
-                              "hover:shadow-[0_6px_16px_rgba(30,41,59,0.6),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
-                            )}
-                          >
-                            <div className="flex items-center gap-2">
-                              <ScanLine className="h-5 w-5" />
-                              <span>Scan Nutrition Label</span>
-                            </div>
-                            <span className="text-xs text-white/70 font-normal">Extract macros from product labels</span>
-                          </Button>
-
-                          <Button
-                            onClick={() => {
-                              setAnalysisMode('meal');
-                              setShowCamera(true);
-                            }}
-                            className={cn(
-                              "w-full h-16 rounded-xl text-white font-bold shadow-md transition-all flex-col gap-1",
-                              "bg-gradient-to-br from-emerald-500 to-emerald-700 border border-emerald-400",
-                              "shadow-[0_4px_12px_rgba(16,185,129,0.5),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)]",
-                              "hover:shadow-[0_6px_16px_rgba(16,185,129,0.6),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
-                            )}
-                          >
-                            <div className="flex items-center gap-2">
-                              <Camera className="h-5 w-5" />
-                              <span>Analyze Meal Photo</span>
-                            </div>
-                            <span className="text-xs text-white/70 font-normal">AI identifies ingredients & calculates macros</span>
-                          </Button>
-
-                          <div className="relative">
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={(e) => {
-                                handleGalleryUpload(e);
-                                // Mode will be determined by which button was last clicked
-                              }}
-                              className="hidden"
-                              id="gallery-upload"
-                            />
-                            <Button
-                              onClick={() => document.getElementById('gallery-upload')?.click()}
-                              variant="outline"
-                              className="w-full h-12 rounded-xl font-bold border-2 border-slate-300 hover:border-slate-400 hover:bg-slate-50"
-                            >
-                              <Upload className="h-5 w-5 mr-2" />
-                              Upload from Gallery
-                            </Button>
-                          </div>
-                        </div>
+                        <Button
+                          onClick={() => setShowCamera(true)}
+                          className={cn(
+                            "w-full h-14 rounded-xl text-white font-bold shadow-md transition-all",
+                            "bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-600",
+                            "shadow-[0_4px_12px_rgba(30,41,59,0.5),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                            "hover:shadow-[0_6px_16px_rgba(30,41,59,0.6),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
+                          )}
+                        >
+                          <Camera className="h-5 w-5 mr-2" />
+                          Open Camera
+                        </Button>
                       </div>
 
-                      <div className="p-4 rounded-xl bg-amber-50/50 border border-amber-100">
-                        <p className="text-xs text-amber-800">
-                          <span className="font-semibold">📸 Tip:</span> For best results, ensure good lighting and the food/label is clearly visible.
+                      <div className="p-4 rounded-xl bg-blue-50/50 border border-blue-100">
+                        <p className="text-xs text-blue-800">
+                          <span className="font-semibold">💡 Tip:</span> Use the segmented control in the camera to switch between nutrition label scanning and meal photo analysis.
                         </p>
                       </div>
                     </div>
@@ -1012,25 +1007,30 @@ export function FoodSearchSheet({
 
                         <div className="space-y-3">
                           <Button
-                            onClick={handleExtractNutrition}
-                            disabled={isProcessingOcr}
+                            onClick={analysisMode === 'meal' ? handleAnalyzeMealPhoto : handleExtractNutrition}
+                            disabled={isProcessingOcr || isAnalyzingFood}
                             className={cn(
                               "w-full h-12 rounded-xl text-white font-bold shadow-md transition-all",
-                              "bg-gradient-to-br from-emerald-500 to-emerald-700 border border-emerald-400",
-                              "shadow-[0_4px_12px_rgba(16,185,129,0.5),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)]",
-                              "hover:shadow-[0_6px_16px_rgba(16,185,129,0.6),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5",
+                              analysisMode === 'meal'
+                                ? "bg-gradient-to-br from-indigo-500 to-indigo-700 border border-indigo-400 shadow-[0_4px_12px_rgba(99,102,241,0.5),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:shadow-[0_6px_16px_rgba(99,102,241,0.6),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)]"
+                                : "bg-gradient-to-br from-emerald-500 to-emerald-700 border border-emerald-400 shadow-[0_4px_12px_rgba(16,185,129,0.5),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:shadow-[0_6px_16px_rgba(16,185,129,0.6),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                              "hover:-translate-y-0.5",
                               "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
                             )}
                           >
-                            {isProcessingOcr ? (
+                            {isProcessingOcr || isAnalyzingFood ? (
                               <>
                                 <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                                Extracting...
+                                {analysisMode === 'meal' ? 'Analyzing Meal...' : 'Extracting Info...'}
                               </>
                             ) : (
                               <>
-                                <ScanLine className="h-5 w-5 mr-2" />
-                                Extract Nutrition Info
+                                {analysisMode === 'meal' ? (
+                                  <Utensils className="h-5 w-5 mr-2" />
+                                ) : (
+                                  <ScanLine className="h-5 w-5 mr-2" />
+                                )}
+                                {analysisMode === 'meal' ? 'Analyze Meal' : 'Extract Nutrition Info'}
                               </>
                             )}
                           </Button>
@@ -1043,6 +1043,154 @@ export function FoodSearchSheet({
                           >
                             Try Another Image
                           </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : analyzedMeal ? (
+                    /* Meal Analysis Results */
+                    <div className="space-y-6">
+                      <div className="p-1 rounded-[2rem] bg-gradient-to-br from-white/80 to-white/40 border border-white/60 shadow-xl backdrop-blur-xl">
+                        <div className="bg-white/50 rounded-[1.8rem] p-6">
+
+                          {/* Header */}
+                          <div className="text-center mb-8">
+                            <h3 className="text-3xl font-editorial font-normal text-slate-800 mb-2">Meal Analysis</h3>
+                            <div className="w-12 h-1 bg-slate-800/10 mx-auto rounded-full" />
+                          </div>
+
+                          {/* Meal Name input with premium styling */}
+                          <div className="mb-8 relative group">
+                            <label className="absolute -top-2.5 left-4 px-2 bg-gradient-to-b from-white/0 via-white to-white/0 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                              Meal Name
+                            </label>
+                            <Input
+                              value={analyzedMeal.mealName}
+                              onChange={(e) => setAnalyzedMeal({ ...analyzedMeal, mealName: e.target.value })}
+                              className="h-14 px-6 rounded-2xl bg-white border-slate-200 text-lg font-editorial text-slate-800 shadow-sm focus:ring-slate-200 focus:border-slate-300 transition-all font-normal"
+                            />
+                          </div>
+
+                          {/* Ingredients List */}
+                          <div className="mb-8">
+                            <div className="flex items-center gap-4 mb-4">
+                              <h4 className="font-editorial text-xl text-slate-800">Ingredients</h4>
+                              <div className="h-px flex-1 bg-slate-200" />
+                            </div>
+
+                            <div className="space-y-4">
+                              {recalculateMealMacros()?.ingredients.map((ing: any, index: number) => (
+                                <div key={index} className="group relative bg-white rounded-2xl p-4 border border-slate-100 shadow-[0_2px_8px_rgba(0,0,0,0.02)] transition-all hover:shadow-md hover:border-slate-200">
+                                  <div className="flex justify-between items-start mb-3">
+                                    <div className="pr-4">
+                                      <div className="font-editorial text-lg text-slate-800 leading-tight mb-1">{ing.name}</div>
+                                      <div className="text-xs text-slate-400 font-medium tracking-wide uppercase">{ing.description}</div>
+                                    </div>
+
+                                    {/* Portion Control */}
+                                    <div className="flex items-center bg-slate-50 rounded-lg p-1 border border-slate-100">
+                                      <button
+                                        onClick={() => updateIngredientPortion(index, (ingredientPortions[index] || ing.estimatedGrams) - 10)}
+                                        className="w-7 h-7 flex items-center justify-center rounded-md bg-white text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all shadow-sm"
+                                      >
+                                        -
+                                      </button>
+                                      <span className="w-12 text-center text-sm font-bold text-slate-700 font-sans mx-1">
+                                        {ingredientPortions[index] || ing.estimatedGrams}g
+                                      </span>
+                                      <button
+                                        onClick={() => updateIngredientPortion(index, (ingredientPortions[index] || ing.estimatedGrams) + 10)}
+                                        className="w-7 h-7 flex items-center justify-center rounded-md bg-white text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-all shadow-sm"
+                                      >
+                                        +
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  {/* Ingredient Macros Micro-grid */}
+                                  <div className="flex items-center gap-4 text-[10px] font-bold text-slate-400 uppercase tracking-wider pt-3 border-t border-slate-50">
+                                    <span className="flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
+                                      <span className="text-slate-600">{Math.round(ing.calories)}</span> kcal
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                                      <span className="text-slate-600">{ing.protein}g</span> P
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                      <span className="text-slate-600">{ing.carbs}g</span> C
+                                    </span>
+                                    <span className="flex items-center gap-1">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
+                                      <span className="text-slate-600">{ing.fat}g</span> F
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Total Summary - Clean Minimal Design */}
+                          <div className="mb-6 pt-2">
+                            <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100">
+                              <div className="flex items-center justify-between mb-4 pb-4 border-b border-slate-200/60">
+                                <span className="font-editorial text-xl text-slate-700">Total Energy</span>
+                                <div className="flex items-baseline">
+                                  <span className="font-editorial text-3xl text-slate-900 mr-1">
+                                    {recalculateMealMacros()?.totals.calories}
+                                  </span>
+                                  <span className="text-sm font-medium text-slate-500">kcal</span>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-3 gap-8">
+                                <div className="text-center">
+                                  <div className="text-xl font-bold text-slate-800 mb-1">
+                                    {recalculateMealMacros()?.totals.protein}g
+                                  </div>
+                                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Protein</div>
+                                </div>
+                                <div className="text-center relative">
+                                  {/* Vertical dividers */}
+                                  <div className="absolute left-0 top-1 bottom-1 w-px bg-slate-200/60" />
+                                  <div className="absolute right-0 top-1 bottom-1 w-px bg-slate-200/60" />
+
+                                  <div className="text-xl font-bold text-slate-800 mb-1">
+                                    {recalculateMealMacros()?.totals.carbs}g
+                                  </div>
+                                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Carbs</div>
+                                </div>
+                                <div className="text-center">
+                                  <div className="text-xl font-bold text-slate-800 mb-1">
+                                    {recalculateMealMacros()?.totals.fat}g
+                                  </div>
+                                  <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Fat</div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Action Buttons - Reverted to Emerald Style */}
+                          <div className="flex gap-3">
+                            <Button
+                              onClick={handleResetAnalysis}
+                              variant="outline"
+                              className="flex-1 h-12 rounded-xl font-bold"
+                            >
+                              Analyze Another
+                            </Button>
+                            <Button
+                              onClick={handleSaveAnalyzedMeal}
+                              className={cn(
+                                "flex-1 h-12 rounded-xl text-white font-bold shadow-md transition-all",
+                                "bg-gradient-to-br from-emerald-500 to-emerald-700 border border-emerald-400",
+                                "shadow-[0_4px_12px_rgba(16,185,129,0.5),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                                "hover:shadow-[0_6px_16px_rgba(16,185,129,0.6),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
+                              )}
+                            >
+                              Save & Add
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1160,9 +1308,9 @@ export function FoodSearchSheet({
                   )}
                 </div>
 
-              ) : (
-                /* My Meals Tab */
-                <div className="space-y-3">
+              ) : activeTab === 'my-meals' ? (
+                /* My Meals Tab - Premium Design */
+                <div className="px-5 pt-6 space-y-4 pb-24">
                   {customMeals === undefined ? (
                     <div className="text-center p-8"><Loader2 className="animate-spin h-6 w-6 mx-auto text-slate-400" /></div>
                   ) : customMeals.length === 0 ? (
@@ -1172,52 +1320,101 @@ export function FoodSearchSheet({
                     </div>
                   ) : (
                     customMeals.map(meal => (
-                      <div key={meal._id} className="group relative p-4 rounded-xl border border-slate-100 bg-white hover:border-orange-200 transition-all">
-                        <div
-                          className="flex justify-between items-start cursor-pointer"
-                          onClick={() => onSelectFood({
-                            name: meal.name,
-                            calories: meal.totalMacros.calories,
-                            protein: meal.totalMacros.protein,
-                            carbs: meal.totalMacros.carbs,
-                            fat: meal.totalMacros.fat,
-                            servingSize: '1 meal'
-                          })}
-                        >
-                          <div>
-                            <h4 className="font-bold text-slate-800">{meal.name}</h4>
-                            <p className="text-xs text-slate-500 mt-1">{meal.ingredients.length} ingredients</p>
+                      <div
+                        key={meal._id}
+                        className={cn(
+                          'p-5 mb-4 rounded-[1.5rem] transition-all duration-300 group',
+                          'bg-white border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)]',
+                          'hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 hover:border-slate-200'
+                        )}
+                      >
+                        <div className="flex flex-col gap-4">
+                          <div className="flex items-start justify-between">
+                            <div
+                              className="flex-1 pr-4 cursor-pointer"
+                              onClick={() => onSelectFood({
+                                name: meal.name,
+                                calories: meal.totalMacros.calories,
+                                protein: meal.totalMacros.protein,
+                                carbs: meal.totalMacros.carbs,
+                                fat: meal.totalMacros.fat,
+                                servingSize: '1 meal'
+                              })}
+                            >
+                              <div className="flex items-start gap-2 mb-1">
+                                <span className="font-editorial text-xl text-slate-800 leading-tight group-hover:text-orange-600 transition-colors">
+                                  {meal.name}
+                                </span>
+                              </div>
+                              <div className="text-xs text-slate-400 font-medium tracking-wide uppercase mt-1">
+                                {meal.ingredients.length} ingredients
+                              </div>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex items-center gap-2 flex-shrink-0 pt-1">
+                              <Button
+                                size="sm"
+                                onClick={() => onSelectFood({
+                                  name: meal.name,
+                                  calories: meal.totalMacros.calories,
+                                  protein: meal.totalMacros.protein,
+                                  carbs: meal.totalMacros.carbs,
+                                  fat: meal.totalMacros.fat,
+                                  servingSize: '1 meal'
+                                })}
+                                className={cn(
+                                  "h-9 px-4 rounded-xl text-white font-bold shadow-md transition-all",
+                                  "bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-600",
+                                  "shadow-[0_2px_8px_rgba(30,41,59,0.5),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                                  "hover:shadow-[0_4px_12px_rgba(30,41,59,0.6),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
+                                )}
+                              >
+                                Add
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-9 w-9 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (confirm('Delete this custom meal?')) {
+                                    await deleteCustomMeal({ id: meal._id });
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4 stroke-2" />
+                              </Button>
+                            </div>
                           </div>
-                          <Button size="sm" variant="ghost" className="h-8 w-8 text-orange-500 hover:bg-orange-50">
-                            <Plus className="h-5 w-5" />
-                          </Button>
-                        </div>
-                        <div className="mt-3 flex items-center justify-between">
-                          <div className="flex gap-3 text-xs font-mono">
-                            <span className="font-bold text-slate-700">{meal.totalMacros.calories} kcal</span>
-                            <span className="text-emerald-600">{meal.totalMacros.protein}g P</span>
-                            <span className="text-amber-600">{meal.totalMacros.carbs}g C</span>
-                            <span className="text-rose-600">{meal.totalMacros.fat}g F</span>
+
+                          {/* Micro-grid Macros */}
+                          <div className="flex items-center gap-5 text-[11px] font-bold text-slate-400 uppercase tracking-wider pt-3 border-t border-slate-50">
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-800" />
+                              <span className="text-slate-700 font-extrabold text-sm">{Math.round(meal.totalMacros.calories)}</span>
+                              <span className="text-[10px]">kcal</span>
+                            </span>
+                            <div className="w-px h-3 bg-slate-200" />
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                              <span className="text-slate-600">{Math.round(meal.totalMacros.protein)}g</span> P
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                              <span className="text-slate-600">{Math.round(meal.totalMacros.carbs)}g</span> C
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
+                              <span className="text-slate-600">{Math.round(meal.totalMacros.fat)}g</span> F
+                            </span>
                           </div>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7 text-slate-400 hover:text-rose-500 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={async (e) => {
-                              e.stopPropagation();
-                              if (confirm('Delete this custom meal?')) {
-                                await deleteCustomMeal({ id: meal._id });
-                              }
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
                         </div>
                       </div>
                     ))
                   )}
                 </div>
-              )}
+              ) : null}
             </div>
           </ScrollArea>
         )}
