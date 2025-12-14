@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
-import { Search, X, Loader2, Plus, Star, Save, Trash2, ChevronLeft, Camera, Upload, ScanLine, Utensils } from 'lucide-react';
+import { Search, X, Loader2, Plus, Star, Save, Trash2, ChevronLeft, ChevronRight, Camera, Upload, ScanLine, Utensils } from 'lucide-react';
 import {
   searchCommonFoods,
   COMMON_FOODS,
@@ -231,7 +231,7 @@ export function FoodSearchSheet({
     }
   };
 
-  const handleQuickEntry = async () => {
+  const handleQuickEntry = async (shouldLog: boolean = true) => {
     const calories = parseFloat(quickEntryCalories) || 0;
     const protein = parseFloat(quickEntryProtein) || 0;
     const carbs = parseFloat(quickEntryCarbs) || 0;
@@ -251,7 +251,11 @@ export function FoodSearchSheet({
       servingSize: '1 serving',
     };
 
-    // Save to custom meals
+    // Always save to custom meals as requested (or if this was the specific action)
+    // The user asked for "add to my meals, not only to journal".
+    // We'll treat the new button as "Save Only" and the existing as "Save & Log" (or just Log?)
+    // Existing logic saved to custom meals ALWAYS. We will keep that for "Save & Log".
+
     try {
       await createCustomMeal({
         name: quickEntryName,
@@ -275,8 +279,10 @@ export function FoodSearchSheet({
       console.error("Failed to save quick entry to custom meals:", err);
     }
 
-    // Add to journal
-    onSelectFood(foodData);
+    // Only add to journal if requested
+    if (shouldLog) {
+      onSelectFood(foodData);
+    }
 
     // Reset form
     setQuickEntryName('');
@@ -320,6 +326,25 @@ export function FoodSearchSheet({
     } finally {
       setIsProcessingOcr(false);
     }
+  };
+
+  const addOcrToBuilder = () => {
+    if (!ocrResult) return;
+
+    const multiplier = ocrServingMultiplier;
+    const ingredient = {
+      name: ocrResult.productName,
+      calories: Math.round(ocrResult.calories * multiplier),
+      protein: Math.round(ocrResult.protein * multiplier * 10) / 10,
+      carbs: Math.round(ocrResult.carbs * multiplier * 10) / 10,
+      fat: Math.round(ocrResult.fat * multiplier * 10) / 10,
+      servingSize: ocrResult.servingSize,
+      multiplier: 1, // Already multiplied in values
+    };
+
+    setBuilderIngredients(prev => [...prev, ingredient]);
+    handleResetOcr();
+    // Don't close sheet, stay for more or switch to builder manually
   };
 
   const handleSaveOcrResult = async () => {
@@ -405,6 +430,25 @@ export function FoodSearchSheet({
     } finally {
       setIsAnalyzingFood(false);
     }
+  };
+
+  const addAnalyzedMealToBuilder = () => {
+    const mealData = recalculateMealMacros();
+    if (!mealData) return;
+
+    // Add all ingredients from analysis as separate items to builder
+    const newIngredients = mealData.ingredients.map((ing: any) => ({
+      name: ing.name,
+      calories: Math.round(ing.calories),
+      protein: Math.round(ing.protein * 10) / 10,
+      carbs: Math.round(ing.carbs * 10) / 10,
+      fat: Math.round(ing.fat * 10) / 10,
+      servingSize: `${ing.estimatedGrams}g`,
+      multiplier: 1,
+    }));
+
+    setBuilderIngredients(prev => [...prev, ...newIngredients]);
+    handleResetAnalysis();
   };
 
   const updateIngredientPortion = (index: number, newGrams: number) => {
@@ -612,157 +656,255 @@ export function FoodSearchSheet({
   };
 
 
+  const addQuickEntryToBuilder = () => {
+    const calories = parseFloat(quickEntryCalories) || 0;
+    const protein = parseFloat(quickEntryProtein) || 0;
+    const carbs = parseFloat(quickEntryCarbs) || 0;
+    const fat = parseFloat(quickEntryFat) || 0;
+    const sugar = parseFloat(quickEntrySugar) || 0;
+
+    if (!quickEntryName.trim() || calories <= 0) {
+      return;
+    }
+
+    const ingredient = {
+      name: quickEntryName,
+      calories: Math.round(calories),
+      protein: Math.round(protein * 10) / 10,
+      carbs: Math.round(carbs * 10) / 10,
+      fat: Math.round(fat * 10) / 10,
+      servingSize: '1 serving',
+      multiplier: 1
+    };
+
+    setBuilderIngredients(prev => [...prev, ingredient]);
+
+    // Reset form
+    setQuickEntryName('');
+    setQuickEntryCalories('');
+    setQuickEntryProtein('');
+    setQuickEntryCarbs('');
+    setQuickEntryFat('');
+    setQuickEntrySugar('');
+  };
+
   return (
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         side="bottom"
-        className="h-[100vh] rounded-t-[2.5rem] px-0 flex flex-col border-t border-white/60 bg-gradient-to-b from-slate-50/95 via-slate-100/95 to-blue-50/95 backdrop-blur-2xl shadow-[0_-20px_60px_-15px_rgba(0,0,0,0.15)]"
+        className="h-[100vh] rounded-t-[2.5rem] p-0 gap-0 flex flex-col border-t border-white/60 bg-gradient-to-b from-slate-50/95 via-slate-100/95 to-blue-50/95 backdrop-blur-2xl shadow-[0_-20px_60px_-15px_rgba(0,0,0,0.15)] [&>button]:hidden"
       >
-        <SheetHeader className="px-6 pb-4 pt-6 flex-shrink-0 border-b border-slate-200/50">
+        <SheetHeader className="px-6 pb-0 pt-5 flex-shrink-0 z-10 relative flex flex-row items-center">
           <SheetDescription className="hidden">Search for food or create a custom meal</SheetDescription>
+
+          {/* Custom Close Button */}
+          <Button
+            onClick={onClose}
+            variant="ghost"
+            size="icon"
+            className="absolute right-6 top-5 z-20 h-8 w-8 bg-slate-200/50 hover:bg-slate-300/50 rounded-full transition-colors"
+          >
+            <X className="h-5 w-5 text-slate-500 stroke-[3px]" />
+          </Button>
+
           {isBuilderOpen ? (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setIsBuilderOpen(false)}
-                  className="h-9 w-9 -ml-2 rounded-full hover:bg-white/50"
-                >
-                  <ChevronLeft className="h-5 w-5 text-slate-600" />
-                </Button>
-                <SheetTitle className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-800 to-slate-600">
-                  Build Custom Meal
-                </SheetTitle>
-              </div>
+            <div className="flex items-center justify-start w-full gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsBuilderOpen(false)}
+                className="h-8 w-8 -ml-2 rounded-full hover:bg-white/50"
+              >
+                <ChevronLeft className="h-6 w-6 text-slate-600" />
+              </Button>
+              <SheetTitle className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-800 to-slate-600">
+                Build Custom Meal
+              </SheetTitle>
             </div>
           ) : (
-            <div className="flex items-center justify-between">
+            <div className="w-full text-center">
               <SheetTitle className="text-xl font-black tracking-tight text-slate-800">
                 {mode === 'swap' ? 'Swap Meal' : 'Add Food'}
               </SheetTitle>
-              {/* Removed duplicate close button - default SheetContent has one */}
-            </div>
-          )}
-
-          {!isBuilderOpen && (
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mt-4">
-              <TabsList className="grid w-full grid-cols-4 h-11 bg-slate-200/50 p-1 rounded-2xl">
-                <TabsTrigger
-                  value="search"
-                  className="rounded-xl data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-md transition-all font-semibold text-xs sm:text-sm"
-                >
-                  Search
-                </TabsTrigger>
-                <TabsTrigger
-                  value="quick-entry"
-                  className="rounded-xl data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-md transition-all font-semibold text-xs sm:text-sm"
-                >
-                  Quick Entry
-                </TabsTrigger>
-                <TabsTrigger
-                  value="scan-label"
-                  className="rounded-xl data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-md transition-all font-semibold text-xs sm:text-sm"
-                >
-                  Scan Label
-                </TabsTrigger>
-                <TabsTrigger
-                  value="my-meals"
-                  className="rounded-xl data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-md transition-all font-semibold text-xs sm:text-sm"
-                >
-                  My Meals
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          )}
-
-          {!isBuilderOpen && activeTab === 'search' && (
-            <div className="relative mt-4">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 p-1.5 bg-white/50 rounded-lg">
-                <Search className="h-4 w-4 text-slate-400" />
-              </div>
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search ingredients (e.g., 'Chicken', 'Oats')..."
-                className="pl-12 h-12 rounded-2xl bg-white/60 border-transparent shadow-[inset_0_2px_4px_rgba(0,0,0,0.02),0_2px_10px_rgba(255,255,255,1)] focus:ring-4 focus:ring-slate-200/50 focus:bg-white/90 transition-all font-medium text-slate-700 placeholder:text-slate-400"
-                autoFocus
-              />
-              {isSearching && (
-                <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-emerald-500 animate-spin" />
-              )}
             </div>
           )}
         </SheetHeader>
 
+        {!isBuilderOpen && (
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full mt-2 px-6">
+            <TabsList className="grid w-full grid-cols-4 h-12 bg-slate-200/80 p-1.5 !rounded-full shadow-[inset_0_2px_6px_rgba(0,0,0,0.12),inset_0_-1px_0_rgba(255,255,255,0.5)] border border-slate-200/50">
+              <TabsTrigger
+                value="search"
+                className="!rounded-full data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-[0_2px_8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-300 ease-out font-semibold text-xs sm:text-sm"
+              >
+                Search
+              </TabsTrigger>
+              <TabsTrigger
+                value="quick-entry"
+                className="!rounded-full data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-[0_2px_8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-300 ease-out font-semibold text-xs sm:text-sm"
+              >
+                Quick Entry
+              </TabsTrigger>
+              <TabsTrigger
+                value="scan-label"
+                className="!rounded-full data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-[0_2px_8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-300 ease-out font-semibold text-xs sm:text-sm"
+              >
+                Scan Label
+              </TabsTrigger>
+              <TabsTrigger
+                value="my-meals"
+                className="!rounded-full data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-[0_2px_8px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] transition-all duration-300 ease-out font-semibold text-xs sm:text-sm"
+              >
+                My Meals
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+        )}
+
+        {!isBuilderOpen && activeTab === 'search' && (
+          <div className="relative mt-2 px-6">
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search ingredients (e.g., 'Chicken', 'Oats')..."
+              className="h-12 px-6 rounded-full bg-slate-200/60 border-transparent shadow-[inset_0_2px_6px_rgba(0,0,0,0.08)] focus:ring-0 focus:bg-slate-200/80 transition-all font-medium text-slate-700 placeholder:text-slate-400/80"
+              autoFocus
+            />
+            {isSearching && (
+              <Loader2 className="absolute right-4 top-1/2 -translate-y-1/2 h-5 w-5 text-emerald-500 animate-spin" />
+            )}
+          </div>
+        )}
+
         {isBuilderOpen ? (
           <div className="flex-1 flex flex-col overflow-hidden">
-            <ScrollArea className="flex-1 p-4">
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700">Meal Name</label>
+            <ScrollArea className="flex-1">
+              <div className="px-6 pt-2 pb-8 space-y-6">
+
+                {/* Meal Name Input - Premium Style */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-500 uppercase tracking-wider ml-1">
+                    Meal Name
+                  </label>
                   <Input
                     placeholder="e.g. My Breakfast Bowl"
                     value={customMealName}
                     onChange={(e) => setCustomMealName(e.target.value)}
-                    className="rounded-xl border-slate-200"
+                    className="h-12 px-4 rounded-xl bg-white border-slate-200 text-base font-medium text-slate-900 shadow-sm focus:ring-slate-200 focus:border-slate-300 transition-all font-sans placeholder:text-slate-300"
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-sm font-medium text-slate-700">Ingredients ({builderIngredients.length})</label>
-                    <Button variant="ghost" size="sm" onClick={() => setIsBuilderOpen(false)} className="text-orange-600 h-6 text-xs">
-                      <Plus className="h-3 w-3 mr-1" /> Add more
+                {/* Ingredients List */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between px-1">
+                    <label className="text-xs font-bold text-slate-400 uppercase tracking-wider">Ingredients ({builderIngredients.length})</label>
+                    <Button variant="ghost" size="sm" onClick={() => setIsBuilderOpen(false)} className="text-orange-600 h-6 text-xs hover:bg-orange-50 font-semibold">
+                      <Plus className="h-3.5 w-3.5 mr-1 stroke-[3px]" /> Add more
                     </Button>
                   </div>
+
                   {builderIngredients.map((ing, idx) => (
-                    <div key={idx} className="flex justify-between items-center p-3 rounded-xl bg-slate-50 border border-slate-100">
-                      <div>
-                        <p className="font-medium text-sm">{ing.name}</p>
-                        <p className="text-xs text-slate-500">{ing.servingSize} • {ing.calories} kcal</p>
+                    <div key={idx} className="p-5 rounded-[1.5rem] bg-white border border-slate-100 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] hover:shadow-[0_8px_24px_-6px_rgba(0,0,0,0.08)] hover:-translate-y-0.5 hover:border-slate-200 transition-all duration-300 group">
+                      <div className="flex flex-col gap-4">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 pr-4">
+                            <span className="font-editorial text-xl text-slate-800 leading-tight block">
+                              {ing.name}
+                            </span>
+
+                            {/* Portion Display */}
+                            <div className="flex items-center mt-3">
+                              <div className="flex items-center bg-slate-50 rounded-lg py-1.5 px-3 border border-slate-100">
+                                <span className="text-sm font-bold text-slate-700 font-sans">
+                                  {ing.servingSize}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Delete Action */}
+                          <div className="flex flex-col flex-shrink-0 pt-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-10 w-10 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-xl transition-colors"
+                              onClick={() => setBuilderIngredients(prev => prev.filter((_, i) => i !== idx))}
+                            >
+                              <Trash2 className="h-5 w-5 stroke-[2px]" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Micro-grid Macros */}
+                        <div className="flex items-center gap-5 text-[11px] font-bold text-slate-400 uppercase tracking-wider pt-3 border-t border-slate-50">
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-slate-800" />
+                            <span className="text-slate-700 font-extrabold text-sm">{Math.round(ing.calories)}</span>
+                            <span className="text-[10px]">kcal</span>
+                          </span>
+                          <div className="w-px h-3 bg-slate-200" />
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                            <span className="text-slate-600">{Math.round(ing.protein * 10) / 10}g</span> P
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                            <span className="text-slate-600">{Math.round(ing.carbs * 10) / 10}g</span> C
+                          </span>
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
+                            <span className="text-slate-600">{Math.round(ing.fat * 10) / 10}g</span> F
+                          </span>
+                        </div>
                       </div>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-rose-400 hover:text-rose-600 hover:bg-rose-50"
-                        onClick={() => setBuilderIngredients(prev => prev.filter((_, i) => i !== idx))}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
                     </div>
                   ))}
                 </div>
 
-                <div className="p-4 rounded-xl bg-slate-900 text-white mt-4">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-sm font-medium text-slate-300">Total Macros</span>
-                    <span className="text-lg font-bold">
-                      {builderIngredients.reduce((acc, i) => acc + i.calories, 0)} kcal
-                    </span>
+                {/* Total Macros - Clean Summary Card */}
+                <div className="p-5 rounded-2xl bg-white border border-slate-100 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.05)]">
+                  <div className="flex justify-between items-end mb-4">
+                    <div>
+                      <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Total Energy</span>
+                      <span className="font-editorial text-3xl text-slate-800 leading-none">
+                        {Math.round(builderIngredients.reduce((acc, i) => acc + i.calories, 0))}
+                        <span className="text-base font-sans font-medium text-slate-400 ml-1">kcal</span>
+                      </span>
+                    </div>
+                    {/* Micro-grid Visual */}
+                    <div className="flex gap-1 h-2">
+                      {Array.from({ length: 4 }).map((_, i) => (
+                        <div key={i} className={cn("w-1.5 rounded-full bg-slate-100", i < 2 && "bg-slate-800")} />
+                      ))}
+                    </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                    <div className="p-2 rounded bg-slate-800">
-                      <span className="block text-emerald-400 font-mono text-sm">
-                        {Math.round(builderIngredients.reduce((acc, i) => acc + i.protein, 0))}g
-                      </span>
-                      <span className="text-slate-400">Protein</span>
-                    </div>
-                    <div className="p-2 rounded bg-slate-800">
-                      <span className="block text-amber-400 font-mono text-sm">
-                        {Math.round(builderIngredients.reduce((acc, i) => acc + i.carbs, 0))}g
-                      </span>
-                      <span className="text-slate-400">Carbs</span>
-                    </div>
-                    <div className="p-2 rounded bg-slate-800">
-                      <span className="block text-rose-400 font-mono text-sm">
-                        {Math.round(builderIngredients.reduce((acc, i) => acc + i.fat, 0))}g
-                      </span>
-                      <span className="text-slate-400">Fat</span>
-                    </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label: 'Protein', val: builderIngredients.reduce((acc, i) => acc + i.protein, 0), unit: 'g', color: 'text-emerald-600', bg: 'bg-emerald-50' },
+                      { label: 'Carbs', val: builderIngredients.reduce((acc, i) => acc + i.carbs, 0), unit: 'g', color: 'text-amber-600', bg: 'bg-amber-50' },
+                      { label: 'Fat', val: builderIngredients.reduce((acc, i) => acc + i.fat, 0), unit: 'g', color: 'text-rose-600', bg: 'bg-rose-50' },
+                    ].map((m, i) => (
+                      <div key={i} className={cn("p-3 rounded-xl flex flex-col items-center justify-center border border-transparent", m.bg)}>
+                        <span className={cn("text-lg font-bold font-mono leading-none mb-1", m.color)}>
+                          {Math.round(m.val)}
+                          <span className="text-[10px] ml-0.5 opacity-60 text-current">{m.unit}</span>
+                        </span>
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{m.label}</span>
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
             </ScrollArea>
-            <div className="p-4 border-t bg-white">
-              <Button onClick={handleSaveCustomMeal} className="w-full h-12 rounded-xl bg-orange-600 hover:bg-orange-700 text-white font-bold"
+            <div className="p-4 border-t border-slate-100 bg-white/50 backdrop-blur-md">
+              <Button onClick={handleSaveCustomMeal}
+                className={cn(
+                  "w-full h-11 rounded-xl text-white font-bold shadow-md transition-all",
+                  "bg-gradient-to-br from-slate-800 to-slate-950 border border-slate-700",
+                  "shadow-[0_2px_8px_rgba(30,41,59,0.3),inset_0_1px_0_rgba(255,255,255,0.2)]",
+                  "hover:shadow-[0_4px_12px_rgba(30,41,59,0.4),inset_0_1px_0_rgba(255,255,255,0.2)] hover:-translate-y-0.5"
+                )}
                 disabled={!customMealName || builderIngredients.length === 0}
               >
                 Save & Log Meal
@@ -771,20 +913,34 @@ export function FoodSearchSheet({
           </div>
         ) : (
           <ScrollArea className="flex-1">
-            <div className="pb-24">
+            <div className="pb-8">
+              {!isBuilderOpen && builderIngredients.length > 0 && (
+                <div className="mx-5 mt-2 mb-4 p-4 rounded-2xl bg-gradient-to-br from-amber-50/90 to-orange-50/90 border border-orange-100/50 shadow-[0_4px_20px_-4px_rgba(249,115,22,0.15)] flex items-center justify-between backdrop-blur-md">
+                  <div>
+                    <p className="font-editorial text-lg text-slate-800 leading-none mb-1">
+                      Building meal...
+                    </p>
+                    <p className="text-xs font-bold text-orange-600 uppercase tracking-wide">
+                      {builderIngredients.length} ingredients selected
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={() => setIsBuilderOpen(true)}
+                    className={cn(
+                      "h-9 px-5 rounded-xl text-white font-bold shadow-md transition-all",
+                      "bg-gradient-to-br from-amber-400 to-orange-600 border border-orange-400",
+                      "shadow-[0_2px_8px_rgba(249,115,22,0.4),inset_0_1px_0_rgba(255,255,255,0.4)]",
+                      "hover:shadow-[0_4px_12px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(255,255,255,0.4)] hover:-translate-y-0.5"
+                    )}
+                  >
+                    Continue <ChevronRight className="h-4 w-4 ml-1 stroke-[3px]" />
+                  </Button>
+                </div>
+              )}
+
               {activeTab === 'search' ? (
-                <div className="px-5 pt-6 space-y-4">
-                  {!isBuilderOpen && builderIngredients.length > 0 && (
-                    <div className="mb-4 p-3 bg-orange-50 border border-orange-100 rounded-xl flex items-center justify-between">
-                      <div>
-                        <span className="text-sm font-medium text-orange-900">Building Meal...</span>
-                        <span className="text-xs text-orange-600 block">{builderIngredients.length} ingredients selected</span>
-                      </div>
-                      <Button size="sm" onClick={() => setIsBuilderOpen(true)} className="bg-orange-500 text-white h-8">
-                        Continue
-                      </Button>
-                    </div>
-                  )}
+                <div className="px-5 pt-2 space-y-4">
 
                   {showCommon && (
                     <>
@@ -808,7 +964,7 @@ export function FoodSearchSheet({
                 </div>
               ) : activeTab === 'quick-entry' ? (
                 /* Quick Entry Tab - Premium Meal Analysis Style */
-                <div className="px-6 pt-6 pb-24 max-w-lg mx-auto">
+                <div className="px-6 pt-2 pb-8 max-w-lg mx-auto">
                   <div className="p-1 rounded-[2rem] bg-gradient-to-br from-white/80 to-white/40 border border-white/60 shadow-xl backdrop-blur-xl">
                     <div className="bg-white/50 rounded-[1.8rem] p-6">
 
@@ -918,19 +1074,32 @@ export function FoodSearchSheet({
 
                         {/* Action Button - Amber (Matching Build Button) */}
                         <div className="pt-2">
-                          <Button
-                            onClick={handleQuickEntry}
-                            disabled={!quickEntryName.trim() || !quickEntryCalories || parseFloat(quickEntryCalories) <= 0}
-                            className={cn(
-                              "w-full h-12 rounded-xl text-white font-bold shadow-md transition-all",
-                              "bg-gradient-to-br from-amber-400 to-orange-600 border border-orange-400",
-                              "shadow-[0_4px_12px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)]",
-                              "hover:shadow-[0_6px_16px_rgba(249,115,22,0.6),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5",
-                              "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-none disabled:bg-slate-200 disabled:border-none disabled:text-slate-400 disabled:from-slate-200 disabled:to-slate-200"
-                            )}
-                          >
-                            Add to Journal <Plus className="ml-2 h-5 w-5 stroke-[3px]" />
-                          </Button>
+                          <div className="flex gap-3">
+                            <Button
+                              onClick={addQuickEntryToBuilder}
+                              disabled={!quickEntryName.trim() || !quickEntryCalories || parseFloat(quickEntryCalories) <= 0}
+                              variant="outline"
+                              className={cn(
+                                "flex-1 h-12 rounded-xl text-white font-bold shadow-md transition-all",
+                                "bg-gradient-to-br from-amber-400 to-orange-600 border border-orange-400"
+                              )}
+                            >
+                              <Plus className="h-4 w-4 mr-1.5 stroke-[3px]" /> Build
+                            </Button>
+                            <Button
+                              onClick={() => handleQuickEntry(true)}
+                              disabled={!quickEntryName.trim() || !quickEntryCalories || parseFloat(quickEntryCalories) <= 0}
+                              className={cn(
+                                "flex-[2] h-12 rounded-xl text-white font-bold shadow-md transition-all",
+                                "bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-600",
+                                "shadow-[0_4px_12px_rgba(30,41,59,0.5),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                                "hover:shadow-[0_4px_12px_rgba(30,41,59,0.6),inset_0_1px_0_rgba(255,255,255,0.2),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5",
+                                "disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0 disabled:shadow-none disabled:bg-slate-200 disabled:border-none disabled:text-slate-400 disabled:from-slate-200 disabled:to-slate-200"
+                              )}
+                            >
+                              Save & Log <Plus className="ml-2 h-5 w-5 stroke-[3px]" />
+                            </Button>
+                          </div>
                         </div>
 
                         {/* Usage Tip */}
@@ -948,7 +1117,7 @@ export function FoodSearchSheet({
 
               ) : activeTab === 'scan-label' ? (
                 /* OCR Scan Label Tab */
-                <div className="space-y-4 max-w-md mx-auto">
+                <div className="px-5 pt-2 pb-8 space-y-4 max-w-md mx-auto">
                   {showCamera ? (
                     <CameraCapture
                       onCapture={handleCameraCapture}
@@ -1190,6 +1359,17 @@ export function FoodSearchSheet({
                             >
                               Save & Add
                             </Button>
+                            <Button
+                              onClick={addAnalyzedMealToBuilder}
+                              className={cn(
+                                "flex-1 h-12 rounded-xl text-white font-bold shadow-md transition-all",
+                                "bg-gradient-to-br from-amber-400 to-orange-600 border border-orange-400",
+                                "shadow-[0_4px_12px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                                "hover:shadow-[0_6px_16px_rgba(249,115,22,0.6),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
+                              )}
+                            >
+                              <Plus className="h-4 w-4 mr-1.5 stroke-[3px]" /> Build
+                            </Button>
                           </div>
                         </div>
                       </div>
@@ -1301,6 +1481,17 @@ export function FoodSearchSheet({
                             >
                               Save & Add
                             </Button>
+                            <Button
+                              onClick={addOcrToBuilder}
+                              className={cn(
+                                "flex-1 h-12 rounded-xl text-white font-bold shadow-md transition-all",
+                                "bg-gradient-to-br from-amber-400 to-orange-600 border border-orange-400",
+                                "shadow-[0_4px_12px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                                "hover:shadow-[0_6px_16px_rgba(249,115,22,0.6),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
+                              )}
+                            >
+                              <Plus className="h-4 w-4 mr-1.5 stroke-[3px]" /> Build
+                            </Button>
                           </div>
                         </div>
                       </div>
@@ -1310,7 +1501,7 @@ export function FoodSearchSheet({
 
               ) : activeTab === 'my-meals' ? (
                 /* My Meals Tab - Premium Design */
-                <div className="px-5 pt-6 space-y-4 pb-24">
+                <div className="px-5 pt-2 space-y-4 pb-8">
                   {customMeals === undefined ? (
                     <div className="text-center p-8"><Loader2 className="animate-spin h-6 w-6 mx-auto text-slate-400" /></div>
                   ) : customMeals.length === 0 ? (
@@ -1384,6 +1575,30 @@ export function FoodSearchSheet({
                                 }}
                               >
                                 <Trash2 className="h-4 w-4 stroke-2" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setBuilderIngredients(prev => [...prev, {
+                                    name: meal.name,
+                                    calories: meal.totalMacros.calories,
+                                    protein: meal.totalMacros.protein,
+                                    carbs: meal.totalMacros.carbs,
+                                    fat: meal.totalMacros.fat,
+                                    servingSize: '1 meal',
+                                    multiplier: 1
+                                  }]);
+                                }}
+                                className={cn(
+                                  "h-9 px-4 rounded-xl text-white font-bold shadow-md transition-all",
+                                  "bg-gradient-to-br from-amber-400 to-orange-600 border border-orange-400",
+                                  "shadow-[0_2px_8px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                                  "hover:shadow-[0_4px_12px_rgba(249,115,22,0.6),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
+                                )}
+                              >
+                                <Plus className="h-3.5 w-3.5 mr-1.5 stroke-[3px]" />
+                                Build
                               </Button>
                             </div>
                           </div>

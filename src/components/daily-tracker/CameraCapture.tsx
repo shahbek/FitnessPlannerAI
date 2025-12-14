@@ -254,7 +254,7 @@ export function CameraCapture({ onCapture, onCancel, initialMode = 'label' }: Ca
                         onClick={capturePhoto}
                         disabled={!isCameraReady}
                         className={cn(
-                            "w-18 h-18 sm:w-20 sm:h-20 rounded-full border-[5px] border-white bg-white/20 backdrop-blur-sm",
+                            "w-20 h-20 rounded-full border-[5px] border-white bg-white/20 backdrop-blur-sm flex-shrink-0",
                             "transition-all duration-200 transform",
                             "active:scale-95 active:bg-white/40",
                             isCameraReady
