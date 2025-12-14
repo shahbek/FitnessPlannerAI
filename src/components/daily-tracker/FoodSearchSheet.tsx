@@ -605,7 +605,7 @@ export function FoodSearchSheet({
     <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <SheetContent
         side="bottom"
-        className="h-[90vh] rounded-t-[2.5rem] px-0 flex flex-col border-t border-white/60 bg-gradient-to-b from-slate-50/95 via-slate-100/95 to-blue-50/95 backdrop-blur-2xl shadow-[0_-20px_60px_-15px_rgba(0,0,0,0.15)]"
+        className="h-[100vh] rounded-t-[2.5rem] px-0 flex flex-col border-t border-white/60 bg-gradient-to-b from-slate-50/95 via-slate-100/95 to-blue-50/95 backdrop-blur-2xl shadow-[0_-20px_60px_-15px_rgba(0,0,0,0.15)]"
       >
         <SheetHeader className="px-6 pb-4 pt-6 flex-shrink-0 border-b border-slate-200/50">
           <SheetDescription className="hidden">Search for food or create a custom meal</SheetDescription>

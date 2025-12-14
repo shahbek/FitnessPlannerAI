@@ -193,9 +193,14 @@ export function TodayMealsSection({
             <Button
               onClick={handleAddMeal}
               size="sm"
-              className="rounded-xl bg-orange-50 text-orange-600 hover:bg-orange-100 border-0 shadow-none font-semibold h-9 px-4"
+              className={cn(
+                "rounded-xl text-white font-bold shadow-md transition-all h-9 px-4",
+                "bg-gradient-to-br from-amber-400 to-orange-600 border border-orange-400",
+                "shadow-[0_2px_8px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)]",
+                "hover:shadow-[0_4px_12px_rgba(249,115,22,0.6),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
+              )}
             >
-              <Plus className="h-4 w-4 mr-1.5" strokeWidth={2.5} />
+              <Plus className="h-4 w-4 mr-1.5" strokeWidth={3} />
               Add
             </Button>
           </div>
