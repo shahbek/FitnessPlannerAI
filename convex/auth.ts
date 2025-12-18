@@ -27,7 +27,8 @@ export const createAuth = (
       "https://*.ngrok-free.app", // Allow all ngrok subdomains
       "https://supercomp.app",
       "https://www.supercomp.app",
-      "https://fitness-planner-ai.vercel.app", // Allow generic Vercel domains if identifying matching patterns is hard, or specific one
+      "https://fitness-planner-ai.vercel.app",
+      "https://fitness-planner-*-shahbeks-projects.vercel.app", // Allow Vercel Preview deployments
       siteUrl,
     ],
     // Configure email/password authentication
