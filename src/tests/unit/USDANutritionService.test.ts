@@ -26,7 +26,35 @@ async function runTests() {
     process.exit(1);
   }
 
-  const service = new USDANutritionService(USDA_API_KEY);
+  // Mock Convex Client
+  const mockAction = async (action: any, args: any) => {
+    // Hacky check to see which action is being called based on likely args
+    if (args.query) {
+      if (!args.query) throw new Error('Query required');
+      return [{
+        fdcId: 1001,
+        description: 'Chicken breast, raw',
+        dataType: 'Foundation',
+        nutrients: []
+      }];
+    }
+    if (args.fdcId) {
+      return {
+        fdcId: args.fdcId,
+        description: 'Chicken breast, raw',
+        nutrients: [
+          { nutrientName: 'Energy', value: 165, unitName: 'kcal' },
+          { nutrientName: 'Protein', value: 31, unitName: 'g' },
+          { nutrientName: 'Carbohydrate, by difference', value: 0, unitName: 'g' },
+          { nutrientName: 'Total lipid (fat)', value: 3.6, unitName: 'g' }
+        ]
+      };
+    }
+    return null;
+  };
+
+  const mockClient = { action: mockAction };
+  const service = new USDANutritionService(mockClient);
   let passed = 0;
   let failed = 0;
 
@@ -86,26 +114,15 @@ async function runTests() {
     }
   };
 
-  // Test 1: API Client Initialization
-  await test('Service initializes with API key', async () => {
-    const testService = new USDANutritionService('test-key');
+  // Test 1: Service Initialization
+  await test('Service initializes with valid client', async () => {
+    const testService = new USDANutritionService(mockClient);
     if (!testService) {
       throw new Error('Service not initialized');
     }
   });
 
-  await test('Service throws error without API key', async () => {
-    try {
-      new USDANutritionService('');
-      throw new Error('Should have thrown error');
-    } catch (error) {
-      if (error instanceof Error && error.message.includes('API key')) {
-        // Expected
-        return;
-      }
-      throw error;
-    }
-  });
+  // Removed test for empty string API key as we now rely on TypeScript type checking for the client object
 
   // Test 2: Food Search
   await test('Search for "chicken breast" returns results', async () => {
