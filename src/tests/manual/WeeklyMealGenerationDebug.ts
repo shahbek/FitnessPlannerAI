@@ -73,9 +73,9 @@ const summarizeIngredient = (
 };
 
 async function main() {
-  const usdaKey = process.env.VITE_USDA_API_KEY || process.env.USDA_API_KEY;
-  if (!usdaKey) {
-    console.error('❌ VITE_USDA_API_KEY (or USDA_API_KEY) is required for this debug run.');
+  const convexUrl = process.env.VITE_CONVEX_URL || process.env.CONVEX_URL;
+  if (!convexUrl) {
+    console.error('❌ VITE_CONVEX_URL (or CONVEX_URL) is required for this debug run.');
     process.exit(1);
   }
 
@@ -85,7 +85,11 @@ async function main() {
     process.exit(1);
   }
 
-  const usdaService = new USDANutritionService(usdaKey);
+  const { ConvexHttpClient } = await import('convex/browser');
+  const { api } = await import('../../../convex/_generated/api');
+
+  const client = new ConvexHttpClient(convexUrl);
+  const usdaService = new USDANutritionService({ action: client.action });
   const cotService = new ChainOfThoughtService();
 
   if (!cotService.isAIAvailable || !cotService.isAIAvailable()) {

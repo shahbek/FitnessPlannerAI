@@ -11,7 +11,7 @@
  * Run with: tsx src/tests/integration/FullPlanGeneration.test.ts
  * 
  * Requires:
- * - VITE_USDA_API_KEY environment variable (or USDA_API_KEY for Node.js)
+ * - VITE_CONVEX_URL environment variable (or CONVEX_URL for Node.js)
  * - VITE_GROQ_API_KEY (optional - will use fallback if missing)
  */
 
@@ -20,26 +20,27 @@ import { IntegratedPlanGenerator } from '../../services/IntegratedPlanGenerator'
 import { UserProfile } from '../../models/UserProfile';
 import { WeeklyOutline } from '../../models/PlanModels';
 import { parseWorkoutData } from '../../utils/workoutDataParser';
+import { ConvexHttpClient } from 'convex/browser';
 
 config();
 
-const USDA_API_KEY = process.env.VITE_USDA_API_KEY || process.env.USDA_API_KEY;
+const CONVEX_URL = process.env.VITE_CONVEX_URL || process.env.CONVEX_URL;
 // For deterministic tests, we don't need AI, so validate manually
-const hasUSDAKey = !!USDA_API_KEY;
+const hasConvexUrl = !!CONVEX_URL;
 const hasGroqKey = !!(process.env.VITE_GROQ_API_KEY || process.env.GROQ_API_KEY);
 
 async function runTests() {
   console.log('🧪 Testing Full Plan Generation (End-to-End)');
   console.log('============================================\n');
 
-  // Validate environment (only USDA is required for deterministic tests)
-  if (!hasUSDAKey) {
+  // Validate environment
+  if (!hasConvexUrl) {
     console.error('❌ Environment configuration error:');
-    console.error('   - VITE_USDA_API_KEY (or USDA_API_KEY for Node.js) is required');
-    console.error('💡 Get your free API key from: https://fdc.nal.usda.gov/api-guide.html');
-    console.error('💡 Add to .env file: VITE_USDA_API_KEY=your-key-here');
+    console.error('   - VITE_CONVEX_URL (or CONVEX_URL for Node.js) is required');
     process.exit(1);
   }
+
+  const convexClient = new ConvexHttpClient(CONVEX_URL!);
 
   if (!hasGroqKey) {
     console.log('⚠️  VITE_GROQ_API_KEY not found - tests will use deterministic methods only');
@@ -121,16 +122,13 @@ async function runTests() {
     console.log(`   📝 Weekly Outlines:`, JSON.stringify(weeklyOutlines, null, 2));
 
     // Create generator using BatchMealGenerator (optimal architecture)
-    // Pass USDA key explicitly since env.ts may not work correctly in test environment
     console.log('🔍 [TEST] Creating IntegratedPlanGenerator...');
     console.log('   📦 Using BatchMealGenerator (optimal batch approach)');
     console.log('   - 1 AI call generates all 28 meals (7 days × 4 meals)');
     console.log('   - Batch USDA lookup for unique ingredients');
     console.log('   - Deterministic fallback if AI unavailable');
-    if (!USDA_API_KEY) {
-      throw new Error('USDA_API_KEY not found - cannot create generator');
-    }
-    const generator = new IntegratedPlanGenerator(USDA_API_KEY);
+
+    const generator = new IntegratedPlanGenerator({ action: convexClient.action });
     console.log('✅ [TEST] Generator created successfully');
 
     // Track state updates with detailed logging
@@ -254,7 +252,6 @@ async function runTests() {
     }
 
     // Should have meals for each day (allow some failures for testing)
-    // Note: Meal generation may fail due to USDA API issues, which is acceptable for testing
     // phaseMealTemplates is MealTemplate[][] (array of arrays - one array per day)
     let daysWithMeals = 0;
     plan.phaseMealTemplates.forEach((dayMeals: any, dayIndex: number) => {
@@ -262,7 +259,7 @@ async function runTests() {
       if (Array.isArray(dayMeals) && dayMeals.length > 0) {
         daysWithMeals++;
       } else {
-        console.log(`   ⚠️  Day ${dayIndex + 1} has no meals (USDA lookup may have failed)`);
+        console.log(`   ⚠️  Day ${dayIndex + 1} has no meals (data source lookup may have failed)`);
       }
     });
 
@@ -272,7 +269,7 @@ async function runTests() {
       throw new Error(`Only ${daysWithMeals} out of 7 days have meals - meal generation pipeline may be broken`);
     }
 
-    console.log(`   ${daysWithMeals} out of 7 days have meals (USDA API may have rate limits or failures)`);
+    console.log(`   ${daysWithMeals} out of 7 days have meals (data source availability varies)`);
 
     // Should have workouts for training days (if workouts were generated)
     if (plan.phaseSessionTemplates && plan.phaseSessionTemplates.length > 0) {
@@ -292,10 +289,7 @@ async function runTests() {
 
   // Test 2: Full Plan Generation with AI (if available)
   await test('Generate complete plan with AI (if available)', async () => {
-    if (!USDA_API_KEY) {
-      throw new Error('USDA_API_KEY not found');
-    }
-    const generator = new IntegratedPlanGenerator(USDA_API_KEY);
+    const generator = new IntegratedPlanGenerator({ action: convexClient.action });
 
     // Check if AI is available
     const state = generator.getCurrentState();
@@ -355,10 +349,7 @@ async function runTests() {
 
   // Test 3: Plan Validation
   await test('Generated plan meets macro targets', async () => {
-    if (!USDA_API_KEY) {
-      throw new Error('USDA_API_KEY not found');
-    }
-    const generator = new IntegratedPlanGenerator(USDA_API_KEY);
+    const generator = new IntegratedPlanGenerator({ action: convexClient.action });
     // Use deterministic methods for reliable testing
     const plan = await generator.generatePlan(userProfile, weeklyOutlines, {
       useCoT: false, // Use rule-based for reliability
@@ -389,7 +380,7 @@ async function runTests() {
       // Note: Some meals may have 0 calories if USDA data lookup failed
       // This is acceptable for testing - the pipeline structure is what matters
       if (dayTotal.calories <= 0) {
-        console.log(`   ⚠️  Day ${dayIndex + 1}: Calories are 0 (USDA lookup may have failed)`);
+        console.log(`   ⚠️  Day ${dayIndex + 1}: Calories are 0 (data source lookup may have failed)`);
         console.log(`   This is acceptable - validates pipeline structure, not data accuracy`);
         return; // Skip validation for this day
       }
@@ -405,10 +396,7 @@ async function runTests() {
 
   // Test 4: Error Recovery
   await test('Generator handles errors gracefully', async () => {
-    if (!USDA_API_KEY) {
-      throw new Error('USDA_API_KEY not found');
-    }
-    const generator = new IntegratedPlanGenerator(USDA_API_KEY);
+    const generator = new IntegratedPlanGenerator({ action: convexClient.action });
 
     // Try with invalid weekly outline (should still work or fail gracefully)
     const invalidOutline = {

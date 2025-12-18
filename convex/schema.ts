@@ -299,4 +299,37 @@ export default defineSchema({
     .index("by_date", ["userId", "date"])
     .index("by_plan_date", ["workoutPlanId", "date"])
     .index("by_user_plan_date", ["userId", "workoutPlanId", "date"]),
+
+  // Central Ingredients Database (Cached USDA Data)
+  ingredients: defineTable({
+    fdcId: v.number(),
+    name: v.string(), // Normalized name for searching
+    description: v.string(), // Original description
+    dataType: v.optional(v.string()),
+
+    // Structured nutrition data
+    nutrients: v.array(v.object({
+      nutrientId: v.number(),
+      nutrientName: v.string(),
+      unitName: v.string(),
+      value: v.number(),
+    })),
+
+    // Additional metadata
+    brandOwner: v.optional(v.string()),
+    ingredients: v.optional(v.string()), // Ingredient list text
+    foodCategory: v.optional(v.string()),
+
+    source: v.string(), // 'usda' | 'user' | 'system'
+    cnt: v.optional(v.number()), // Usage count for popularity
+
+    cachedAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_fdc_id", ["fdcId"])
+    .index("by_name", ["name"]) // Generic index
+    .searchIndex("search_name", {
+      searchField: "name",
+      filterFields: ["source", "foodCategory"]
+    }),
 });

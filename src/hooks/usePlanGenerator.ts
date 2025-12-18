@@ -10,6 +10,7 @@ import { IntegratedPlanGenerator } from '@/services/IntegratedPlanGenerator';
 import { UserProfile } from '@/models/UserProfile';
 import { WeeklyOutline, CompletePlan } from '@/models/PlanModels';
 import { useToast } from '@/components/ui/use-toast';
+import { convex } from '@/lib/convex';
 
 /**
  * Progress Update Interface
@@ -94,8 +95,8 @@ export function usePlanGenerator(options?: { enableToasts?: boolean }): UsePlanG
       // Create abort controller for cancellation
       abortControllerRef.current = new AbortController();
 
-      // Initialize generator (uses environment variables)
-      const generator = new IntegratedPlanGenerator();
+      // Initialize generator
+      const generator = new IntegratedPlanGenerator({ action: convex.action });
       generatorRef.current = generator;
 
       // Initial progress state

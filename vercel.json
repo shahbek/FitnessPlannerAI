@@ -2,7 +2,7 @@
     "rewrites": [
         {
             "source": "/api/auth/:path*",
-            "destination": "https://valuable-parrot-115.convex.site/api/auth/:path*"
+            "destination": "https://clean-swordfish-102.convex.site/api/auth/:path*"
         },
         {
             "source": "/(.*)",

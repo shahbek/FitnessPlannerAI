@@ -86,17 +86,15 @@ export class IntegratedPlanGenerator {
   private currentState: GenerationState;
 
   constructor(
-    usdaApiKey?: string, // Optional - will use env if not provided
+    convexClient: { action: (action: any, args?: any) => Promise<any> },
     aiModel?: any, // Optional - for backward compatibility
     options?: GenerationOptions
   ) {
     // Initialize Foundation Services
-    // Use environment variable if usdaApiKey not provided
-    const usdaKey = usdaApiKey || env.USDA_API_KEY || '';
-    if (!usdaKey) {
-      throw new Error('USDA_API_KEY is required. Provide it as parameter or set in environment variables (VITE_USDA_API_KEY).');
+    if (!convexClient) {
+      throw new Error('Convex client is required for IntegratedPlanGenerator.');
     }
-    this.usdaService = new USDANutritionService(usdaKey);
+    this.usdaService = new USDANutritionService(convexClient);
 
     // Initialize CoT Service - use environment config by default
     // If aiModel is provided (for backward compatibility), use it
@@ -733,12 +731,12 @@ export class IntegratedPlanGenerator {
         const missingWeeks = weeklyOutlines
           .filter(w => !weeklySchedules.some(s => s.weekNumber === w.weekNumber))
           .map(w => w.weekNumber);
-        
+
         console.warn(`\n   ⚠️  WARNING: Not all weeks have detailed cardio schedules!`);
         console.warn(`      Generated: ${weeklySchedules.length} schedules`);
         console.warn(`      Expected: ${expectedWeeks} schedules`);
         console.warn(`      Missing weeks: ${missingWeeks.join(', ')}`);
-        
+
         // If more than 50% of weeks are missing, throw error
         if (missingWeeks.length > expectedWeeks / 2) {
           throw new Error(
@@ -760,7 +758,7 @@ export class IntegratedPlanGenerator {
       if (error instanceof Error && (error as any).cause) {
         console.error('   Cause:', (error as any).cause);
       }
-      
+
       // CRITICAL: Re-throw the error - cardio is mandatory
       throw new Error(
         `CARDIO GENERATION REQUIRED: ${error instanceof Error ? error.message : String(error)}\n` +

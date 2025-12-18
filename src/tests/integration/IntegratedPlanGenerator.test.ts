@@ -18,21 +18,22 @@ import { config } from 'dotenv';
 import { IntegratedPlanGenerator } from '../../services/IntegratedPlanGenerator';
 import { UserProfile } from '../../models/UserProfile';
 import { WeeklyOutline } from '../../models/PlanModels';
+import { ConvexHttpClient } from 'convex/browser';
 
 config();
 
-const USDA_API_KEY = process.env.VITE_USDA_API_KEY || process.env.USDA_API_KEY;
+const CONVEX_URL = process.env.VITE_CONVEX_URL || process.env.CONVEX_URL;
 
 async function runTests() {
   console.log('🧪 Testing Integrated Plan Generator (End-to-End)');
   console.log('=================================================\n');
 
-  if (!USDA_API_KEY) {
-    console.error('❌ VITE_USDA_API_KEY (or USDA_API_KEY) not found in environment variables');
-    console.log('💡 Get your free API key from: https://fdc.nal.usda.gov/api-guide.html');
-    console.log('💡 Add to .env file: VITE_USDA_API_KEY=your-key-here');
+  if (!CONVEX_URL) {
+    console.error('❌ VITE_CONVEX_URL (or CONVEX_URL) not found in environment variables');
     process.exit(1);
   }
+
+  const client = new ConvexHttpClient(CONVEX_URL);
 
   // For testing, we'll use a mock AI model (no actual API calls)
   // In production, you would pass a real AI SDK model instance
@@ -101,9 +102,9 @@ async function runTests() {
   };
 
   // Test 1: Generator Initialization
-  await test('IntegratedPlanGenerator initializes with USDA API key', async () => {
+  await test('IntegratedPlanGenerator initializes with Convex Client', async () => {
     try {
-      const generator = new IntegratedPlanGenerator(USDA_API_KEY, mockModel);
+      const generator = new IntegratedPlanGenerator({ action: client.action }, mockModel);
       const state = generator.getCurrentState();
 
       if (state.phase !== 'initialization') {
@@ -112,16 +113,13 @@ async function runTests() {
 
       console.log(`   Generator initialized successfully`);
     } catch (error) {
-      if (error instanceof Error && error.message.includes('API key')) {
-        throw new Error('USDA API key validation failed');
-      }
       throw error;
     }
   });
 
   // Test 2: State Management
   await test('State management tracks progress and updates', async () => {
-    const generator = new IntegratedPlanGenerator(USDA_API_KEY, mockModel);
+    const generator = new IntegratedPlanGenerator({ action: client.action }, mockModel);
     let stateUpdates: any[] = [];
 
     // Mock state update callback
@@ -141,12 +139,8 @@ async function runTests() {
 
   // Test 3: USDA Service Integration
   await test('USDA service is accessible through generator', async () => {
-    // This test verifies that the USDA service is properly initialized
-    // We can't directly access it, but we can verify by checking if generator
-    // can be created without errors
-    // Note: mockModel is null, which is expected for infrastructure tests
     try {
-      const generator = new IntegratedPlanGenerator(USDA_API_KEY, mockModel);
+      const generator = new IntegratedPlanGenerator({ action: client.action }, mockModel);
       const state = generator.getCurrentState();
 
       if (!state) {
@@ -155,7 +149,6 @@ async function runTests() {
 
       console.log(`   USDA service integrated`);
     } catch (error: any) {
-      // If error is about model being null, that's expected
       if (error.message?.includes('model')) {
         console.log(`   ⚠️  Model is null (expected for infrastructure tests)`);
         console.log(`   USDA service integration verified`);
@@ -166,12 +159,14 @@ async function runTests() {
   });
 
   // Test 4: Error Handling
-  await test('Generator handles missing USDA API key', async () => {
+  await test('Generator handles missing Convex Client', async () => {
     try {
-      new IntegratedPlanGenerator('', mockModel);
-      throw new Error('Should have thrown error for empty API key');
+      // @ts-ignore - simulating JS usage
+      new IntegratedPlanGenerator(null, mockModel);
+      throw new Error('Should have thrown error for missing client');
     } catch (error) {
-      if (error instanceof Error && error.message.includes('API key')) {
+      // @ts-ignore
+      if (error instanceof Error && error.message.includes('Convex client')) {
         // Expected
         console.log(`   Error handling works correctly`);
         return;
@@ -183,7 +178,7 @@ async function runTests() {
   // Test 5: Component Integration
   await test('All components are properly initialized', async () => {
     try {
-      const generator = new IntegratedPlanGenerator(USDA_API_KEY, mockModel);
+      const generator = new IntegratedPlanGenerator({ action: client.action }, mockModel);
 
       // Verify generator was created (components initialized in constructor)
       const state = generator.getCurrentState();
@@ -211,9 +206,6 @@ async function runTests() {
       throw error;
     }
   });
-
-  // Note: Full plan generation test would require a real AI model
-  // For now, we test that the infrastructure is set up correctly
 
   // Summary
   console.log('\n================================================');

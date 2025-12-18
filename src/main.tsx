@@ -6,12 +6,10 @@ import App from './App';
 import { Toaster } from './components/ui/toaster';
 import './index.css';
 
-// Verify Convex URL is set
-if (!import.meta.env.VITE_CONVEX_URL) {
-  throw new Error('VITE_CONVEX_URL environment variable is not set');
-}
+import { convex } from './lib/convex';
 
-const convex = new ConvexReactClient(import.meta.env.VITE_CONVEX_URL as string);
+// Client initialized in lib/convex.ts
+console.log('🔗 Convex client initialized');
 
 console.log('🔗 Convex client initialized with URL:', import.meta.env.VITE_CONVEX_URL);
 

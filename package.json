@@ -75,6 +75,7 @@
     "harden-react-markdown": "^1.1.5",
     "html2canvas": "^1.4.1",
     "idb": "^8.0.3",
+    "javascript-lp-solver": "^0.4.24",
     "jspdf": "^2.5.2",
     "jspdf-autotable": "^3.6.0",
     "katex": "^0.16.25",

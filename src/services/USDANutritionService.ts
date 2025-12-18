@@ -9,7 +9,6 @@
 
 import {
   USDAFoodItem,
-  USDASearchResponse,
   MacroValues,
   FoodNutritionData,
   NutritionError,
@@ -24,86 +23,51 @@ import {
   validateMacroValues,
 } from '../utils/usdaMapper';
 import { stripDescriptorWords } from '../constants/ingredients';
+import { api } from '../../convex/_generated/api';
+
+/**
+ * Interface compatible with ConvexReactClient and ConvexHttpClient
+ */
+export interface IConvexClient {
+  action(action: any, args?: any): Promise<any>;
+}
 
 /**
  * Configuration
  */
 const CONFIG = {
-  BASE_URL: 'https://api.nal.usda.gov/fdc/v1',
   CACHE_TTL: 24 * 60 * 60 * 1000, // 24 hours in milliseconds
   MAX_CACHE_SIZE: 10000,
-  RETRY_ATTEMPTS: 3,
-  RETRY_DELAY: 1000, // 1 second initial delay
-  SEARCH_PAGE_SIZE: 50,
-  SEARCH_MAX_RESULTS: 10, // Return top 10 matches
-  DATA_TYPE_PRIORITY: ['Foundation', 'SR Legacy', 'Survey (FNDDS)'],
-  ALLOWED_DATA_TYPES: ['Foundation', 'SR Legacy', 'Survey (FNDDS)', 'Experimental'],
+  SEARCH_MAX_RESULTS: 10,
 } as const;
 
 type SearchAttempt = {
   query: string;
-  requireAllWords: boolean;
   reason: string;
 };
 
-type FallbackRule = {
-  keywords: string[];
-  replacements: string[];
-};
-
-const CATEGORY_FALLBACKS: FallbackRule[] = [
-  {
-    keywords: ['salmon', 'fillet'],
-    replacements: ['salmon', 'atlantic salmon', 'sockeye salmon'],
-  },
-  {
-    keywords: ['salmon'],
-    replacements: ['atlantic salmon', 'sockeye salmon'],
-  },
-  {
-    keywords: ['shredded', 'cheese'],
-    replacements: ['cheddar cheese', 'mozzarella cheese', 'colby cheese'],
-  },
-  {
-    keywords: ['cheese'],
-    replacements: ['cheddar cheese', 'mozzarella cheese'],
-  },
-  {
-    keywords: ['bell', 'pepper'],
-    replacements: ['sweet pepper', 'green bell pepper', 'red bell pepper'],
-  },
-  {
-    keywords: ['rice', 'cracker'],
-    replacements: ['rice crackers plain', 'rice cakes'],
-  },
-  {
-    keywords: ['scrambled', 'egg'],
-    replacements: [
-      'egg, whole, cooked, scrambled',
-      'egg, whole, scrambled',
-      'egg, whole, raw',
-    ],
-  },
-  {
-    keywords: ['rolled', 'oats'],
-    replacements: ['oats, rolled', 'old fashioned oats', 'oatmeal'],
-  },
-  {
-    keywords: ['quinoa'],
-    replacements: ['quinoa, cooked', 'quinoa, uncooked'],
-  },
+const CATEGORY_FALLBACKS = [
+  { keywords: ['salmon', 'fillet'], replacements: ['salmon', 'atlantic salmon', 'sockeye salmon'] },
+  { keywords: ['salmon'], replacements: ['atlantic salmon', 'sockeye salmon'] },
+  { keywords: ['shredded', 'cheese'], replacements: ['cheddar cheese', 'mozzarella cheese', 'colby cheese'] },
+  { keywords: ['cheese'], replacements: ['cheddar cheese', 'mozzarella cheese'] },
+  { keywords: ['bell', 'pepper'], replacements: ['sweet pepper', 'green bell pepper', 'red bell pepper'] },
+  { keywords: ['rice', 'cracker'], replacements: ['rice crackers plain', 'rice cakes'] },
+  { keywords: ['scrambled', 'egg'], replacements: ['egg, whole, cooked, scrambled', 'egg, whole, scrambled', 'egg, whole, raw'] },
+  { keywords: ['rolled', 'oats'], replacements: ['oats, rolled', 'old fashioned oats', 'oatmeal'] },
+  { keywords: ['quinoa'], replacements: ['quinoa, cooked', 'quinoa, uncooked'] },
 ];
 
 export class USDANutritionService {
-  private apiKey: string;
+  private client: IConvexClient;
   private cache: Map<string, NutritionCacheEntry>;
   private cacheStats: CacheStats;
 
-  constructor(apiKey: string) {
-    if (!apiKey) {
-      throw new Error('USDA API key is required');
+  constructor(client: IConvexClient) {
+    if (!client) {
+      throw new Error('Convex client is required');
     }
-    this.apiKey = apiKey;
+    this.client = client;
     this.cache = new Map();
     this.cacheStats = {
       hits: 0,
@@ -115,7 +79,6 @@ export class USDANutritionService {
 
   /**
    * Search for foods by name
-   * Returns top matches from USDA database
    */
   async searchFood(query: string): Promise<USDAFoodItem[]> {
     if (!query || query.trim().length === 0) {
@@ -130,17 +93,22 @@ export class USDANutritionService {
 
       for (const [index, attempt] of attempts.entries()) {
         try {
-          const foods = await this.executeSearchAttempt(attempt, query);
-          if (foods.length > 0) {
+          // Use Convex Action
+          // Note: The action signature handles caching and fetching from USDA
+          const foods = await this.client.action(api.food.searchFoods, {
+            query: attempt.query,
+            limit: CONFIG.SEARCH_MAX_RESULTS
+          });
+
+          if (foods && foods.length > 0) {
             if (index > 0) {
-              console.log(
-                `🔎 [USDA] Found "${query}" via ${attempt.reason} -> "${attempt.query}"`
-              );
+              console.log(`🔎 [USDA] Found "${query}" via ${attempt.reason} -> "${attempt.query}"`);
             }
             return foods;
           }
         } catch (error: any) {
           lastError = error;
+          console.warn(`Search attempt failed for "${attempt.query}":`, error);
         }
       }
 
@@ -155,25 +123,17 @@ export class USDANutritionService {
         'Please try a different search term or provide more specific food name'
       );
     } catch (error) {
+      // Re-throw if already typed
       if (error && typeof error === 'object' && 'type' in error) {
-        throw error; // Re-throw NutritionError
+        throw error;
       }
 
-      // Capture more error details
-      let errorMessage = 'Unknown error';
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (error && typeof error === 'object') {
-        errorMessage = JSON.stringify(error);
-      } else if (error) {
-        errorMessage = String(error);
-      }
-
+      const errorMessage = error instanceof Error ? error.message : String(error);
       throw this.createError(
         NutritionErrorType.NETWORK_ERROR,
         `Failed to search for food: ${errorMessage}`,
         query,
-        'Check your internet connection and API key'
+        'Check your internet connection'
       );
     }
   }
@@ -184,58 +144,20 @@ export class USDANutritionService {
 
     const pushAttempt = (attempt: SearchAttempt) => {
       if (!attempt.query) return;
-      const key = `${attempt.query}|${attempt.requireAllWords}`;
-      if (seen.has(key)) {
-        return;
-      }
+      if (seen.has(attempt.query)) return;
       attempts.push(attempt);
-      seen.add(key);
+      seen.add(attempt.query);
     };
 
-    const tokens = normalizedQuery.split(' ').filter(Boolean);
-    const isMultiWord = tokens.length > 1;
-
-    pushAttempt({
-      query: normalizedQuery,
-      requireAllWords: isMultiWord,
-      reason: 'original phrase (all words)',
-    });
-    pushAttempt({
-      query: normalizedQuery,
-      requireAllWords: false,
-      reason: 'original phrase (any words)',
-    });
+    pushAttempt({ query: normalizedQuery, reason: 'original phrase' });
 
     const stripped = stripDescriptorWords(normalizedQuery);
     if (stripped && stripped !== normalizedQuery) {
-      const strippedTokens = stripped.split(' ').filter(Boolean);
-      pushAttempt({
-        query: stripped,
-        requireAllWords: strippedTokens.length > 1,
-        reason: 'descriptor-stripped phrase (all words)',
-      });
-      pushAttempt({
-        query: stripped,
-        requireAllWords: false,
-        reason: 'descriptor-stripped phrase (any words)',
-      });
+      pushAttempt({ query: stripped, reason: 'descriptor-stripped phrase' });
     }
 
     for (const variant of this.generateFallbackVariants(normalizedQuery)) {
-      const variantTokens = variant.split(' ').filter(Boolean);
-      const multi = variantTokens.length > 1;
-      pushAttempt({
-        query: variant,
-        requireAllWords: multi,
-        reason: `category fallback (${variant})`,
-      });
-      if (multi) {
-        pushAttempt({
-          query: variant,
-          requireAllWords: false,
-          reason: `category fallback (${variant}) relaxed`,
-        });
-      }
+      pushAttempt({ query: variant, reason: `category fallback (${variant})` });
     }
 
     return attempts;
@@ -246,9 +168,7 @@ export class USDANutritionService {
     const variants = new Set<string>();
 
     CATEGORY_FALLBACKS.forEach((rule) => {
-      const matches = rule.keywords.every((keyword) =>
-        normalized.includes(keyword)
-      );
+      const matches = rule.keywords.every((keyword) => normalized.includes(keyword));
       if (matches) {
         rule.replacements.forEach((replacement) =>
           variants.add(normalizeFoodName(replacement))
@@ -256,63 +176,7 @@ export class USDANutritionService {
       }
     });
 
-    const stripped = stripDescriptorWords(normalized);
-    if (stripped && stripped !== normalized) {
-      variants.add(stripped);
-    }
-
     return Array.from(variants);
-  }
-
-  private async executeSearchAttempt(
-    attempt: SearchAttempt,
-    contextQuery: string
-  ): Promise<USDAFoodItem[]> {
-    // Use POST request with dataType filter to get foods with complete nutrient data
-    const url = `${CONFIG.BASE_URL}/foods/search?api_key=${this.apiKey}`;
-
-    const requestBody = {
-      query: attempt.query,
-      dataType: CONFIG.ALLOWED_DATA_TYPES,
-      pageSize: CONFIG.SEARCH_PAGE_SIZE,
-      requireAllWords: attempt.requireAllWords,
-    };
-
-    const response = await this.fetchWithRetry(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!response.ok) {
-      await this.handleAPIError(response, `${contextQuery} (${attempt.query})`);
-    }
-
-    const data: USDASearchResponse = await response.json();
-
-    if (!data.foods || data.foods.length === 0) {
-      console.warn(
-        `⚠️ [USDA] No foods for attempt "${attempt.query}" (${attempt.reason})`
-      );
-      return [];
-    }
-
-    const preferredFoods = data.foods.filter((food) =>
-      CONFIG.DATA_TYPE_PRIORITY.includes(food.dataType as any)
-    );
-    const otherNonBrandedFoods = data.foods.filter(
-      (food) => !CONFIG.DATA_TYPE_PRIORITY.includes(food.dataType as any)
-    );
-
-    const orderedFoods = [...preferredFoods, ...otherNonBrandedFoods];
-
-    if (orderedFoods.length === 0) {
-      return [];
-    }
-
-    return orderedFoods.slice(0, CONFIG.SEARCH_MAX_RESULTS);
   }
 
   /**
@@ -330,118 +194,39 @@ export class USDANutritionService {
     this.cacheStats.misses++;
 
     try {
-      const url = `${CONFIG.BASE_URL}/food/${fdcId}?api_key=${this.apiKey}`;
-      const response = await this.fetchWithRetry(url);
+      // Call Convex Action
+      const food = await this.client.action(api.food.getFoodDetails, { fdcId });
 
-      if (!response.ok) {
-        await this.handleAPIError(response, `FDC ID: ${fdcId}`);
-      }
-
-      const food: any = await response.json();
-
-      // Validate response has required fields
-      if (!food.fdcId) {
+      if (!food) {
         throw this.createError(
-          NutritionErrorType.INVALID_RESPONSE,
-          `Invalid food data returned for FDC ID ${fdcId}: missing fdcId`,
-          undefined,
-          'Food data may be incomplete in USDA database'
+          NutritionErrorType.FOOD_NOT_FOUND,
+          `Food details not found for FDC ID ${fdcId}`
         );
       }
 
-      // Check for nutrients - handle different response formats
-      // Some foods use "foodNutrients" instead of "nutrients"
-      let rawNutrients = food.nutrients || food.foodNutrients || [];
+      // Store in memory cache
+      this.setCache(cacheKey, food);
 
-      // If nutrients array exists but is empty, or if it's in a different structure
-      if (!rawNutrients || rawNutrients.length === 0) {
-        const errorMessage = `Food data for FDC ID ${fdcId} (${food.description || food.lowercaseDescription || 'unknown'}) has no nutrients`;
-        throw this.createError(
-          NutritionErrorType.INVALID_RESPONSE,
-          errorMessage,
-          food.description || food.lowercaseDescription,
-          'This food item may not have complete nutrient data. Try a different food item.'
-        );
-      }
-
-      // Normalize nutrients to our expected format
-      // USDA API returns nutrients in different formats:
-      // 1. Flat format: { nutrientId: 1008, nutrientName: "Energy", value: 165, unitName: "kcal" }
-      // 2. Nested format: { nutrient: { id: 1008, name: "Energy", unitName: "kcal" }, amount: 165 }
-      const normalizedNutrients = rawNutrients.map((nut: any) => {
-        // Check if it's already in normalized format
-        if (nut.nutrientId !== undefined) {
-          return nut;
-        }
-
-        // Handle nested format
-        if (nut.nutrient && nut.nutrient.id) {
-          return {
-            nutrientId: nut.nutrient.id,
-            nutrientName: nut.nutrient.name || '',
-            unitName: nut.nutrient.unitName || '',
-            value: nut.amount ?? nut.value ?? 0,
-          };
-        }
-
-        // Fallback: try to extract from any structure
-        return {
-          nutrientId: nut.nutrientId ?? nut.id ?? nut.nutrient?.id ?? 0,
-          nutrientName: nut.nutrientName ?? nut.name ?? nut.nutrient?.name ?? '',
-          unitName: nut.unitName ?? nut.unitName ?? nut.nutrient?.unitName ?? '',
-          value: nut.value ?? nut.amount ?? 0,
-        };
-      }).filter((nut: any) => nut.nutrientId > 0); // Filter out invalid nutrients
-
-      // Normalize to our expected format
-      const normalizedFood: USDAFoodItem = {
-        fdcId: food.fdcId,
-        description: food.description || food.lowercaseDescription || '',
-        dataType: food.dataType || '',
-        nutrients: normalizedNutrients,
-        brandOwner: food.brandOwner,
-        ingredients: food.ingredients,
-        foodCategory: food.foodCategory,
-      };
-
-      // Store in cache
-      this.setCache(cacheKey, normalizedFood);
-
-      return normalizedFood;
+      return food;
     } catch (error) {
-      if (error && typeof error === 'object' && 'type' in error) {
-        throw error;
-      }
-
-      // Capture more error details
-      let errorMessage = 'Unknown error';
-      if (error instanceof Error) {
-        errorMessage = error.message;
-      } else if (error && typeof error === 'object') {
-        errorMessage = JSON.stringify(error);
-      } else if (error) {
-        errorMessage = String(error);
-      }
-
+      const errorMessage = error instanceof Error ? error.message : String(error);
       throw this.createError(
         NutritionErrorType.NETWORK_ERROR,
         `Failed to get food details: ${errorMessage}`,
         undefined,
-        'Check your internet connection and API key'
+        'Check your internet connection'
       );
     }
   }
 
   /**
    * Get macros for a specific food and amount
-   * This is the main method used by meal generation
    */
   async getMacros(
     foodName: string,
     amount: number,
     unit: 'g' | 'kg' | 'oz' | 'lb' = 'g'
   ): Promise<MacroValues> {
-    // First, search for the food
     const searchResults = await this.searchFood(foodName);
 
     if (searchResults.length === 0) {
@@ -466,13 +251,11 @@ export class USDANutritionService {
         }
       } catch (error) {
         lastError = error;
-        // Continue to next result
         continue;
       }
     }
 
     if (!food) {
-      // If we couldn't find any food with nutrients, throw the last error or a generic one
       if (lastError && typeof lastError === 'object' && 'type' in lastError) {
         throw lastError;
       }
@@ -484,36 +267,29 @@ export class USDANutritionService {
       );
     }
 
-    // Extract macros per 100g
     let macrosPer100g: MacroValues;
     try {
       macrosPer100g = extractMacrosFromUSDA(food.nutrients, {
         foodName: food.description,
         fdcId: food.fdcId,
-        debug: true, // Enable detailed extraction logging
+        debug: true,
       });
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error extracting macros';
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error extracting macros';
       throw this.createError(
         NutritionErrorType.INVALID_RESPONSE,
         `Failed to extract nutrition data for "${foodName}": ${errorMessage}`,
-        foodName,
-        'This food item may have incomplete nutrient data in USDA. Try a different item.'
+        foodName
       );
     }
 
-    // Calculate macros for the requested amount
     const calculatedMacros = calculateMacrosForAmount(macrosPer100g, amount, unit);
     const validation = validateMacroValues(calculatedMacros);
     if (!validation.isValid) {
       throw this.createError(
         NutritionErrorType.INVALID_RESPONSE,
-        `Calculated macros for "${foodName}" are invalid: ${validation.errors.join(
-          '; '
-        )}`,
-        foodName,
-        'Please verify the requested amount or select a different food item.'
+        `Calculated macros for "${foodName}" are invalid: ${validation.errors.join('; ')}`,
+        foodName
       );
     }
 
@@ -524,20 +300,17 @@ export class USDANutritionService {
    * Get nutrition data for a food (for storage/caching)
    */
   async getFoodNutritionData(foodName: string): Promise<FoodNutritionData> {
-    const searchResults = await this.searchFood(foodName);
+    // Reusing getMacros logic but returning detailed object
+    // This could also be optimized by not calculating amount logic if we just want per 100g
+    // But keeping it consistent with getMacros flow is fine.
 
+    // Copy-paste of getMacros search logic to get the food object
+    const searchResults = await this.searchFood(foodName);
     if (searchResults.length === 0) {
-      throw this.createError(
-        NutritionErrorType.FOOD_NOT_FOUND,
-        `Food not found: "${foodName}"`,
-        foodName
-      );
+      throw this.createError(NutritionErrorType.FOOD_NOT_FOUND, `Food not found: "${foodName}"`, foodName);
     }
 
-    // Try each result until we find one with nutrients
     let food: USDAFoodItem | null = null;
-    let lastError: any = null;
-
     for (const result of searchResults) {
       try {
         const testFood = await this.getFoodDetails(result.fdcId);
@@ -545,22 +318,11 @@ export class USDANutritionService {
           food = testFood;
           break;
         }
-      } catch (error) {
-        lastError = error;
-        continue;
-      }
+      } catch (error) { continue; }
     }
 
     if (!food) {
-      if (lastError && typeof lastError === 'object' && 'type' in lastError) {
-        throw lastError;
-      }
-      throw this.createError(
-        NutritionErrorType.INVALID_RESPONSE,
-        `No foods found with complete nutrient data for "${foodName}"`,
-        foodName,
-        'Try a different food name or search term'
-      );
+      throw this.createError(NutritionErrorType.INVALID_RESPONSE, `No foods found for "${foodName}"`, foodName);
     }
 
     let macrosPer100g: MacroValues;
@@ -568,17 +330,10 @@ export class USDANutritionService {
       macrosPer100g = extractMacrosFromUSDA(food.nutrients, {
         foodName: food.description,
         fdcId: food.fdcId,
-        debug: true, // Enable detailed extraction logging
+        debug: true,
       });
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error extracting macros';
-      throw this.createError(
-        NutritionErrorType.INVALID_RESPONSE,
-        `Failed to extract nutrition data for "${foodName}": ${errorMessage}`,
-        foodName,
-        'This food item may have incomplete nutrient data in USDA. Try a different item.'
-      );
+      throw this.createError(NutritionErrorType.INVALID_RESPONSE, `Failed to extract macros`, foodName);
     }
 
     const nutritionData: FoodNutritionData = {
@@ -594,132 +349,28 @@ export class USDANutritionService {
     return nutritionData;
   }
 
-  /**
-   * Fetch with retry logic
-   */
-  private async fetchWithRetry(
-    url: string,
-    options?: RequestInit,
-    attempt = 1
-  ): Promise<Response> {
-    try {
-      // Use global fetch (available in Node.js 18+, browsers, and tsx)
-      const response = await fetch(url, options);
-
-      // Handle rate limiting
-      if (response.status === 429 && attempt < CONFIG.RETRY_ATTEMPTS) {
-        const retryAfter = response.headers.get('Retry-After');
-        const delay = retryAfter
-          ? parseInt(retryAfter, 10) * 1000
-          : CONFIG.RETRY_DELAY * attempt;
-
-        await this.sleep(delay);
-        return this.fetchWithRetry(url, options, attempt + 1);
-      }
-
-      return response;
-    } catch (error) {
-      // Log error details for debugging
-      if (error instanceof Error) {
-        console.error(`Fetch error (attempt ${attempt}): ${error.message}`);
-        console.error(`URL: ${url}`);
-      }
-
-      if (attempt < CONFIG.RETRY_ATTEMPTS) {
-        await this.sleep(CONFIG.RETRY_DELAY * attempt);
-        return this.fetchWithRetry(url, options, attempt + 1);
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Handle API errors
-   */
-  private async handleAPIError(
-    response: Response,
-    context?: string
-  ): Promise<never> {
-    const status = response.status;
-    let errorType: NutritionErrorType;
-    let message: string;
-
-    switch (status) {
-      case 400:
-        errorType = NutritionErrorType.INVALID_RESPONSE;
-        message = 'Invalid request to USDA API';
-        break;
-      case 401:
-        errorType = NutritionErrorType.API_UNAVAILABLE;
-        message = 'USDA API authentication failed. Check API key.';
-        break;
-      case 403:
-        errorType = NutritionErrorType.API_UNAVAILABLE;
-        message = 'USDA API access forbidden. Check API key permissions.';
-        break;
-      case 404:
-        errorType = NutritionErrorType.FOOD_NOT_FOUND;
-        message = `Food not found${context ? `: ${context}` : ''}`;
-        break;
-      case 429:
-        errorType = NutritionErrorType.RATE_LIMIT;
-        message = 'USDA API rate limit exceeded. Please wait before retrying.';
-        break;
-      case 500:
-      case 502:
-      case 503:
-      case 504:
-        errorType = NutritionErrorType.API_UNAVAILABLE;
-        message = 'USDA API is currently unavailable. Please try again later.';
-        break;
-      default:
-        errorType = NutritionErrorType.API_UNAVAILABLE;
-        message = `USDA API error: ${status}`;
-    }
-
-    throw this.createError(errorType, message, context);
-  }
-
-  /**
-   * Create a NutritionError
-   */
   private createError(
     type: NutritionErrorType,
     message: string,
     foodName?: string,
     suggestedAction?: string
   ): NutritionError {
-    return {
-      type,
-      message,
-      foodName,
-      suggestedAction,
-    };
+    return { type, message, foodName, suggestedAction };
   }
 
-  /**
-   * Cache management
-   */
   private getFromCache(key: string): NutritionCacheEntry | null {
     const entry = this.cache.get(key);
-
-    if (!entry) {
-      return null;
-    }
-
-    // Check if expired
+    if (!entry) return null;
     const now = Date.now();
     if (now > entry.timestamp + entry.ttl) {
       this.cache.delete(key);
       this.cacheStats.size--;
       return null;
     }
-
     return entry;
   }
 
   private setCache(key: string, food: USDAFoodItem): void {
-    // Evict if cache is full (FIFO)
     if (this.cache.size >= CONFIG.MAX_CACHE_SIZE) {
       const firstKey = this.cache.keys().next().value;
       if (firstKey) {
@@ -727,27 +378,19 @@ export class USDANutritionService {
         this.cacheStats.size--;
       }
     }
-
     const entry: NutritionCacheEntry = {
       food,
       timestamp: Date.now(),
       ttl: CONFIG.CACHE_TTL,
     };
-
     this.cache.set(key, entry);
     this.cacheStats.size++;
   }
 
-  /**
-   * Get cache statistics
-   */
   getCacheStats(): CacheStats {
     return { ...this.cacheStats };
   }
 
-  /**
-   * Clear cache
-   */
   clearCache(): void {
     this.cache.clear();
     this.cacheStats.size = 0;
@@ -755,24 +398,14 @@ export class USDANutritionService {
     this.cacheStats.misses = 0;
   }
 
-  /**
-   * Utility: Sleep
-   */
-  private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
   private validateNutritionData(data: FoodNutritionData): void {
     const validation = validateMacroValues(data.macrosPer100g);
-    if (validation.isValid) {
-      return;
+    if (!validation.isValid) {
+      throw this.createError(
+        NutritionErrorType.INVALID_RESPONSE,
+        `Invalid nutrition data for "${data.name}": ${validation.errors.join('; ')}`,
+        data.name
+      );
     }
-
-    throw this.createError(
-      NutritionErrorType.INVALID_RESPONSE,
-      `Invalid nutrition data for "${data.name}": ${validation.errors.join('; ')}`,
-      data.name,
-      'This food item returned incomplete or corrupt data from USDA. Please select an alternative.'
-    );
   }
 }
