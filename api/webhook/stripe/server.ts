@@ -11,7 +11,7 @@ if (!stripeSecretKey) {
 }
 
 const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: "2024-06-20",
+  apiVersion: "2025-10-29.clover" as any, // Cast to any to avoid TS errors with beta/preview versions if definitions drift
 });
 
 // Webhook signing secret from environment
