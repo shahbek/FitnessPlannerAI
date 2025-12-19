@@ -38,10 +38,21 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
     return parseWorkoutData(planData);
   }, [planData]);
 
+  // DEBUG: Check parsed data meals
+  React.useEffect(() => {
+    if (parsedData?.weeklySchedule) {
+      console.log('[DEBUG] Parsed Data Week Numbers:', parsedData.weeklySchedule.map(w => w.weekNumber));
+    }
+  }, [parsedData]);
+
   // Calculate week and day number from plan start
   const { weekNumber, dayNumber, dayName } = useMemo(() => {
     // Assume plan starts on Monday of the first week
-    const planStartDate = new Date();
+    const planCreated = planData?.startDate
+      ? new Date(planData.startDate)
+      : (planData?.createdAt ? new Date(planData.createdAt) : new Date());
+
+    const planStartDate = new Date(planCreated);
     planStartDate.setHours(0, 0, 0, 0);
     // Find the previous Monday
     const dayOfWeek = planStartDate.getDay();
@@ -58,11 +69,13 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
     const dayName = days[dayIdx === 0 ? 6 : dayIdx - 1];
 
     return {
+      // Ensure we don't show negative weeks if users look at dates before the plan started
+      // But allow looking back at history if needed? For now, clamp to 1 minimum for "Page View"
       weekNumber: Math.max(1, weekNum),
       dayNumber: Math.max(1, Math.min(7, dayNum)),
       dayName,
     };
-  }, [selectedDate]);
+  }, [selectedDate, planData]);
 
   // Get today's data from plan
   const todayPlanData = useMemo(() => {
@@ -74,6 +87,10 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
     if (!weekData) return null;
 
     const dayData = weekData.days.find((d) => d.dayNumber === dayNumber);
+    console.log(`[DEBUG] TodayPage Calculated: Week ${weekNumber}, Day ${dayNumber}. Found Data?`, !!dayData);
+    if (dayData?.meals) {
+      console.log('[DEBUG] TodayPage Plan Meals:', dayData.meals.map(m => m.mealName));
+    }
     return dayData || null;
   }, [parsedData, weekNumber, dayNumber]);
 
@@ -234,6 +251,56 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
   }, [planData, userProfile, trackingData, todayPlanData, cardioData, consumedMacros]);
 
   // Format date for display
+  const { minDate, maxDate } = useMemo(() => {
+    // Default to current date if no plan data
+    const start = planData?.startDate
+      ? new Date(planData.startDate)
+      : (planData?.createdAt ? new Date(planData.createdAt) : new Date());
+
+    // Ensure start date is set to midnight
+    start.setHours(0, 0, 0, 0);
+
+    // Calculate end date based on plan duration (default 12 weeks if not specified)
+    const durationWeeks = parsedData?.phaseProgression?.reduce((acc, p) => acc + p.durationWeeks, 0) || 12;
+
+    const end = new Date(start);
+    end.setDate(start.getDate() + (durationWeeks * 7) - 1);
+    end.setHours(23, 59, 59, 999);
+
+    return { minDate: start, maxDate: end };
+  }, [planData, parsedData]);
+
+  const isPrevDisabled = selectedDate <= minDate;
+  const isNextDisabled = selectedDate >= maxDate;
+
+  const handlePrevDay = () => {
+    const prevDate = new Date(selectedDate);
+    prevDate.setDate(selectedDate.getDate() - 1);
+
+    if (prevDate >= minDate) {
+      setSelectedDate(prevDate);
+    }
+  };
+
+  const handleNextDay = () => {
+    const nextDate = new Date(selectedDate);
+    nextDate.setDate(selectedDate.getDate() + 1);
+
+    if (nextDate <= maxDate) {
+      setSelectedDate(nextDate);
+    }
+  };
+
+  const handleJumpToToday = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    if (today < minDate) setSelectedDate(minDate);
+    else if (today > maxDate) setSelectedDate(maxDate);
+    else setSelectedDate(today);
+  };
+
+  // Format date for display
   const formatDateDisplay = (date: Date) => {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -254,12 +321,27 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
   };
 
   const navigateDate = (direction: 'prev' | 'next') => {
-    setSelectedDate((prev) => {
-      const newDate = new Date(prev);
-      newDate.setDate(newDate.getDate() + (direction === 'next' ? 1 : -1));
-      return newDate;
-    });
+    if (direction === 'prev') handlePrevDay();
+    else handleNextDay();
   };
+
+  // Activation Mutation
+  const activatePlan = useMutation(api.workoutPlans.activateWorkoutPlan);
+  const [isActivating, setIsActivating] = useState(false);
+
+  const handleActivate = async () => {
+    if (!workoutPlanId) return;
+    setIsActivating(true);
+    try {
+      await activatePlan({ planId: workoutPlanId as any });
+    } catch (err) {
+      console.error('Failed to activate plan:', err);
+    } finally {
+      setIsActivating(false);
+    }
+  };
+
+  const isPlanActive = !!planData?.startDate;
 
   if (!workoutPlanId || !planData) {
     return (
@@ -274,9 +356,39 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
   }
 
   return (
-    <div className="min-h-screen pb-24 pt-2">
+    <div className="min-h-screen pb-24 pt-2 relative">
+      {/* Activation Overlay - Absolute to content (respects width) but sticky (stays in view) */}
+      {!isPlanActive && (
+        <div className="absolute inset-0 z-30 bg-white/60 dark:bg-black/60 backdrop-blur-sm rounded-3xl">
+          <div className="sticky top-0 h-[calc(100vh-140px)] flex items-center justify-center p-4">
+            <Card className="w-full max-w-sm shadow-2xl border-0 bg-white/90 backdrop-blur-xl ring-1 ring-black/5 animate-in fade-in zoom-in duration-300">
+              <CardContent className="p-8 text-center space-y-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-slate-900 mb-2">Ready to Start?</h2>
+                  <div className="space-y-3">
+                    <p className="text-slate-500">
+                      Activate your plan to sync the schedule with today's date.
+                    </p>
+                    <p className="text-xs text-rose-500 font-medium bg-rose-50 px-3 py-1.5 rounded-lg inline-block border border-rose-100">
+                      Note: Action is irreversible.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  onClick={handleActivate}
+                  disabled={isActivating}
+                  className="w-full h-12 text-lg font-semibold bg-emerald-600 hover:bg-emerald-700 shadow-lg shadow-emerald-600/20 rounded-xl"
+                >
+                  {isActivating ? 'Activating...' : 'Activate Plan Now'}
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
       {/* Floating Header */}
-      <div className="sticky top-4 z-40 px-2 sm:px-4 mb-4">
+      <div className={cn("sticky top-4 z-40 px-2 sm:px-4 mb-4 transition-all duration-500")}>
         <div
           className="liquid-header transition-all transform hover:scale-[1.01]"
           style={{
@@ -289,13 +401,17 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-full hover:bg-black/5"
+              className={cn("h-8 w-8 rounded-full hover:bg-black/5", isPrevDisabled && "opacity-30 cursor-not-allowed hover:bg-transparent")}
               onClick={() => navigateDate('prev')}
+              disabled={isPrevDisabled}
             >
               <ChevronLeft className="h-5 w-5 text-slate-600" />
             </Button>
             <div className="text-center min-w-[120px]">
-              <div className="text-sm font-bold text-slate-900">
+              <div className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest mb-0.5">
+                Week {weekNumber}
+              </div>
+              <div className="text-sm font-bold text-slate-900 leading-none mb-1">
                 {formatDateDisplay(selectedDate)}
               </div>
               <div className="text-[10px] font-medium text-slate-400 uppercase tracking-widest">
@@ -305,8 +421,9 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-full hover:bg-black/5"
+              className={cn("h-8 w-8 rounded-full hover:bg-black/5", isNextDisabled && "opacity-30 cursor-not-allowed hover:bg-transparent")}
               onClick={() => navigateDate('next')}
+              disabled={isNextDisabled}
             >
               <ChevronRight className="h-5 w-5 text-slate-600" />
             </Button>
@@ -320,7 +437,11 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
       </div>
 
       {/* Main Content */}
-      <div className={cn("px-2 sm:px-4 max-w-lg mx-auto space-y-4 transition-opacity duration-300", isLoading ? "opacity-60 pointer-events-none" : "opacity-100")}>
+      <div className={cn(
+        "px-2 sm:px-4 max-w-lg mx-auto space-y-4 transition-all duration-500",
+        isLoading ? "opacity-60 pointer-events-none" : "opacity-100",
+        !isPlanActive && "pointer-events-none"
+      )}>
         {/* Quick Stats Bar */}
         <Card className="rounded-3xl border-2 border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)]">
           <CardContent className="p-4 sm:p-6">

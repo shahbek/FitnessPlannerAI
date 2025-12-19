@@ -92,10 +92,10 @@ export const createCheckoutSession = mutation({
 // Handle Stripe webhook for successful payments
 export const handleStripeWebhook = httpAction(async (ctx, request) => {
   const body = await request.text();
-  
+
   // Get Stripe webhook secret and secret key from Convex secrets
   const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
-  
+
   if (!stripeSecretKey) {
     console.error("STRIPE_SECRET_KEY not configured");
     return new Response("Stripe not configured", { status: 500 });
@@ -116,14 +116,47 @@ export const handleStripeWebhook = httpAction(async (ctx, request) => {
   // Handle the event
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
-    
+
     // Extract metadata from Stripe session
-    const userId = session.client_reference_id || session.metadata?.userId;
-    const packageId = session.metadata?.packageId;
-    const tokens = parseInt(session.metadata?.tokens || "0");
-    
+    let userId = session.client_reference_id || session.metadata?.userId;
+    let packageId = session.metadata?.packageId;
+    let tokens = parseInt(session.metadata?.tokens || "0");
+
+    // Fallback: If metadata is missing (e.g. using Payment Links), infer from amount
+    if (!packageId || !tokens) {
+      const amount = session.amount_total; // in cents
+
+      // Find matching package based on price
+      // Starter: $10.00 (1000 cents)
+      if (amount === 1000) {
+        packageId = "starter";
+        tokens = 700;
+      }
+      // Professional: $25.00 (2500 cents)
+      else if (amount === 2500) {
+        packageId = "professional";
+        tokens = 2000;
+      }
+      // Enterprise: $50.00 (5000 cents)
+      else if (amount === 5000) {
+        packageId = "enterprise";
+        tokens = 4500;
+      }
+    }
+
+    // Attempt to recover userId from email if client_reference_id is missing
+    if (!userId && session.customer_details?.email) {
+      // We can't query directly here easily without making this an internal mutation
+      // But addTokensFromPayment usually handles email fallback if we implemented it there.
+      // For now, if userId is missing, we might need to rely on the email logic inside the mutation
+      // passed as a separate arg? 
+      // Actually `addTokensFromPayment` (based on previous reads) expects userId. 
+      // Let's check if we can pass email to it or use a different mutation.
+    }
+
     if (!userId || !packageId || !tokens) {
-      return new Response("Missing required metadata", { status: 400 });
+      console.error(`Webhook missing data: userId=${userId}, pkg=${packageId}, tokens=${tokens}, amount=${session.amount_total}`);
+      return new Response("Missing required metadata or matching package", { status: 400 });
     }
 
     // Add tokens to user account

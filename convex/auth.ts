@@ -25,6 +25,10 @@ export const createAuth = (
       "http://localhost:3000",
       "http://localhost:5173",
       "https://*.ngrok-free.app", // Allow all ngrok subdomains
+      "https://supercomp.app",
+      "https://www.supercomp.app",
+      "https://fitness-planner-ai.vercel.app",
+      "https://fitness-planner-*-shahbeks-projects.vercel.app", // Allow Vercel Preview deployments
       siteUrl,
     ],
     // Configure email/password authentication

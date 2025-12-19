@@ -11,7 +11,7 @@ if (!stripeSecretKey) {
 }
 
 const stripe = new Stripe(stripeSecretKey, {
-  apiVersion: "2024-06-20",
+  apiVersion: "2025-10-29.clover" as any, // Cast to any to avoid TS errors with beta/preview versions if definitions drift
 });
 
 // Webhook signing secret from environment
@@ -89,9 +89,13 @@ app.post(
             paymentStatus: session.payment_status,
           });
 
-          if (!email) {
+
+          // Extract User ID (client_reference_id)
+          const userId = session.client_reference_id;
+
+          if (!userId && !email) {
             console.warn(
-              "checkout.session.completed without customer email; skipping token credit"
+              "checkout.session.completed without customer email OR client_reference_id; skipping token credit"
             );
             break;
           }
@@ -104,24 +108,38 @@ app.post(
           // Get the amount from the session (in cents, convert to dollars)
           const amount = session.amount_total ? session.amount_total / 100 : 10.00;
 
-          console.log(`Processing payment for email: ${email}, tokens: ${tokens}, amount: ${amount}`);
+          console.log(`Processing payment for userId: ${userId}, email: ${email}, tokens: ${tokens}, amount: ${amount}`);
 
           try {
-            await convex.mutation(api.accounts.addTokensFromPaymentByEmail, {
-              email,
-              tokens,
-              paymentId: session.id,
-              amount,
-              packageId,
-            });
-
-            console.log(
-              `Credited ${tokens} tokens to email ${email} for package ${packageId}`
-            );
+            if (userId) {
+              // Prioritize crediting by User ID (safest)
+              await convex.mutation(api.accounts.addTokensFromPayment, {
+                userId,
+                tokens,
+                paymentId: session.id,
+                amount,
+              });
+              console.log(
+                `Credited ${tokens} tokens to UserId ${userId} for package ${packageId}`
+              );
+            } else if (email) {
+              // Fallback to email if no User ID usually shouldn't happen with our checkout flow
+              await convex.mutation(api.accounts.addTokensFromPaymentByEmail, {
+                email,
+                tokens,
+                paymentId: session.id,
+                amount,
+                packageId,
+              });
+              console.log(
+                `Credited ${tokens} tokens to email ${email} for package ${packageId}`
+              );
+            }
           } catch (error) {
-            console.error(`Failed to credit tokens to ${email}:`, error);
+            console.error(`Failed to credit tokens:`, error);
             throw error; // Re-throw to trigger 500 response
           }
+
           break;
         }
         default:

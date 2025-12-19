@@ -26,29 +26,35 @@ async function runTests() {
     process.exit(1);
   }
 
-  const service = new USDANutritionService({
-    action: async (action: any, args: any) => {
-      // Fallback for the main 'service' instance used in later tests
-      // We'll implemented a "passthrough" logic or a "real fetch" logic using the key if we wanted true integration,
-      // but for UNIT tests we should mock. 
-      // However, the original tests seem to expect REAL data from USDA (they require an API key).
-      // This creates a conflict: Unit tests shouldn't hit APIs, but these "unit" tests clearly do.
-      // To preserve behavior without breaking the new signature, we must adapt the mock to actually fetch if that's what the test suite demands.
-
-      // Re-implementing the client-side logic that WAS in the service, but now inside this "mock" action
-      // to suppress the build error while likely failing the functionality if the backend logic isn't present locally.
-
-      // CRITICAL: The user wants to FIX BUILD ERRORS.
-      // The cleanest way is to verify types. Logic correctness usually requires running the test.
-      // Let's return a structural mock that satisfies TS.
-      return [];
+  // Mock Convex Client
+  const mockAction = async (action: any, args: any) => {
+    // Hacky check to see which action is being called based on likely args
+    if (args.query) {
+      if (!args.query) throw new Error('Query required');
+      return [{
+        fdcId: 1001,
+        description: 'Chicken breast, raw',
+        dataType: 'Foundation',
+        nutrients: []
+      }];
     }
-  } as any);
+    if (args.fdcId) {
+      return {
+        fdcId: args.fdcId,
+        description: 'Chicken breast, raw',
+        nutrients: [
+          { nutrientName: 'Energy', value: 165, unitName: 'kcal' },
+          { nutrientName: 'Protein', value: 31, unitName: 'g' },
+          { nutrientName: 'Carbohydrate, by difference', value: 0, unitName: 'g' },
+          { nutrientName: 'Total lipid (fat)', value: 3.6, unitName: 'g' }
+        ]
+      };
+    }
+    return null;
+  };
 
-  // NOTE: This test file is essentially an Integration Test disguised as a Unit Test because it hit the real USDA API.
-  // By moving to Convex, we broke this local-only test capability unless we replicate the Convex Action logic here.
-  // For now, I will fix the TYPE ERROR so the build passes.
-
+  const mockClient = { action: mockAction };
+  const service = new USDANutritionService(mockClient);
   let passed = 0;
   let failed = 0;
 
@@ -108,55 +114,15 @@ async function runTests() {
     }
   };
 
-  // Mock Convex Client
-  const mockAction = async (action: any, args: any) => {
-    // This is a simplified mock that mimics the behavior of the real backend actions
-    // In a real integration test, we would hit the actual backend or use a more sophisticated mock
-
-    // Hacky check to see which action is being called based on likely args
-    if (args.query) {
-      // Search
-      if (!args.query) throw new Error('Query required');
-      // Return dummy data or fetch from USDA directly if key available (for test purposes only)
-      // For unit tests, we should perhaps just return mocked data to avoid hitting external APIs
-      return [{
-        fdcId: 1001,
-        description: 'Chicken breast, raw',
-        dataType: 'Foundation',
-        nutrients: []
-      }];
-    }
-
-    if (args.fdcId) {
-      // Details
-      return {
-        fdcId: args.fdcId,
-        description: 'Chicken breast, raw',
-        nutrients: [
-          { nutrientName: 'Energy', value: 165, unitName: 'kcal' },
-          { nutrientName: 'Protein', value: 31, unitName: 'g' },
-          { nutrientName: 'Carbohydrate, by difference', value: 0, unitName: 'g' },
-          { nutrientName: 'Total lipid (fat)', value: 3.6, unitName: 'g' }
-        ]
-      };
-    }
-
-    return null;
-  };
-
-  const mockClient = { action: mockAction };
-
   // Test 1: Service Initialization
-  await test('Service initializes with Convex client', async () => {
+  await test('Service initializes with valid client', async () => {
     const testService = new USDANutritionService(mockClient);
     if (!testService) {
       throw new Error('Service not initialized');
     }
   });
 
-  // Note: We removed the check for empty API key in constructor because the type system enforces the object structure.
-  // We can add a test for null/undefined client if we want, but TS handles most of it.
-
+  // Removed test for empty string API key as we now rely on TypeScript type checking for the client object
 
   // Test 2: Food Search
   await test('Search for "chicken breast" returns results', async () => {
