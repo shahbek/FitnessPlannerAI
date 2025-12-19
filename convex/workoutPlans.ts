@@ -14,7 +14,7 @@ function validatePlanStructure(fullPlanData: any): void {
   }
 
   // Check for essential fields (at least one should be present)
-  const hasRequiredFields = 
+  const hasRequiredFields =
     fullPlanData.weeklyOutlines ||
     fullPlanData.phaseAwareFramework ||
     fullPlanData.strategicFramework ||
@@ -58,7 +58,7 @@ function extractMetadata(fullPlanData: any): {
   // Extract total weeks from weeklyOutlines
   if (Array.isArray(fullPlanData.weeklyOutlines) && fullPlanData.weeklyOutlines.length > 0) {
     metadata.totalWeeks = fullPlanData.weeklyOutlines.length;
-    
+
     // Extract weekly target macros
     metadata.weeklyTargetMacros = fullPlanData.weeklyOutlines
       .map((week: any) => {
@@ -195,7 +195,7 @@ export const createWorkoutPlan = mutation({
       createdAt: now,
       updatedAt: now,
     });
-    
+
     console.log('[createWorkoutPlan] Plan saved successfully with ID:', planId);
     return planId;
   },
@@ -228,18 +228,18 @@ export const getUserWorkoutPlans = query({
     }
 
     console.log('[getUserWorkoutPlans] Fetching plans for user:', user._id);
-    
+
     const plans = await ctx.db
       .query("workoutPlans")
       .withIndex("by_user", (q) => q.eq("userId", user._id as any))
       .order("desc")
       .collect();
-    
+
     console.log('[getUserWorkoutPlans] Found', plans.length, 'plans');
     plans.forEach(plan => {
       console.log('  - Plan:', plan.name, 'hasFullData:', !!plan.fullPlanData);
     });
-    
+
     return plans;
   },
 });
@@ -292,5 +292,42 @@ export const deleteWorkoutPlan = mutation({
 
     await ctx.db.delete(args.planId);
     return args.planId;
+  },
+});
+
+// Activate workout plan (Set start date)
+export const activateWorkoutPlan = mutation({
+  args: {
+    planId: v.id("workoutPlans"),
+  },
+  handler: async (ctx, args) => {
+    const user = await authComponent.getAuthUser(ctx);
+    if (!user) {
+      throw new Error("Not authenticated");
+    }
+
+    const plan = await ctx.db.get(args.planId);
+    if (!plan || plan.userId !== user._id as any) {
+      throw new Error("Workout plan not found or unauthorized");
+    }
+
+    // Calculate Monday of the current week
+    const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 is Sunday, 1 is Monday...
+    const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - daysSinceMonday);
+    monday.setHours(0, 0, 0, 0);
+
+    const startDate = monday.getTime();
+
+    await ctx.db.patch(args.planId, {
+      startDate,
+      updatedAt: Date.now(),
+    });
+
+    console.log(`[activateWorkoutPlan] Activated plan ${plan._id} starting ${monday.toDateString()}`);
+    return startDate;
   },
 });

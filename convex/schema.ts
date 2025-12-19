@@ -62,6 +62,7 @@ export default defineSchema({
 
     // ✅ Metadata fields for better querying (extracted from fullPlanData)
     totalWeeks: v.optional(v.number()),
+    startDate: v.optional(v.number()), // Manual start date override
     // New goal category system
     goalCategory: v.optional(v.string()), // 'lean_bulk', 'dirty_bulk', etc.
     // Legacy field (deprecated)
