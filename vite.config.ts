@@ -11,9 +11,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {
-        name: 'Fitness Planner AI',
-        short_name: 'FitnessAI',
-        description: 'AI-powered personal fitness trainer',
+        name: 'Supercomp',
+        short_name: 'Supercomp',
+        description: 'Fitness plans and macro tracking',
         theme_color: '#ffffff',
         icons: [
           {

@@ -82,6 +82,10 @@ export function useWorkoutPlansWithCache(localHistory: WorkoutPlanDisplay[], sho
                 if (!planData.hasOwnProperty('isActive')) {
                     planData = { ...planData, isActive: plan.isActive };
                 }
+                // ✅ Inject startDate from root document if available
+                if (plan.startDate) {
+                    planData = { ...planData, startDate: plan.startDate };
+                }
             } else {
                 // Fallback for legacy plans
                 planData = {
@@ -93,6 +97,7 @@ export function useWorkoutPlansWithCache(localHistory: WorkoutPlanDisplay[], sho
                         }
                     },
                     isActive: plan.isActive,
+                    startDate: plan.startDate, // also inject here
                 };
             }
 

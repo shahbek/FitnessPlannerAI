@@ -312,6 +312,50 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
       setCancellationRequested(false);
       setShowChainOfThought(true);
 
+      // 💰 PAYMENT ENFORCEMENT
+      // Check token balance and deduct BEFORE generation starts
+      const PLAN_GENERATION_COST = 100;
+      const isDevelopment = import.meta.env.DEV || import.meta.env.MODE === 'development';
+
+      // Strict check for production
+      if (!isDevelopment && (!getUserAccount || getUserAccount.tokens < PLAN_GENERATION_COST)) {
+        toast({
+          variant: 'destructive',
+          title: 'Insufficient Tokens',
+          description: `You need ${PLAN_GENERATION_COST} tokens to generate a plan.`,
+          action: (
+            <Button variant="outline" size="sm" onClick={() => setCurrentView('settings-tokens')}>
+              Purchase
+            </Button>
+          ),
+        });
+        return;
+      }
+
+      // Deduct tokens immediately (Charge)
+      if (recordTokenUsage) {
+        try {
+          await recordTokenUsage({
+            operationType: "plan_generation",
+            tokensUsed: PLAN_GENERATION_COST,
+            status: "success", // Charge immediately
+            details: {
+              generator: "integrated",
+              goal: dataToUse.primaryGoal,
+            },
+          });
+          console.log(`💰 Deducted ${PLAN_GENERATION_COST} tokens for plan generation`);
+        } catch (paymentError: any) {
+          console.error("❌ Payment failed:", paymentError);
+          toast({
+            variant: 'destructive',
+            title: 'Payment Failed',
+            description: paymentError.message || "Could not process token payment.",
+          });
+          return; // Block generation if payment fails
+        }
+      }
+
       // Optimistically create a new plan object and add to history immediately
       // Use goalCategory label if available, otherwise fall back to primaryGoal
       const goalLabel = (dataToUse as any).goalCategory

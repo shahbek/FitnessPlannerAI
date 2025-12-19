@@ -190,32 +190,39 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
   } else if (jsonData.phaseMealTemplates && Array.isArray(jsonData.phaseMealTemplates)) {
     // Convert phaseMealTemplates (array of arrays) to dailyMealCombinations format
     // phaseMealTemplates is MealTemplate[][] where each inner array is a day's meals
-    jsonData.phaseMealTemplates.forEach((dayMeals: any[], dayIndex: number) => {
-      if (Array.isArray(dayMeals) && dayMeals.length > 0) {
-        // Get week number from weeklyOutlines or default to 1
-        const weekNumber = jsonData.weeklyOutlines?.[0]?.weekNumber || 1;
+    // Convert phaseMealTemplates (array of arrays) to dailyMealCombinations format
+    // phaseMealTemplates is MealTemplate[][] where each inner array is a day's meals
 
-        // Convert MealTemplate[] to the meals format expected by parser
-        const meals = dayMeals.map((meal: any) => ({
-          mealType: meal.mealType || 'Meal',
-          calories: meal.totalCalories || 0,
-          protein: meal.macros?.protein || 0,
-          carbs: meal.macros?.carbs || 0,
-          fat: meal.macros?.fat || 0,
-          recipe: {
-            name: meal.name || meal.baseRecipe?.name || 'Meal',
-            ingredients: meal.baseRecipe?.ingredients || [],
-            instructions: meal.baseRecipe?.instructions || [],
-          },
-        }));
+    // First, determine how many weeks we have. 
+    // We want to apply this template to ALL weeks unless specific weekly overrides exist.
+    const totalWeeks = jsonData.weeklyOutlines?.length || 12;
 
-        dailyMealCombinations.push({
-          weekNumber: weekNumber,
-          dayNumber: dayIndex + 1,
-          meals: meals,
-        });
-      }
-    });
+    for (let w = 1; w <= totalWeeks; w++) {
+      jsonData.phaseMealTemplates.forEach((dayMeals: any[], dayIndex: number) => {
+        if (Array.isArray(dayMeals) && dayMeals.length > 0) {
+          // Convert MealTemplate[] to the meals format expected by parser
+          const meals = dayMeals.map((meal: any) => ({
+            mealType: meal.mealType || 'Meal',
+            calories: meal.totalCalories || 0,
+            protein: meal.macros?.protein || 0,
+            carbs: meal.macros?.carbs || 0,
+            fat: meal.macros?.fat || 0,
+            recipe: {
+              name: meal.name || meal.baseRecipe?.name || 'Meal',
+              ingredients: meal.baseRecipe?.ingredients || [],
+              instructions: meal.baseRecipe?.instructions || [],
+            },
+          }));
+
+          dailyMealCombinations.push({
+            weekNumber: w, // Apply to THIS week
+            dayNumber: dayIndex + 1,
+            meals: meals,
+          });
+        }
+      });
+    }
+    console.log('📊 Converted phaseMealTemplates to dailyMealCombinations for', totalWeeks, 'weeks');
     console.log('📊 Converted phaseMealTemplates to dailyMealCombinations:', dailyMealCombinations.length, 'combinations');
   } else if (jsonData.weeklyMealTemplates && Array.isArray(jsonData.weeklyMealTemplates)) {
     // Convert weekly meal templates to daily combinations
