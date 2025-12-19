@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
-import { useQuery } from 'convex/react';
+import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { TokenPackageId, TOKEN_PACKAGES } from '@/services/PaymentService';
 
@@ -25,9 +25,11 @@ export function PurchaseTokensButton({
   const { toast } = useToast();
   const user = useQuery(api.users.getCurrentUser);
 
+  const createCheckoutSession = useMutation(api.payments.createCheckoutSession);
+
   const handlePurchase = async () => {
     setIsLoading(true);
-    
+
     try {
       if (!user) {
         toast({
@@ -39,53 +41,23 @@ export function PurchaseTokensButton({
         return;
       }
 
-      const pkg = TOKEN_PACKAGES[packageId];
-      if (!pkg) {
+      // Use server-side session creation to securely attach userId
+      // This ensures tokens are credited to THIS account regardless of payment email
+      const result = await createCheckoutSession({ packageId });
+
+      if (result.checkoutUrl) {
+        window.location.href = result.checkoutUrl;
+      } else if (result.requiresStripeKey) {
+        // Fallback for development without Stripe keys
         toast({
-          title: "Invalid package",
-          description: "Selected token package is not available.",
-          variant: "destructive",
+          title: "Development Mode",
+          description: "Stripe keys not configured. Check console for package details.",
         });
+        console.log("Mock Purchase Details:", result);
         setIsLoading(false);
-        return;
+      } else {
+        throw new Error("Failed to generate checkout URL");
       }
-
-      const paymentLinkEnvKey = `VITE_STRIPE_${packageId.toUpperCase()}_PAYMENT_LINK` as
-        | "VITE_STRIPE_STARTER_PAYMENT_LINK"
-        | "VITE_STRIPE_PROFESSIONAL_PAYMENT_LINK"
-        | "VITE_STRIPE_ENTERPRISE_PAYMENT_LINK";
-
-      const baseLink =
-        import.meta.env[paymentLinkEnvKey] ||
-        (packageId === "starter"
-          ? "https://buy.stripe.com/test_dRm9ASh183sm1Ol8x6cQU00"
-          : "");
-
-      if (!baseLink) {
-        toast({
-          title: "Payment link not configured",
-          description: "This plan's Stripe payment link is not set up yet.",
-          variant: "destructive",
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      const url = new URL(baseLink);
-
-      // Attach Convex user id so webhook can credit tokens
-      if (user._id) {
-        url.searchParams.set("client_reference_id", user._id as string);
-      }
-
-      // Optional: prefill email in Stripe checkout
-      if (user.email) {
-        url.searchParams.set("prefilled_email", user.email);
-      }
-
-      window.location.href = url.toString();
-      // User will be redirected, so keep loading state
-      return;
     } catch (error) {
       console.error("Purchase error:", error);
       toast({

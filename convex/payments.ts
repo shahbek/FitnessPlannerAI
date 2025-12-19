@@ -28,8 +28,8 @@ export const createCheckoutSession = mutation({
 
     try {
       // Get Stripe secret key from Convex secrets
-      // Set this in Convex dashboard: npx convex env set STRIPE_SECRET_KEY sk_test_...
-      const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+      // Supports VITE_ prefix if legacy/frontend env var was synchronized to backend
+      const stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.VITE_STRIPE_SECRET_KEY;
 
       if (!stripeSecretKey) {
         // Fallback: Return package info for manual testing
@@ -94,7 +94,7 @@ export const handleStripeWebhook = httpAction(async (ctx, request) => {
   const body = await request.text();
 
   // Get Stripe webhook secret and secret key from Convex secrets
-  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.VITE_STRIPE_SECRET_KEY;
 
   if (!stripeSecretKey) {
     console.error("STRIPE_SECRET_KEY not configured");
@@ -160,21 +160,36 @@ export const handleStripeWebhook = httpAction(async (ctx, request) => {
     }
 
     // Add tokens to user account
-    await ctx.runMutation(api.accounts.addTokensFromPayment, {
-      userId,
-      tokens,
-      paymentId: session.id,
-      amount: session.amount_total ? session.amount_total / 100 : 0, // Convert from cents
-    });
+    if (userId) {
+      await ctx.runMutation(api.accounts.addTokensFromPayment, {
+        userId,
+        tokens,
+        paymentId: session.id,
+        amount: session.amount_total ? session.amount_total / 100 : 0, // Convert from cents
+      });
 
-    // Record token purchase in usage history
-    await ctx.runMutation(api.accounts.recordTokenPurchase, {
-      userId,
-      tokens,
-      paymentId: session.id,
-      packageId,
-      amount: session.amount_total ? session.amount_total / 100 : 0,
-    });
+      // Record token purchase in usage history
+      await ctx.runMutation(api.accounts.recordTokenPurchase, {
+        userId,
+        tokens,
+        paymentId: session.id,
+        packageId,
+        amount: session.amount_total ? session.amount_total / 100 : 0,
+      });
+    } else if (session.customer_details?.email) {
+      // Fallback: Try to find user by email
+      console.log(`No userId found, attempting to fulfill by email: ${session.customer_details.email}`);
+      await ctx.runMutation(api.accounts.addTokensFromPaymentByEmail, {
+        email: session.customer_details.email,
+        tokens,
+        paymentId: session.id,
+        packageId,
+        amount: session.amount_total ? session.amount_total / 100 : 0,
+      });
+    } else {
+      console.error(`Webhook failed: No userId or email found for session ${session.id}`);
+      return new Response("Missing required userId or email", { status: 400 });
+    }
   }
 
   return new Response(JSON.stringify({ received: true }), {
