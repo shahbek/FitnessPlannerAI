@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
-import { useQuery, useMutation } from 'convex/react';
+import { useQuery, useMutation, useAction } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { TokenPackageId, TOKEN_PACKAGES } from '@/services/PaymentService';
 
@@ -25,7 +25,7 @@ export function PurchaseTokensButton({
   const { toast } = useToast();
   const user = useQuery(api.users.getCurrentUser);
 
-  const createCheckoutSession = useMutation(api.payments.createCheckoutSession);
+  const createCheckoutSession = useAction(api.payments.createCheckoutSession);
 
   const handlePurchase = async () => {
     setIsLoading(true);

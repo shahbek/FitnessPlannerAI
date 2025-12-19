@@ -1,5 +1,5 @@
-import { v } from "convex/values";
-import { mutation, httpAction } from "./_generated/server";
+import { v, ConvexError } from "convex/values";
+import { mutation, httpAction, action } from "./_generated/server";
 import { authComponent } from "./auth";
 import { api } from "./_generated/api";
 
@@ -11,22 +11,23 @@ export const TOKEN_PACKAGES = {
 } as const;
 
 // Create Stripe checkout session
-export const createCheckoutSession = mutation({
+// Create Stripe checkout session
+export const createCheckoutSession = action({
   args: {
     packageId: v.union(v.literal("starter"), v.literal("professional"), v.literal("enterprise")),
   },
   handler: async (ctx, args) => {
-    const user = await authComponent.getAuthUser(ctx);
-    if (!user) {
-      throw new Error("Not authenticated");
-    }
-
-    const pkg = TOKEN_PACKAGES[args.packageId];
-    if (!pkg) {
-      throw new Error("Invalid package ID");
-    }
-
     try {
+      const user = await authComponent.getAuthUser(ctx);
+      if (!user) {
+        throw new ConvexError("Not authenticated");
+      }
+
+      const pkg = TOKEN_PACKAGES[args.packageId];
+      if (!pkg) {
+        throw new ConvexError("Invalid package ID");
+      }
+
       // Get Stripe secret key from Convex secrets
       // Supports VITE_ prefix if legacy/frontend env var was synchronized to backend
       const stripeSecretKey = process.env.STRIPE_SECRET_KEY || process.env.VITE_STRIPE_SECRET_KEY;
@@ -44,7 +45,11 @@ export const createCheckoutSession = mutation({
         };
       }
 
-      const baseUrl = process.env.CONVEX_SITE_URL || "http://localhost:5173";
+      const baseUrl = process.env.CONVEX_SITE_URL || process.env.SITE_URL || "http://localhost:5173";
+
+      console.log(`Creating session for user ${user._id} with package ${args.packageId}`);
+      console.log(`Using base URL: ${baseUrl}`);
+
       const formData = new URLSearchParams();
       formData.append("payment_method_types[]", "card");
       formData.append("line_items[0][price_data][currency]", "usd");
@@ -82,9 +87,10 @@ export const createCheckoutSession = mutation({
       };
     } catch (error) {
       console.error("Stripe checkout session creation failed:", error);
-      throw new Error(
-        `Failed to create checkout session: ${error instanceof Error ? error.message : "Unknown error"}`
-      );
+      // Construct a safe error message to return to client
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      // We log the full error above, but throw a readable one
+      throw new Error(`Stripe Error: ${errorMessage}`);
     }
   },
 });
