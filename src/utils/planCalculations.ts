@@ -116,17 +116,17 @@ export function calculateWeeklyExerciseCalories(
   // PRIORITY: Sum actual session calories from cardioTemplate.caloriesBurned
   let cardioCalories = 0;
   const weekNumber = weeklyOutline?.weekNumber;
-  
+
   if (plan?.weeklyCardioSchedules && Array.isArray(plan.weeklyCardioSchedules) && weekNumber !== undefined) {
     // Try to get detailed cardio schedule for this week (handle both string and number)
     const weekCardioSchedule = plan.weeklyCardioSchedules.find((s: any) => {
       const sWeek = s.weekNumber;
       const targetWeek = weekNumber;
-      return sWeek === targetWeek || 
-             Number(sWeek) === Number(targetWeek) ||
-             String(sWeek) === String(targetWeek);
+      return sWeek === targetWeek ||
+        Number(sWeek) === Number(targetWeek) ||
+        String(sWeek) === String(targetWeek);
     });
-    
+
     if (weekCardioSchedule) {
       // PRIORITY 1: Sum up ACTUAL calories from individual sessions (most accurate)
       if (weekCardioSchedule.sessions && Array.isArray(weekCardioSchedule.sessions) && weekCardioSchedule.sessions.length > 0) {
@@ -135,7 +135,7 @@ export function calculateWeeklyExerciseCalories(
           const sessionCalories = template.caloriesBurned || 0;
           return total + sessionCalories;
         }, 0);
-        
+
         if (cardioCalories > 0) {
           return {
             resistance: resistanceCalories,
@@ -144,10 +144,10 @@ export function calculateWeeklyExerciseCalories(
           };
         }
       }
-      
+
       // PRIORITY 2: Use pre-calculated totalWeeklyVolume.totalCalories
-      if (weekCardioSchedule.totalWeeklyVolume?.totalCalories && 
-          weekCardioSchedule.totalWeeklyVolume.totalCalories > 0) {
+      if (weekCardioSchedule.totalWeeklyVolume?.totalCalories &&
+        weekCardioSchedule.totalWeeklyVolume.totalCalories > 0) {
         cardioCalories = weekCardioSchedule.totalWeeklyVolume.totalCalories;
         return {
           resistance: resistanceCalories,
@@ -157,7 +157,7 @@ export function calculateWeeklyExerciseCalories(
       }
     }
   }
-  
+
   // NO FALLBACK: Cardio data MUST come from CardioGenerationService (weeklyCardioSchedules)
   // If weeklyCardioSchedules doesn't have data for this week, return 0 for cardio
   // This indicates CardioGenerationService did not generate data properly
@@ -187,7 +187,7 @@ export function calculateAverageWeeklyCardioCalories(plan: any): number {
 
   plan.weeklyCardioSchedules.forEach((weekSchedule: any) => {
     let weekCalories = 0;
-    
+
     // Sum actual session calories
     if (weekSchedule.sessions && Array.isArray(weekSchedule.sessions)) {
       weekCalories = weekSchedule.sessions.reduce((sum: number, session: any) => {
@@ -195,12 +195,12 @@ export function calculateAverageWeeklyCardioCalories(plan: any): number {
         return sum + (template.caloriesBurned || 0);
       }, 0);
     }
-    
+
     // Fallback to totalWeeklyVolume if no session data
     if (weekCalories === 0 && weekSchedule.totalWeeklyVolume?.totalCalories) {
       weekCalories = weekSchedule.totalWeeklyVolume.totalCalories;
     }
-    
+
     if (weekCalories > 0) {
       totalCalories += weekCalories;
       weeksWithData++;
@@ -232,6 +232,9 @@ export function calculateEnergyBalance(
 } {
   const weeklyMaintenance = tdee * 7;
   const weeklyMealCalories = dailyMealCalories * 7;
+
+  // As per user clarification: TDEE represents "Activity outside of cardio/gym" (NEAT).
+  // Therefore, specific exercise sessions are EXTRA energy out.
   const dietaryDeficit = tdee - dailyMealCalories;
   const weeklyDietaryDeficit = dietaryDeficit * 7;
   const netWeeklyDeficit = weeklyDietaryDeficit + exerciseCalories.total;
@@ -488,6 +491,7 @@ export interface TDEEParams {
   age: number;
   gender: 'male' | 'female';
   experienceLevel?: string;
+  activityLevel?: string;
   trainingDaysPerWeek?: number;
   bodyFat?: number; // Optional: if provided, uses Katch-McArdle instead
 }
@@ -497,6 +501,7 @@ export interface TDEEResult {
   bmr: number;
   activityFactor: number;
   formula: 'mifflin-st-jeor' | 'katch-mcardle';
+  activityLevel?: string;
 }
 
 export function calculateTDEE(params: TDEEParams): TDEEResult {
@@ -529,20 +534,22 @@ export function calculateTDEE(params: TDEEParams): TDEEResult {
     formula = 'mifflin-st-jeor';
   }
 
-  // Determine activity factor based on experience level first, then fall back to training days
+  // Determine activity factor based on activityLevel first, then experienceLevel, then fall back to training days
   let activityFactor = 1.55; // Default moderate
-  const levelLower = experienceLevel?.toLowerCase() || '';
+  const actualActivityLevel = params.activityLevel || experienceLevel;
+  const levelLower = actualActivityLevel?.toLowerCase() || '';
 
   if (levelLower === 'beginner' || levelLower === 'sedentary') {
-    activityFactor = 1.375; // Light activity
-  } else if (levelLower === 'intermediate' || levelLower === 'moderate') {
-    activityFactor = 1.55; // Moderate activity
+    activityFactor = 1.2; // Sedentary factor is strictly 1.2
+  } else if (levelLower === 'intermediate' || levelLower === 'moderate' || levelLower === 'light') {
+    // Merge light/moderate into a mid-range if not specified
+    activityFactor = levelLower === 'light' ? 1.375 : 1.55;
   } else if (levelLower === 'advanced' || levelLower === 'expert' || levelLower === 'active') {
     activityFactor = 1.725; // Active
-  } else if (levelLower === 'athlete' || levelLower === 'very_active') {
+  } else if (levelLower === 'athlete' || levelLower === 'very_active' || levelLower === 'very active') {
     activityFactor = 1.9; // Very active
   } else {
-    // Fallback to training days if no valid experience level
+    // Fallback to training days if no valid level
     if (trainingDaysPerWeek <= 2) activityFactor = 1.375;
     else if (trainingDaysPerWeek <= 3) activityFactor = 1.55;
     else if (trainingDaysPerWeek <= 5) activityFactor = 1.725;
@@ -577,6 +584,7 @@ export function getTDEE(
     age?: number;
     gender?: string;
     experienceLevel?: string;
+    activityLevel?: string;
     workoutDaysPerWeek?: number;
     bodyFat?: number;
   }
@@ -588,7 +596,7 @@ export function getTDEE(
 
   // Get user data from plan.userProfile or userProfile parameter
   const profile = plan?.userProfile || userProfile;
-  
+
   if (!profile?.weight || !profile?.height || !profile?.age || !profile?.gender) {
     return null;
   }
@@ -599,6 +607,7 @@ export function getTDEE(
     age: profile.age,
     gender: profile.gender.toLowerCase() === 'male' || profile.gender.toLowerCase() === 'm' ? 'male' : 'female',
     experienceLevel: profile.experienceLevel,
+    activityLevel: profile.activityLevel,
     trainingDaysPerWeek: profile.workoutDaysPerWeek || 3,
     bodyFat: profile.bodyFat
   });
@@ -622,7 +631,7 @@ export function calculateDailyDeficit(
   resistanceCalories: number,
   cardioCalories: number
 ): number {
-  // Total energy out = TDEE (base) + exercise
+  // Total energy out = TDEE (Base Activity/NEAT) + specific exercise sessions
   // Deficit = energy out - energy in
   return (tdee + resistanceCalories + cardioCalories) - caloriesConsumed;
 }
@@ -669,7 +678,7 @@ export function calculateWeeklyDeficitSummary(
   weightKg: number
 ): WeeklyDeficitSummary | null {
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  
+
   // Get the week's schedule data
   const scheduleWeek = weeklySchedule?.find((w: any) => w.weekNumber === weekNumber);
   if (!scheduleWeek || !scheduleWeek.days) {
@@ -678,8 +687,8 @@ export function calculateWeeklyDeficitSummary(
 
   // Get cardio schedule for this week
   const weeklyCardioSchedules = plan?.weeklyCardioSchedules || [];
-  const weekCardioSchedule = weeklyCardioSchedules.find((s: any) => 
-    s.weekNumber === weekNumber || 
+  const weekCardioSchedule = weeklyCardioSchedules.find((s: any) =>
+    s.weekNumber === weekNumber ||
     Number(s.weekNumber) === Number(weekNumber)
   );
 
@@ -692,7 +701,7 @@ export function calculateWeeklyDeficitSummary(
 
   days.forEach((day, index) => {
     const dayNumber = index + 1;
-    const scheduleDay = scheduleWeek.days.find((d: any) => 
+    const scheduleDay = scheduleWeek.days.find((d: any) =>
       d.day === day || d.dayNumber === dayNumber
     );
 
@@ -711,7 +720,7 @@ export function calculateWeeklyDeficitSummary(
       const dayCardioSessions = weekCardioSchedule.sessions.filter((s: any) =>
         s.dayName === day || s.dayNumber === dayNumber
       );
-      
+
       cardioCalories = dayCardioSessions.reduce((total: number, session: any) => {
         const template = session.cardioTemplate || session;
         return total + (template.caloriesBurned || 0);
@@ -734,7 +743,7 @@ export function calculateWeeklyDeficitSummary(
   // Sum up weekly deficit
   const totalWeeklyDeficit = dailyDeficits.reduce((sum, day) => sum + day.deficit, 0);
   const averageDailyDeficit = totalWeeklyDeficit / 7;
-  
+
   // 7,700 kcal ≈ 1 kg of body fat
   const projectedWeightLossKg = totalWeeklyDeficit / 7700;
   const projectedWeightLossLbs = projectedWeightLossKg * 2.205;

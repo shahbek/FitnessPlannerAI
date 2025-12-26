@@ -5,13 +5,16 @@
  * for use with IntegratedPlanGenerator
  */
 
-import { 
-  UserProfile, 
-  GoalCategory, 
+import {
+  UserProfile,
+  GoalCategory,
   BodyFatGoal,
   LegacyGoal,
   legacyGoalToCategory,
-  getEffectiveGoalType 
+  getEffectiveGoalType,
+  DietType,
+  MealComplexity,
+  MealPrepStyle
 } from '@/models/UserProfile';
 import { WeeklyOutline } from '@/models/PlanModels';
 import { GOAL_CALORIE_ADJUSTMENTS } from '@/services/NutritionCalculationService';
@@ -31,14 +34,25 @@ interface FormData {
   equipment: 'gym_membership' | 'home_gym' | 'home_gym_advanced' | 'bodyweight' | 'calisthenics' | 'minimal_equipment' | 'minimal';
   schedule?: string;
   mealFrequency?: number;
-  
+  activityLevel?: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active';
+
   // New goal category system
   goalCategory?: GoalCategory;
   bodyFatGoal?: BodyFatGoal;
-  
+
   // Legacy fields (deprecated but supported for backward compatibility)
   primaryGoal?: LegacyGoal;
   targetBf?: number;
+
+  // New nutrition preferences
+  dietType?: DietType;
+  allergies?: string[];
+  cuisinePreferences?: string[];
+  likedIngredients?: string[];
+  dislikedIngredients?: string[];
+  cookingTimePerMeal?: number;
+  mealComplexity?: MealComplexity;
+  mealPrepPreference?: MealPrepStyle;
 }
 
 /**
@@ -50,12 +64,12 @@ function getGoalCategory(formData: FormData): GoalCategory {
   if (formData.goalCategory) {
     return formData.goalCategory;
   }
-  
+
   // Fall back to converting legacy primaryGoal
   if (formData.primaryGoal) {
     return legacyGoalToCategory(formData.primaryGoal);
   }
-  
+
   // Default to maintenance
   return 'maintenance';
 }
@@ -66,16 +80,16 @@ function getGoalCategory(formData: FormData): GoalCategory {
  */
 function getBodyFatGoal(formData: FormData): BodyFatGoal | undefined {
   const goalCategory = getGoalCategory(formData);
-  
+
   if (goalCategory !== 'body_fat_goal') {
     return undefined;
   }
-  
+
   // Check for new bodyFatGoal structure
   if (formData.bodyFatGoal) {
     return formData.bodyFatGoal;
   }
-  
+
   // Fall back to legacy fields
   if (formData.bodyFat !== undefined && formData.targetBf !== undefined) {
     return {
@@ -83,7 +97,7 @@ function getBodyFatGoal(formData: FormData): BodyFatGoal | undefined {
       targetBf: formData.targetBf,
     };
   }
-  
+
   return undefined;
 }
 
@@ -157,11 +171,19 @@ export function formToUserProfile(formData: FormData): UserProfile {
     timelineWeeks: formData.timelineWeeks,
     preferences: formData.preferences || '',
     mealFrequency: formData.mealFrequency || 4,
+    dietType: formData.dietType || 'anything',
+    allergies: formData.allergies || [],
+    cuisinePreferences: formData.cuisinePreferences || [],
+    likedIngredients: formData.likedIngredients || [],
+    dislikedIngredients: formData.dislikedIngredients || [],
+    cookingTimePerMeal: formData.cookingTimePerMeal || 30,
+    mealComplexity: formData.mealComplexity || 'moderate',
+    mealPrepPreference: formData.mealPrepPreference || 'fresh_daily',
     workoutLevel: workoutLevelMap[formData.workoutLevel] || 'intermediate',
     workoutSplit: splitMap[formData.workoutSplit] || 'upper_lower',
     trainingDaysPerWeek: formData.trainingDaysPerWeek,
     equipment: equipmentMap[formData.equipment] || 'gym_membership',
-    activityLevel,
+    activityLevel: formData.activityLevel || activityLevel,
     schedule: formData.schedule,
   };
 }
@@ -256,22 +278,31 @@ function calculateBaseCalories(formData: FormData): number {
 
   // TDEE multiplier based on activity
   const activityMultiplier: Record<string, number> = {
+    'sedentary': 1.2,
     'light': 1.375,
     'moderate': 1.55,
     'active': 1.725,
     'very_active': 1.9,
   };
 
-  const activity = formData.trainingDaysPerWeek <= 2 ? 'light' :
-    formData.trainingDaysPerWeek <= 3 ? 'moderate' :
-      formData.trainingDaysPerWeek <= 5 ? 'active' : 'very_active';
+  const activity = formData.activityLevel ||
+    (formData.trainingDaysPerWeek <= 2 ? 'light' :
+      formData.trainingDaysPerWeek <= 3 ? 'moderate' :
+        formData.trainingDaysPerWeek <= 5 ? 'active' : 'very_active');
 
-  const tdee = bmr * activityMultiplier[activity];
+  const baseTdee = bmr * activityMultiplier[activity];
+
+  // Estimate exercise burn to avoid "accidental deficit" as exercise is extra
+  const resistanceBurn = formData.trainingDaysPerWeek * 250; // Conservative ~250 per lift
+  const cardioBurn = 2 * 300; // Assume 2 sessions if doing any fitness plan
+  const dailyExerciseBurn = (resistanceBurn + cardioBurn) / 7;
+
+  const totalMaintenance = baseTdee + dailyExerciseBurn;
 
   // Get goal category and apply adjustment
   const goalCategory = getGoalCategory(formData);
   const adjustment = GOAL_CALORIE_ADJUSTMENTS[goalCategory];
-  
+
   // Handle body fat goal specially
   if (goalCategory === 'body_fat_goal') {
     const bodyFatGoal = getBodyFatGoal(formData);
@@ -281,38 +312,38 @@ function calculateBaseCalories(formData: FormData): number {
       const targetFatMass = formData.weightKg * (bodyFatGoal.targetBf / 100);
       const fatChange = currentFatMass - targetFatMass;
       const isLosing = fatChange > 0;
-      
+
       // Calculate required weekly change for timeline
       const timelineWeeks = formData.timelineWeeks || 12;
       const weeklyFatChange = fatChange / timelineWeeks;
       const weeklyCalorieChange = weeklyFatChange * 7700;
       const dailyCalorieChange = weeklyCalorieChange / 7;
-      
+
       // Clamp to safe ranges
-      let adjustmentPercent = dailyCalorieChange / tdee;
+      let adjustmentPercent = dailyCalorieChange / totalMaintenance;
       if (isLosing) {
         adjustmentPercent = Math.min(adjustmentPercent, 0.30);
       } else {
         adjustmentPercent = Math.max(adjustmentPercent, -0.20);
       }
-      
-      return Math.round(tdee * (1 - adjustmentPercent));
+
+      return Math.round(totalMaintenance * (1 - adjustmentPercent));
     }
     // Fall back to moderate deficit if no BF goal specified
-    return Math.round(tdee * 0.80);
+    return Math.round(totalMaintenance * 0.80);
   }
-  
+
   // Apply goal-specific adjustment
   const adjustmentPercent = (adjustment.range.MIN + adjustment.range.MAX) / 2;
-  
+
   if (adjustment.type === 'surplus') {
-    return Math.round(tdee * (1 + adjustmentPercent));
+    return Math.round(totalMaintenance * (1 + adjustmentPercent));
   } else if (adjustment.type === 'deficit') {
-    return Math.round(tdee * (1 - adjustmentPercent));
+    return Math.round(totalMaintenance * (1 - adjustmentPercent));
   }
-  
+
   // Maintenance
-  return Math.round(tdee);
+  return Math.round(totalMaintenance);
 }
 
 /**
@@ -321,7 +352,7 @@ function calculateBaseCalories(formData: FormData): number {
 function calculateProtein(formData: FormData): number {
   const goalCategory = getGoalCategory(formData);
   const adjustment = GOAL_CALORIE_ADJUSTMENTS[goalCategory];
-  
+
   // Use midpoint of protein range for the goal
   const proteinPerKg = (adjustment.proteinRange.MIN + adjustment.proteinRange.MAX) / 2;
   return Math.round(formData.weightKg * proteinPerKg);
@@ -333,7 +364,7 @@ function calculateProtein(formData: FormData): number {
 function calculateCarbs(formData: FormData, calories: number, protein: number): number {
   const goalCategory = getGoalCategory(formData);
   const adjustment = GOAL_CALORIE_ADJUSTMENTS[goalCategory];
-  
+
   const proteinCals = protein * 4;
   const fatPerKg = (adjustment.fatRange.MIN + adjustment.fatRange.MAX) / 2;
   const fatCals = (formData.weightKg * fatPerKg) * 9;
@@ -401,101 +432,106 @@ function getRestDays(trainingDays: string[]): string[] {
   return allDays.filter(day => !trainingDays.includes(day));
 }
 
-function parseScheduleDays(schedule?: string): string[] {
+/**
+ * Parse the schedule string into a list of training days
+ */
+export function parseScheduleDays(schedule?: string): string[] {
   if (!schedule) return [];
-  
+
   const dayMap: Record<string, string> = {
-    monday: 'Monday',
-    mon: 'Monday',
-    tuesday: 'Tuesday',
-    tue: 'Tuesday',
-    tues: 'Tuesday',
-    wednesday: 'Wednesday',
-    wed: 'Wednesday',
-    thursday: 'Thursday',
-    thu: 'Thursday',
-    thurs: 'Thursday',
-    friday: 'Friday',
-    fri: 'Friday',
-    saturday: 'Saturday',
-    sat: 'Saturday',
-    sunday: 'Sunday',
-    sun: 'Sunday',
+    monday: 'Monday', mon: 'Monday',
+    tuesday: 'Tuesday', tue: 'Tuesday', tues: 'Tuesday',
+    wednesday: 'Wednesday', wed: 'Wednesday',
+    thursday: 'Thursday', thu: 'Thursday', thurs: 'Thursday',
+    friday: 'Friday', fri: 'Friday',
+    saturday: 'Saturday', sat: 'Saturday',
+    sunday: 'Sunday', sun: 'Sunday',
   };
-  
+
   const orderedDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  
-  // Normalize the schedule string
-  let normalized = schedule.toLowerCase();
-  
-  // Strip time information (e.g., "from 8pm to 8.30pm", "8:00am-9:00pm", etc.)
-  normalized = normalized.replace(/\b(from\s+)?\d{1,2}(:\d{2})?\s*(am|pm)?\s*(to|-)\s*\d{1,2}(:\d{2})?\s*(am|pm)?/gi, '');
-  normalized = normalized.replace(/\bat\s+\d{1,2}(:\d{2})?\s*(am|pm)?/gi, '');
-  
-  const result: string[] = [];
-  
-  // Check for range patterns like "Monday to Saturday", "Mon-Sat", "Mon through Fri"
-  const rangePatterns = [
-    /(\w+)\s*(?:to|through|-)\s*(\w+)/gi,
-  ];
-  
-  let hasRange = false;
-  for (const pattern of rangePatterns) {
-    const matches = [...normalized.matchAll(pattern)];
-    for (const match of matches) {
-      const startDay = dayMap[match[1].trim()];
-      const endDay = dayMap[match[2].trim()];
-      
-      if (startDay && endDay) {
-        hasRange = true;
-        const startIdx = orderedDays.indexOf(startDay);
-        const endIdx = orderedDays.indexOf(endDay);
-        
-        if (startIdx !== -1 && endIdx !== -1) {
-          // Handle wrap-around (e.g., "Saturday to Monday")
+  const normalized = schedule.toLowerCase();
+
+  // Split into tokens
+  const tokens = normalized.split(/([\s,.;/]|and|but)+/).map(t => t.trim()).filter(Boolean);
+
+  const trainingDays = new Set<string>();
+  const restDays = new Set<string>();
+
+  let currentState: 'training' | 'rest' = 'training';
+  let foundExplicitTraining = false;
+  let foundExplicitRest = false;
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+
+    if (/\b(rest|off|no|stay|none|day off)\b/.test(token)) {
+      currentState = 'rest';
+      continue;
+    }
+    if (/\b(train|work|gym|on|doing|only)\b/.test(token)) {
+      currentState = 'training';
+      continue;
+    }
+
+    // Check for range
+    if (i + 2 < tokens.length) {
+      const next = tokens[i + 1];
+      const nextNext = tokens[i + 2];
+      if (/\b(to|through|-)\b/.test(next)) {
+        const startDay = dayMap[token];
+        const endDay = dayMap[nextNext];
+        if (startDay && endDay) {
+          const startIdx = orderedDays.indexOf(startDay);
+          const endIdx = orderedDays.indexOf(endDay);
+
+          const daysInRange: string[] = [];
           if (startIdx <= endIdx) {
-            for (let i = startIdx; i <= endIdx; i++) {
-              if (!result.includes(orderedDays[i])) {
-                result.push(orderedDays[i]);
-              }
-            }
+            for (let d = startIdx; d <= endIdx; d++) daysInRange.push(orderedDays[d]);
           } else {
-            // Wrap around: Sat to Mon = Sat, Sun, Mon
-            for (let i = startIdx; i < 7; i++) {
-              if (!result.includes(orderedDays[i])) {
-                result.push(orderedDays[i]);
-              }
-            }
-            for (let i = 0; i <= endIdx; i++) {
-              if (!result.includes(orderedDays[i])) {
-                result.push(orderedDays[i]);
-              }
-            }
+            for (let d = startIdx; d < 7; d++) daysInRange.push(orderedDays[d]);
+            for (let d = 0; d <= endIdx; d++) daysInRange.push(orderedDays[d]);
           }
+
+          daysInRange.forEach(day => {
+            if (currentState === 'rest') {
+              restDays.add(day);
+              foundExplicitRest = true;
+            } else {
+              trainingDays.add(day);
+              foundExplicitTraining = true;
+            }
+          });
+          i += 2;
+          continue;
         }
       }
     }
-  }
-  
-  // If no range found, parse individual days
-  if (!hasRange) {
-    const tokens = normalized
-      .split(/[,|;/\n\s]+/)
-      .map((part) => part.trim())
-      .filter(Boolean);
-    
-    for (const token of tokens) {
-      const day = dayMap[token];
-      if (day && !result.includes(day)) {
-        result.push(day);
+
+    const day = dayMap[token];
+    if (day) {
+      if (currentState === 'rest') {
+        restDays.add(day);
+        foundExplicitRest = true;
+      } else {
+        trainingDays.add(day);
+        foundExplicitTraining = true;
       }
     }
   }
-  
-  // Sort by day order
-  result.sort((a, b) => orderedDays.indexOf(a) - orderedDays.indexOf(b));
-  
-  return result;
+
+  if (foundExplicitTraining && !foundExplicitRest) {
+    return Array.from(trainingDays).sort((a, b) => orderedDays.indexOf(a) - orderedDays.indexOf(b));
+  }
+
+  if (foundExplicitRest && !foundExplicitTraining) {
+    return orderedDays.filter(day => !restDays.has(day));
+  }
+
+  if (foundExplicitTraining && foundExplicitRest) {
+    return Array.from(trainingDays).sort((a, b) => orderedDays.indexOf(a) - orderedDays.indexOf(b));
+  }
+
+  return Array.from(trainingDays).sort((a, b) => orderedDays.indexOf(a) - orderedDays.indexOf(b));
 }
 
 /**
