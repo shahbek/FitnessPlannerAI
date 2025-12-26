@@ -47,19 +47,28 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
 
   // Calculate week and day number from plan start
   const { weekNumber, dayNumber, dayName } = useMemo(() => {
-    // Assume plan starts on Monday of the first week
+    // Assume plan starts on Monday of the first week (UTC)
     const planCreated = planData?.startDate
       ? new Date(planData.startDate)
       : (planData?.createdAt ? new Date(planData.createdAt) : new Date());
 
     const planStartDate = new Date(planCreated);
-    planStartDate.setHours(0, 0, 0, 0);
-    // Find the previous Monday
-    const dayOfWeek = planStartDate.getDay();
-    const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    planStartDate.setDate(planStartDate.getDate() - daysToMonday);
+    // Ensure we treat the plan start as UTC midnight
+    planStartDate.setUTCHours(0, 0, 0, 0);
 
-    const diffTime = selectedDate.getTime() - planStartDate.getTime();
+    // If the plan start wasn't already a Monday (legacy plans), find previous Monday
+    const dayOfWeek = planStartDate.getUTCDay();
+    const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    planStartDate.setUTCDate(planStartDate.getUTCDate() - daysToMonday);
+
+    // Normalize selectedDate to UTC midnight of the same calendar day for comparison
+    const selDateUTC = new Date(Date.UTC(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      selectedDate.getDate()
+    ));
+
+    const diffTime = selDateUTC.getTime() - planStartDate.getTime();
     const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
 
     const weekNum = Math.floor(diffDays / 7) + 1;
@@ -70,7 +79,6 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
 
     return {
       // Ensure we don't show negative weeks if users look at dates before the plan started
-      // But allow looking back at history if needed? For now, clamp to 1 minimum for "Page View"
       weekNumber: Math.max(1, weekNum),
       dayNumber: Math.max(1, Math.min(7, dayNum)),
       dayName,
