@@ -52,25 +52,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.log(`[Auth Proxy Callback] Response headers:`, Object.fromEntries(response.headers.entries()));
 
     // Forward response headers (CRITICAL: Include Set-Cookie for session)
-    const skipHeaders = new Set(['connection', 'transfer-encoding', 'content-encoding', 'content-length']);
+    const skipHeaders = new Set(['connection', 'transfer-encoding', 'content-encoding', 'content-length', 'set-cookie']);
     response.headers.forEach((value, key) => {
-      const lowerKey = key.toLowerCase();
-      if (!skipHeaders.has(lowerKey)) {
-        // Handle Set-Cookie specially (can be multiple values)
-        if (lowerKey === 'set-cookie') {
-          const cookies = response.headers.getSetCookie?.() || [];
-          if (cookies.length > 0) {
-            cookies.forEach(cookie => {
-              res.appendHeader('Set-Cookie', cookie);
-            });
-          } else {
-            res.setHeader(key, value);
-          }
-        } else {
-          res.setHeader(key, value);
-        }
+      if (!skipHeaders.has(key.toLowerCase())) {
+        res.setHeader(key, value);
       }
     });
+    
+    // Handle Set-Cookie headers separately
+    const cookies = response.headers.getSetCookie?.() || [];
+    if (cookies.length > 0) {
+      cookies.forEach(cookie => {
+        res.appendHeader('Set-Cookie', cookie);
+      });
+    } else {
+      const setCookieHeader = response.headers.get('set-cookie');
+      if (setCookieHeader) {
+        res.setHeader('Set-Cookie', setCookieHeader);
+      }
+    }
 
     // Handle redirects (critical for OAuth - Better Auth redirects after successful auth)
     if ([301, 302, 303, 307, 308].includes(response.status)) {
