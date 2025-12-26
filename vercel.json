@@ -2,7 +2,7 @@
     "rewrites": [
         {
             "source": "/api/auth/(.*)",
-            "destination": "https://clean-swordfish-102.convex.site/api/auth/$1"
+            "destination": "https://clean-swordfish-102.convex.cloud/api/auth/$1"
         },
         {
             "source": "/(.*)",
