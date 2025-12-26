@@ -14,6 +14,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     return res.status(200).end();
   }
+  
+  // Handle HEAD requests (used by OAuth callbacks)
+  const isHeadRequest = req.method === 'HEAD';
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, HEAD, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Cookie');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    return res.status(200).end();
+  }
 
   // Extract path from req.url
   // req.url format: "/api/auth/get-session?...path=get-session"
