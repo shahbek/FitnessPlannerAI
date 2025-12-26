@@ -13,17 +13,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).end();
   }
 
-  // Extract path segments from Vercel's catch-all route
-  // For [...path], Vercel puts segments in req.query.path as an array
-  const pathSegments = req.query.path;
-  const pathArray = Array.isArray(pathSegments) ? pathSegments : (pathSegments ? [pathSegments] : []);
-  const subPath = pathArray.join('/');
+  // Extract path - try req.query.path first (Vercel catch-all), fallback to parsing req.url
+  let subPath = '';
   
-  // Get query string from original request (excluding Vercel's internal 'path' param)
-  const { path: _, ...otherQueryParams } = req.query;
+  if (req.query.path) {
+    // Vercel catch-all route provides path segments in req.query.path
+    const pathSegments = req.query.path;
+    const pathArray = Array.isArray(pathSegments) 
+      ? pathSegments 
+      : [String(pathSegments)];
+    subPath = pathArray.join('/');
+  } else if (req.url) {
+    // Fallback: parse from req.url if catch-all didn't work
+    // req.url will be like "/api/auth/get-session" or "/api/auth/callback/google?state=..."
+    const urlMatch = req.url.match(/^\/api\/auth\/([^?]+)/);
+    if (urlMatch) {
+      subPath = urlMatch[1];
+    }
+  }
+  
+  console.log('[Auth Proxy Debug] req.url:', req.url, 'req.query.path:', req.query.path, '-> subPath:', subPath);
+  
+  // Get all query params EXCEPT 'path' (which is Vercel's internal routing param)
   const queryParams = new URLSearchParams();
-  Object.entries(otherQueryParams).forEach(([key, value]) => {
-    if (value !== undefined && key !== 'path') {
+  Object.entries(req.query).forEach(([key, value]) => {
+    if (key !== 'path' && value !== undefined) {
       if (Array.isArray(value)) {
         value.forEach(v => queryParams.append(key, String(v)));
       } else {
@@ -32,13 +46,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   });
   
-  // Build destination URL
-  const destinationUrl = new URL(`/${subPath}`, CONVEX_AUTH_BASE);
+  // Build destination URL - subPath should be like "get-session" or "callback/google"
+  const destinationPath = subPath ? `/${subPath}` : '';
+  const destinationUrl = new URL(destinationPath, CONVEX_AUTH_BASE);
+  
+  // Add query params
   queryParams.forEach((value, key) => {
     destinationUrl.searchParams.set(key, value);
   });
   
-  console.log(`[Auth Proxy] ${req.method} /api/auth/${subPath}${queryParams.toString() ? '?' + queryParams.toString() : ''} -> ${destinationUrl.toString()}`);
+  console.log(`[Auth Proxy] ${req.method} /api/auth/${subPath || '(empty)'} -> ${destinationUrl.toString()}`);
 
   try {
     // Prepare headers
