@@ -1,6 +1,10 @@
 {
     "rewrites": [
         {
+            "source": "/api/auth/:path*",
+            "destination": "https://clean-swordfish-102.convex.site/api/auth/:path*"
+        },
+        {
             "source": "/(.*)",
             "destination": "/index.html"
         }
