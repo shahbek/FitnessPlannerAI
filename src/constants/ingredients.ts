@@ -143,6 +143,15 @@ const ZERO_IMPACT_EXACT_NAMES = [
   'soy sauce',
   'tamari',
   'worcestershire sauce',
+  'ice',
+  'water',
+  'still water',
+  'distilled water',
+  'tap water',
+  'mineral water',
+  'sparkling water',
+  'seltzer',
+  'club soda'
 ];
 
 const ZERO_IMPACT_EXACT = new Set(
@@ -184,6 +193,64 @@ export function isZeroImpactIngredient(name: string): boolean {
   }
 
   return ZERO_IMPACT_KEYWORDS.some((keyword) => stripped.includes(keyword));
+}
+
+const SENSITIVE_INGREDIENT_EXACT = new Set([
+  'butter',
+  'ghee',
+  'lard',
+  'tallow',
+  'margarine',
+  'shortening',
+  'sugar',
+  'honey',
+  'molasses',
+  'nectar',
+  'maple syrup',
+  'agave syrup',
+  'corn syrup',
+  'olive oil',
+  'vegetable oil',
+  'canola oil',
+  'coconut oil',
+  'avocado oil',
+  'sesame oil',
+  'peanut oil',
+  'grapeseed oil',
+  'sunflower oil',
+  'safflower oil',
+  'palm oil',
+  'flaxseed oil',
+  'walnut oil',
+]);
+
+const SENSITIVE_INGREDIENT_KEYWORDS = [
+  ' oil', // Space before to avoid catching "boil", "spoil"
+  'syrup',
+  'fat',
+];
+
+/**
+ * Determine whether an ingredient should be treated as "sensitive"
+ * (oils, butter, sugars) and thus locked during macro adjustments.
+ */
+export function isSensitiveIngredient(name: string): boolean {
+  const stripped = stripDescriptorWords(name);
+  if (!stripped) {
+    return false;
+  }
+
+  if (SENSITIVE_INGREDIENT_EXACT.has(stripped)) {
+    return true;
+  }
+
+  // Exact check for names that are often single words but not in the set
+  const normalized = normalizeFoodName(name);
+  if (normalized === 'oil' || normalized === 'butter' || normalized === 'sugar' || normalized === 'honey') {
+    return true;
+  }
+
+  return SENSITIVE_INGREDIENT_KEYWORDS.some((keyword) => normalized.includes(keyword));
 }
 
 export { ZERO_IMPACT_KEYWORDS };
