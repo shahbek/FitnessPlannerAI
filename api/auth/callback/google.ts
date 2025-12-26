@@ -48,17 +48,34 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       redirect: 'manual',
     });
 
-    // Forward response headers
+    console.log(`[Auth Proxy Callback] Response status: ${response.status}`);
+    console.log(`[Auth Proxy Callback] Response headers:`, Object.fromEntries(response.headers.entries()));
+
+    // Forward response headers (CRITICAL: Include Set-Cookie for session)
     const skipHeaders = new Set(['connection', 'transfer-encoding', 'content-encoding', 'content-length']);
     response.headers.forEach((value, key) => {
-      if (!skipHeaders.has(key.toLowerCase())) {
-        res.setHeader(key, value);
+      const lowerKey = key.toLowerCase();
+      if (!skipHeaders.has(lowerKey)) {
+        // Handle Set-Cookie specially (can be multiple values)
+        if (lowerKey === 'set-cookie') {
+          const cookies = response.headers.getSetCookie?.() || [];
+          if (cookies.length > 0) {
+            cookies.forEach(cookie => {
+              res.appendHeader('Set-Cookie', cookie);
+            });
+          } else {
+            res.setHeader(key, value);
+          }
+        } else {
+          res.setHeader(key, value);
+        }
       }
     });
 
-    // Handle redirects (critical for OAuth)
+    // Handle redirects (critical for OAuth - Better Auth redirects after successful auth)
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location');
+      console.log(`[Auth Proxy Callback] Redirect location: ${location}`);
       if (location) {
         return res.redirect(response.status, location);
       }
@@ -70,6 +87,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const responseText = await response.text();
+    console.log(`[Auth Proxy Callback] Response body: ${responseText.substring(0, 200)}`);
+    
+    // If response is HTML (error page), log it
+    if (responseText.includes('error') || responseText.includes('Error')) {
+      console.error(`[Auth Proxy Callback] Error in response: ${responseText}`);
+    }
+    
     return res.status(response.status).send(responseText);
     
   } catch (error) {

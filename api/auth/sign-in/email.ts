@@ -1,18 +1,17 @@
-// Test: Specific route for POST /api/auth/sign-in/social
+// Route for POST /api/auth/sign-in/email
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const CONVEX_AUTH_BASE = 'https://clean-swordfish-102.convex.site/api/auth/';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  console.log(`[Auth Proxy Social] Function invoked: ${req.method} ${req.url}`);
+  console.log(`[Auth Proxy SignIn] Function invoked: ${req.method} ${req.url}`);
   
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const destinationUrl = `${CONVEX_AUTH_BASE}sign-in/social`;
-  console.log(`[Auth Proxy Social] POST -> ${destinationUrl}`);
-  console.log(`[Auth Proxy Social] Request body:`, JSON.stringify(req.body));
+  const destinationUrl = `${CONVEX_AUTH_BASE}sign-in/email`;
+  console.log(`[Auth Proxy SignIn] POST -> ${destinationUrl}`);
 
   try {
     const forwardHeaders: Record<string, string> = {
@@ -21,7 +20,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       'x-forwarded-proto': 'https',
     };
     
-    // Forward content-type if present, otherwise set to application/json
     if (req.headers['content-type']) {
       forwardHeaders['content-type'] = Array.isArray(req.headers['content-type']) 
         ? req.headers['content-type'][0] 
@@ -37,7 +35,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const body = req.body ? (typeof req.body === 'string' ? req.body : JSON.stringify(req.body)) : undefined;
-    console.log(`[Auth Proxy Social] Forwarding body:`, body?.substring(0, 200));
 
     const response = await fetch(destinationUrl, {
       method: 'POST',
@@ -46,24 +43,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       redirect: 'manual',
     });
 
-    console.log(`[Auth Proxy Social] Response status: ${response.status}`);
-    console.log(`[Auth Proxy Social] Response headers:`, Object.fromEntries(response.headers.entries()));
-
-    // Forward response headers (CRITICAL: Include Set-Cookie for OAuth state)
+    // Forward response headers (including Set-Cookie)
     const skipHeaders = new Set(['connection', 'transfer-encoding', 'content-encoding', 'content-length']);
     response.headers.forEach((value, key) => {
       const lowerKey = key.toLowerCase();
       if (!skipHeaders.has(lowerKey)) {
-        // Handle Set-Cookie specially (can be multiple values)
         if (lowerKey === 'set-cookie') {
-          // Set-Cookie headers need to be appended, not set
           const cookies = response.headers.getSetCookie?.() || [];
           if (cookies.length > 0) {
-            cookies.forEach(cookie => {
-              res.appendHeader('Set-Cookie', cookie);
-            });
+            cookies.forEach(cookie => res.appendHeader('Set-Cookie', cookie));
           } else {
-            // Fallback if getSetCookie not available
             res.setHeader(key, value);
           }
         } else {
@@ -72,35 +61,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     });
 
-    // Handle HTTP redirects (301, 302, etc.)
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location');
-      console.log(`[Auth Proxy Social] HTTP Redirect location: ${location}`);
       if (location) {
         return res.redirect(response.status, location);
       }
     }
 
-    // Get response body
     const responseText = await response.text();
-    const contentType = response.headers.get('content-type');
-    
-    // CRITICAL: Better Auth returns JSON with {url, redirect: true}
-    // We must return this JSON to the client - DON'T redirect server-side
-    // The client-side Better Auth library will handle the redirect
-    if (contentType?.includes('application/json')) {
-      console.log(`[Auth Proxy Social] JSON response: ${responseText}`);
-      // Return JSON as-is - let Better Auth client handle the redirect
-      res.setHeader('Content-Type', 'application/json');
-      return res.status(response.status).send(responseText);
-    }
-
-    // For non-JSON responses, return as-is
-    console.log(`[Auth Proxy Social] Non-JSON response: ${responseText.substring(0, 200)}`);
     return res.status(response.status).send(responseText);
     
   } catch (error) {
-    console.error('[Auth Proxy Social] Error:', error);
+    console.error('[Auth Proxy SignIn] Error:', error);
     return res.status(500).json({ 
       error: 'Proxy error', 
       message: error instanceof Error ? error.message : 'Unknown error' 
