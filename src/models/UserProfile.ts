@@ -12,12 +12,12 @@
  * - maintenance: Maintain current physique at TDEE
  * - body_fat_goal: Specific body fat percentage target (mutually exclusive with other goals)
  */
-export type GoalCategory = 
-  | 'lean_bulk' 
-  | 'dirty_bulk' 
-  | 'mini_cut' 
-  | 'aggressive_cut' 
-  | 'recomp' 
+export type GoalCategory =
+  | 'lean_bulk'
+  | 'dirty_bulk'
+  | 'mini_cut'
+  | 'aggressive_cut'
+  | 'recomp'
   | 'maintenance'
   | 'body_fat_goal';
 
@@ -42,7 +42,7 @@ export interface UserProfile {
   sex: 'male' | 'female';
   weightKg: number;
   heightCm: number;
-  
+
   /**
    * Current body fat percentage (optional, improves BMR accuracy)
    * Note: For body_fat_goal mode, use bodyFatGoal.currentBf instead
@@ -56,27 +56,37 @@ export interface UserProfile {
    * Optional for backward compatibility - will be derived from legacy `goal` field if not set.
    */
   goalCategory?: GoalCategory;
-  
+
   /**
    * Body fat goal configuration
    * Required when goalCategory === 'body_fat_goal'
    */
   bodyFatGoal?: BodyFatGoal;
-  
+
   /**
    * @deprecated Use goalCategory instead. Kept for backward compatibility.
    * When goalCategory is not set, this is used to derive the effective goal.
    */
   goal?: LegacyGoal;
-  
+
   /**
    * @deprecated Use bodyFatGoal.targetBf instead when goalCategory === 'body_fat_goal'
    */
   targetBf?: number;
-  
+
   timelineWeeks: number;
   preferences: string; // Dietary preferences and restrictions
   mealFrequency?: number; // Meals per day
+
+  // Detailed Nutrition Preferences
+  dietType?: DietType;
+  allergies?: string[]; // e.g., ['peanuts', 'shellfish']
+  cuisinePreferences?: string[]; // e.g., ['italian', 'mexican']
+  mealComplexity?: MealComplexity;
+  mealPrepPreference?: MealPrepStyle;
+  cookingTimePerMeal?: number; // Minutes
+  likedIngredients?: string[];
+  dislikedIngredients?: string[];
 
   // Training Information
   workoutLevel: 'beginner' | 'intermediate' | 'advanced' | 'expert';
@@ -91,6 +101,10 @@ export interface UserProfile {
   endpoint?: string;
   model?: string;
 }
+
+export type DietType = 'omnivore' | 'vegetarian' | 'vegan' | 'pescatarian' | 'keto' | 'paleo' | 'gluten_free' | 'anything';
+export type MealComplexity = 'simple' | 'moderate' | 'complex';
+export type MealPrepStyle = 'fresh_daily' | 'batch_cooking' | 'leftovers_ok';
 
 export interface NormalizedUserProfile extends UserProfile {
   // Normalized values
