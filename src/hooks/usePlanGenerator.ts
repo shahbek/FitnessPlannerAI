@@ -96,7 +96,10 @@ export function usePlanGenerator(options?: { enableToasts?: boolean }): UsePlanG
       abortControllerRef.current = new AbortController();
 
       // Initialize generator
-      const generator = new IntegratedPlanGenerator({ action: convex.action });
+      // Initialize generator with bound action method
+      const generator = new IntegratedPlanGenerator({
+        action: (action, args) => convex.action(action, args)
+      });
       generatorRef.current = generator;
 
       // Initial progress state
