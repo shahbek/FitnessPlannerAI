@@ -57,34 +57,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     });
 
-    // Handle redirects (Better Auth returns redirect for OAuth)
+    // Handle HTTP redirects (301, 302, etc.)
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get('location');
-      console.log(`[Auth Proxy Social] Redirect location: ${location}`);
+      console.log(`[Auth Proxy Social] HTTP Redirect location: ${location}`);
       if (location) {
         return res.redirect(response.status, location);
       }
     }
 
-    // Check if response is JSON with a URL (some auth libraries do this)
+    // Get response body
+    const responseText = await response.text();
     const contentType = response.headers.get('content-type');
+    
+    // CRITICAL: Better Auth returns JSON with {url, redirect: true}
+    // We must return this JSON to the client - DON'T redirect server-side
+    // The client-side Better Auth library will handle the redirect
     if (contentType?.includes('application/json')) {
-      const responseText = await response.text();
       console.log(`[Auth Proxy Social] JSON response: ${responseText}`);
-      try {
-        const json = JSON.parse(responseText);
-        // If Better Auth returns JSON with a URL, redirect to it
-        if (json.url && typeof json.url === 'string') {
-          console.log(`[Auth Proxy Social] Found URL in JSON, redirecting to: ${json.url}`);
-          return res.redirect(302, json.url);
-        }
-      } catch (e) {
-        // Not JSON, continue
-      }
+      // Return JSON as-is - let Better Auth client handle the redirect
+      res.setHeader('Content-Type', 'application/json');
+      return res.status(response.status).send(responseText);
     }
 
-    const responseText = await response.text();
-    console.log(`[Auth Proxy Social] Response body: ${responseText.substring(0, 200)}`);
+    // For non-JSON responses, return as-is
+    console.log(`[Auth Proxy Social] Non-JSON response: ${responseText.substring(0, 200)}`);
     return res.status(response.status).send(responseText);
     
   } catch (error) {
