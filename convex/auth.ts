@@ -47,6 +47,8 @@ export const createAuth = (
       google: {
         clientId: process.env.AUTH_GOOGLE_ID!,
         clientSecret: process.env.AUTH_GOOGLE_SECRET!,
+        // Explicitly set redirectURI to ensure it matches Google Cloud Console exactly
+        redirectURI: `${siteUrl}/api/auth/callback/google`,
       },
     },
     plugins: [
