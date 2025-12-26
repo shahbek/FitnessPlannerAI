@@ -84,7 +84,7 @@ export class TrainingSplitService {
         if (ENABLE_QUALITY_CHECKS) {
           const qualityMetrics = this.assessSplitQuality(split, userProfile);
           console.log(`✓ Split attempt ${attempt} - Quality Score: ${qualityMetrics.overallScore}/100`);
-          
+
           // Track best split
           if (qualityMetrics.overallScore > bestScore) {
             bestScore = qualityMetrics.overallScore;
@@ -159,18 +159,18 @@ export class TrainingSplitService {
 
     const weeklyGuidance = weeklyOutlines && weeklyOutlines.length > 0
       ? weeklyOutlines
-          .map(
-            (outline) =>
-              `Week ${outline.weekNumber} (${outline.phase}): ${outline.objectives?.join(', ') || 'Maintain progression'}`
-          )
-          .join('\n')
+        .map(
+          (outline) =>
+            `Week ${outline.weekNumber} (${outline.phase}): ${outline.objectives?.join(', ') || 'Maintain progression'}`
+        )
+        .join('\n')
       : 'No specific weekly objectives provided.';
 
     const issueSection =
       previousIssues && previousIssues.length > 0
         ? `\n⚠️ CRITICAL - Previous attempt had these issues. You MUST address ALL of them:\n${previousIssues
-            .map((issue, i) => `${i + 1}. ${issue}`)
-            .join('\n')}\n`
+          .map((issue, i) => `${i + 1}. ${issue}`)
+          .join('\n')}\n`
         : '';
 
     const attemptGuidance = attemptNumber && attemptNumber > 1
@@ -382,7 +382,7 @@ Think step-by-step through your split design considering recovery, balance, and 
           current.primaryMuscleGroups,
           next.primaryMuscleGroups
         );
-        
+
         if (overlap.length > 0) {
           issues.push(
             `Potential overtraining: ${overlap.join(', ')} trained on ${current.dayName} and ${next.dayName}`
@@ -400,13 +400,13 @@ Think step-by-step through your split design considering recovery, balance, and 
 
     // For specific split types, check adherence to pattern
     if (userProfile.workoutSplit === 'push_pull_legs' && trainingDays.length >= 3) {
-      const hasPush = trainingDays.some(d => 
+      const hasPush = trainingDays.some(d =>
         d.focus.some(f => f.toLowerCase().includes('push'))
       );
-      const hasPull = trainingDays.some(d => 
+      const hasPull = trainingDays.some(d =>
         d.focus.some(f => f.toLowerCase().includes('pull'))
       );
-      const hasLegs = trainingDays.some(d => 
+      const hasLegs = trainingDays.some(d =>
         d.focus.some(f => f.toLowerCase().includes('leg'))
       );
 
@@ -416,10 +416,10 @@ Think step-by-step through your split design considering recovery, balance, and 
     }
 
     if (userProfile.workoutSplit === 'upper_lower' && trainingDays.length >= 2) {
-      const hasUpper = trainingDays.some(d => 
+      const hasUpper = trainingDays.some(d =>
         d.focus.some(f => f.toLowerCase().includes('upper'))
       );
-      const hasLower = trainingDays.some(d => 
+      const hasLower = trainingDays.some(d =>
         d.focus.some(f => f.toLowerCase().includes('lower'))
       );
 
@@ -429,7 +429,7 @@ Think step-by-step through your split design considering recovery, balance, and 
     }
 
     if (userProfile.workoutSplit === 'full_body') {
-      const allFullBody = trainingDays.every(d => 
+      const allFullBody = trainingDays.every(d =>
         d.focus.some(f => f.toLowerCase().includes('full'))
       );
 
@@ -493,7 +493,7 @@ Think step-by-step through your split design considering recovery, balance, and 
     // Check day structure
     const dayNames = split.days.map(d => d.dayName);
     const expectedDays = DAY_NAMES;
-    const missingDays = expectedDays.filter(day => 
+    const missingDays = expectedDays.filter(day =>
       !dayNames.some(name => name.toLowerCase() === day.toLowerCase())
     );
     if (missingDays.length > 0) {
@@ -530,16 +530,16 @@ Think step-by-step through your split design considering recovery, balance, and 
     if (userProfile.schedule) {
       const scheduledDays = this.parseScheduleSlots(userProfile.schedule)
         .map(idx => DAY_NAMES[idx].toLowerCase());
-      
+
       if (scheduledDays.length > 0) {
         const trainingDayNames = split.days
           .filter(d => !d.isRestDay)
           .map(d => d.dayName.toLowerCase());
-        
+
         const missingScheduledDays = scheduledDays.filter(
           day => !trainingDayNames.includes(day)
         );
-        
+
         if (missingScheduledDays.length > 0 && missingScheduledDays.length <= 2) {
           // Only warn if a few days are missing (might be intentional for rest)
           console.warn(`⚠️ User schedule includes ${missingScheduledDays.join(', ')} but these are marked as rest days`);
@@ -564,104 +564,166 @@ Think step-by-step through your split design considering recovery, balance, and 
 
   private parseScheduleSlots(schedule?: string): number[] {
     if (!schedule) return [];
-    
+
     const dayIndexMap: Record<string, number> = {
-      monday: 0,
-      mon: 0,
-      tuesday: 1,
-      tue: 1,
-      tues: 1,
-      wednesday: 2,
-      wed: 2,
-      thursday: 3,
-      thu: 3,
-      thurs: 3,
-      friday: 4,
-      fri: 4,
-      saturday: 5,
-      sat: 5,
-      sunday: 6,
-      sun: 6,
+      monday: 0, mon: 0,
+      tuesday: 1, tue: 1, tues: 1,
+      wednesday: 2, wed: 2,
+      thursday: 3, thu: 3, thurs: 3,
+      friday: 4, fri: 4,
+      saturday: 5, sat: 5,
+      sunday: 6, sun: 6,
     };
 
-    // Normalize and strip time information
-    let normalized = schedule.toLowerCase();
-    normalized = normalized.replace(/\b(from\s+)?\d{1,2}(:\d{2})?\s*(am|pm)?\s*(to|-)\s*\d{1,2}(:\d{2})?\s*(am|pm)?/gi, '');
-    normalized = normalized.replace(/\bat\s+\d{1,2}(:\d{2})?\s*(am|pm)?/gi, '');
-    
-    const result: number[] = [];
-    
-    // Check for range patterns like "Monday to Saturday", "Mon-Sat"
-    const rangeMatch = normalized.match(/(\w+)\s*(?:to|through|-)\s*(\w+)/i);
-    if (rangeMatch) {
-      const startIdx = dayIndexMap[rangeMatch[1].trim()];
-      const endIdx = dayIndexMap[rangeMatch[2].trim()];
-      
-      if (startIdx !== undefined && endIdx !== undefined) {
-        if (startIdx <= endIdx) {
-          for (let i = startIdx; i <= endIdx; i++) {
-            if (!result.includes(i)) result.push(i);
-          }
-        } else {
-          // Wrap around
-          for (let i = startIdx; i < 7; i++) {
-            if (!result.includes(i)) result.push(i);
-          }
-          for (let i = 0; i <= endIdx; i++) {
-            if (!result.includes(i)) result.push(i);
+    const normalized = schedule.toLowerCase();
+
+    // Split into tokens while preserving ranges
+    // We match ranges first, then keywords, then individual days
+    const tokens = normalized.split(/([\s,.;/]|and|but)+/).map(t => t.trim()).filter(Boolean);
+
+    const trainingIndices = new Set<number>();
+    const restIndices = new Set<number>();
+
+    let currentState: 'training' | 'rest' = 'training';
+    let foundExplicitTraining = false;
+    let foundExplicitRest = false;
+
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i];
+
+      // Keywords that flip state
+      if (/\b(rest|off|no|stay|none|day off)\b/.test(token)) {
+        currentState = 'rest';
+        continue;
+      }
+      if (/\b(train|work|gym|on|doing|only)\b/.test(token)) {
+        currentState = 'training';
+        continue;
+      }
+
+      // Check for range: e.g. "mon" (at i) "to" (at i+1) "fri" (at i+2)
+      if (i + 2 < tokens.length) {
+        const next = tokens[i + 1];
+        const nextNext = tokens[i + 2];
+        if (/\b(to|through|-)\b/.test(next)) {
+          const startIdx = dayIndexMap[token];
+          const endIdx = dayIndexMap[nextNext];
+          if (startIdx !== undefined && endIdx !== undefined) {
+            const daysInRange: number[] = [];
+            if (startIdx <= endIdx) {
+              for (let d = startIdx; d <= endIdx; d++) daysInRange.push(d);
+            } else {
+              for (let d = startIdx; d < 7; d++) daysInRange.push(d);
+              for (let d = 0; d <= endIdx; d++) daysInRange.push(d);
+            }
+
+            daysInRange.forEach(idx => {
+              if (currentState === 'rest') {
+                restIndices.add(idx);
+                foundExplicitRest = true;
+              } else {
+                trainingIndices.add(idx);
+                foundExplicitTraining = true;
+              }
+            });
+            i += 2; // Skip "to" and endDay
+            continue;
           }
         }
-        return result.sort((a, b) => a - b);
+      }
+
+      // Individual day check
+      const idx = dayIndexMap[token];
+      if (idx !== undefined) {
+        if (currentState === 'rest') {
+          restIndices.add(idx);
+          foundExplicitRest = true;
+        } else {
+          trainingIndices.add(idx);
+          foundExplicitTraining = true;
+        }
       }
     }
-    
-    // Parse individual days
-    return normalized
-      .split(/[,|;/\n\s]+/)
-      .map((part) => part.trim())
-      .map((token) => dayIndexMap[token])
-      .filter((idx): idx is number => typeof idx === 'number')
-      .filter((idx, i, arr) => arr.indexOf(idx) === i) // unique
-      .sort((a, b) => a - b);
+
+    // FINAL LOGIC RESOLUTION (respecting user rule):
+    if (foundExplicitTraining && !foundExplicitRest) {
+      // User listed training days -> others are rest (Implied rest)
+      return Array.from(trainingIndices).sort((a, b) => a - b);
+    }
+
+    if (foundExplicitRest && !foundExplicitTraining) {
+      // User listed rest days -> others are training
+      const result: number[] = [];
+      for (let i = 0; i < 7; i++) {
+        if (!restIndices.has(i)) result.push(i);
+      }
+      return result;
+    }
+
+    if (foundExplicitTraining && foundExplicitRest) {
+      // Both mentioned -> follow strictly what was marked as training
+      return Array.from(trainingIndices).sort((a, b) => a - b);
+    }
+
+    return Array.from(trainingIndices).sort((a, b) => a - b);
   }
 
   private applySchedulePreference(split: TrainingSplit, userProfile: UserProfile): TrainingSplit {
     const scheduleSlots = this.parseScheduleSlots(userProfile.schedule);
+    if (scheduleSlots.length === 0) return split;
+
     const requiredTrainingDays = userProfile.trainingDaysPerWeek;
-    let adjustedSplit = split;
+    const trainingTemplates = split.days.filter((d) => !d.isRestDay);
 
-    if (scheduleSlots.length === requiredTrainingDays && scheduleSlots.length > 0) {
-      const desiredNames = scheduleSlots.map((idx) => DAY_NAMES[idx]);
-      const trainingTemplates = split.days.filter((d) => !d.isRestDay);
+    if (trainingTemplates.length === 0) return split;
 
-      if (trainingTemplates.length > 0) {
-        const updatedDays = split.days.map((day) => {
-          const desiredIndex = desiredNames.findIndex(
-            (name) => name.toLowerCase() === day.dayName.toLowerCase()
-          );
-          if (desiredIndex !== -1) {
-            const template = trainingTemplates[desiredIndex % trainingTemplates.length];
-            return {
-              ...day,
-              focus: [...template.focus],
-              isRestDay: false,
-              isCardioDay: template.isCardioDay,
-              intensity: template.intensity,
-              estimatedDuration: template.estimatedDuration,
-              primaryMuscleGroups: template.primaryMuscleGroups,
-              secondaryMuscleGroups: template.secondaryMuscleGroups,
-            };
-          }
+    console.log(`📌 [SPLIT] Applying schedule preference: ${scheduleSlots.length} slots found, ${requiredTrainingDays} days required.`);
+
+    let templateIdx = 0;
+    const updatedDays = split.days.map((day, idx) => {
+      const isPreferredTrainingDay = scheduleSlots.includes(idx);
+
+      if (isPreferredTrainingDay) {
+        // This is a candidate training day based on user schedule
+        // But we must check if we already have enough training days (if schedule is longer than frequency)
+        const currentTrainingCount = templateIdx;
+
+        if (currentTrainingCount < requiredTrainingDays) {
+          const template = trainingTemplates[templateIdx % trainingTemplates.length];
+          templateIdx++;
           return {
             ...day,
-            focus: [],
-            isRestDay: true,
-            isCardioDay: false,
+            focus: [...template.focus],
+            isRestDay: false,
+            isCardioDay: template.isCardioDay,
+            intensity: template.intensity,
+            estimatedDuration: template.estimatedDuration,
+            primaryMuscleGroups: template.primaryMuscleGroups,
+            secondaryMuscleGroups: template.secondaryMuscleGroups,
           };
-        });
-        adjustedSplit = { ...split, days: updatedDays };
+        } else {
+          // We have enough training days, mark extra availability as rest
+          return { ...day, focus: [], isRestDay: true, isCardioDay: false };
+        }
       }
+
+      // Not in user schedule -> mark as rest (implied or explicit)
+      return {
+        ...day,
+        focus: [],
+        isRestDay: true,
+        isCardioDay: false,
+      };
+    });
+
+    // Final check: did we get enough training days?
+    if (templateIdx < requiredTrainingDays) {
+      console.warn(`⚠️ [SPLIT] User schedule provided only ${templateIdx} training days, but ${requiredTrainingDays} were requested. Filling remaining...`);
+      // We could add more logic here to fill, but usually the user's schedule is the hard constraint.
+      // For now, let's keep the user's specific days as the priority.
     }
+
+    let adjustedSplit = { ...split, days: updatedDays };
 
     if (userProfile.workoutSplit === 'full_body') {
       adjustedSplit = {

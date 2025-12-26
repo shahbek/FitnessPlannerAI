@@ -23,7 +23,10 @@ import { ChainOfThoughtService } from './ChainOfThoughtService';
 import { MacroValues, NutritionErrorType } from '../types/nutrition';
 import { calculateMacrosForAmount, extractMacrosFromUSDA, normalizeFoodName } from '../utils/usdaMapper';
 import { HybridMealOptimizer } from './optimizers/HybridMealOptimizer';
-import { isZeroImpactIngredient, stripDescriptorWords } from '../constants/ingredients';
+import { isZeroImpactIngredient, stripDescriptorWords, isSensitiveIngredient } from '../constants/ingredients';
+import { HARD_FAILURE_THRESHOLDS, GENERATION_TOLERANCES } from '../constants/validation';
+import { selectAndAdjustSupplementMeal, adjustSupplementMealToTarget } from './SupplementMealGenerator';
+import { searchNutritionKnowledge, NutritionFact } from '../rag/nutrition/nutritionKnowledgeBase';
 
 /**
  * Meal Schema for Batch Generation
@@ -38,7 +41,11 @@ const WeeklyMealSchema = z.object({
       ingredients: z.array(
         z.object({
           name: z.string(),
-          amount: z.number(), // in grams
+          amount: z.number().describe('Amount in grams (e.g., 150, 25, 5)'),
+          estimatedCalories: z.number().optional().describe('Rough caloric estimate per this amount (e.g., 120)'),
+          estimatedProtein: z.number().optional().describe('Rough protein estimate in grams (e.g., 25)'),
+          estimatedCarbs: z.number().optional().describe('Rough carbs estimate in grams (e.g., 30)'),
+          estimatedFats: z.number().optional().describe('Rough fats estimate in grams (e.g., 10)'),
         })
       ),
       instructions: z.array(z.string()).describe('Step-by-step cooking instructions (3-5 steps, e.g., ["Season steak with salt and pepper", "Grill steak for 4-5 minutes per side", "Rest for 5 minutes before serving"])'),
@@ -134,7 +141,7 @@ export class BatchMealGenerator {
   private lastAdjustmentSummary: AdjustmentDaySummary[] = [];
   private hybridOptimizer: HybridMealOptimizer;
   private optimizerInitialized: boolean = false;
-  
+
   // AI-generated supplement meals for protein backup
   private supplementMeals: import('./SupplementMealGenerator').SupplementMeal[] = [];
   private apiConfig: { apiKey: string; endpoint: string; model: string } | null = null;
@@ -156,7 +163,7 @@ export class BatchMealGenerator {
       this.optimizerInitialized = false;
     });
   }
-  
+
   /**
    * Set API configuration for AI-based generation
    */
@@ -213,6 +220,10 @@ export class BatchMealGenerator {
     });
     console.log('📊 [BATCH] Day-by-Day Macro Targets:', dayTargets);
 
+    // Fetch nutrition knowledge (Hard Truths)
+    const nutritionFacts = searchNutritionKnowledge('', { minPriority: 5 });
+    console.log(`🧠 [BATCH] Retrieved ${nutritionFacts.length} nutritional hard truths from RAG`);
+
     // Step 0: Generate high-protein supplement meals for backup
     options?.onProgress?.('Generating protein supplement meals...', 5);
     await this.generateSupplementMealsForPlan(userProfile);
@@ -223,7 +234,8 @@ export class BatchMealGenerator {
     const aiGeneratedMeals = await this.generateWithAI(
       userProfile,
       weeklyOutline,
-      trainingSplit
+      trainingSplit,
+      nutritionFacts
     );
     console.log(`✅ [BATCH] AI generated ${aiGeneratedMeals.weeklyMeals.length} days of meals`);
 
@@ -232,6 +244,12 @@ export class BatchMealGenerator {
 
     // Warn if ingredient names are composite/generic (non-blocking)
     this.validateIngredientSpecificity(aiGeneratedMeals);
+
+    // Validate realistic portion sizes (critical for quality)
+    this.validateRealisticPortions(aiGeneratedMeals, weeklyOutline, userProfile);
+
+    // Validate meal health (detect unhealthy cooking methods, incomplete meals, etc.)
+    this.validateMealHealth(aiGeneratedMeals);
 
     // Step 2: Extract unique ingredients
     options?.onProgress?.('Extracting unique ingredients...', 30);
@@ -286,10 +304,9 @@ export class BatchMealGenerator {
     // HARD VALIDATION: Protein targets MUST be met
     // If protein is more than threshold below target on ANY day, throw an error
     // Using centralized validation constants
-    const { HARD_FAILURE_THRESHOLDS } = await import('@/constants/validation');
     const PROTEIN_TOLERANCE_PERCENTAGE = HARD_FAILURE_THRESHOLDS.PROTEIN_DEFICIT_PERCENTAGE;
     const proteinErrors: string[] = [];
-    
+
     validation.dailyBreakdown.forEach((day: any) => {
       const proteinAccuracy = parseFloat(day.accuracy.protein) / 100;
       if (proteinAccuracy < (1 - PROTEIN_TOLERANCE_PERCENTAGE)) {
@@ -305,7 +322,7 @@ export class BatchMealGenerator {
       console.error('The following days have protein below acceptable threshold:');
       proteinErrors.forEach(err => console.error(`  ❌ ${err}`));
       console.error('\nThis is a HARD FAILURE - protein targets are critical for muscle retention.');
-      
+
       // Throw error to prevent invalid plan from being saved
       throw new Error(
         `PROTEIN VALIDATION FAILED: ${proteinErrors.length} day(s) below protein target.\n` +
@@ -497,7 +514,8 @@ export class BatchMealGenerator {
   private async generateWithAI(
     userProfile: UserProfile,
     weeklyOutline: WeeklyOutline,
-    trainingSplit: any
+    trainingSplit: any,
+    nutritionFacts: NutritionFact[] = []
   ): Promise<BatchMealGeneration> {
     // Check if AI is available
     const isAIAvailable = this.cotService.isAIAvailable && this.cotService.isAIAvailable();
@@ -507,7 +525,7 @@ export class BatchMealGenerator {
     }
 
     // Build prompt for all 7 days
-    const prompt = this.buildBatchMealPrompt(userProfile, weeklyOutline, trainingSplit);
+    const prompt = this.buildBatchMealPrompt(userProfile, weeklyOutline, trainingSplit, nutritionFacts);
 
     const { result } = await this.cotService.generateWithCoT(
       prompt,
@@ -602,16 +620,16 @@ export class BatchMealGenerator {
         breakfast: Math.round(dailyCalories * 0.30), // 30%
         lunch: Math.round(dailyCalories * 0.35),     // 35%
         dinner: Math.round(dailyCalories * 0.25),    // 25%
-        snacks: [Math.round(dailyCalories * 0.10)],  // 10% (evening snack)
+        snacks: [Math.min(350, Math.round(dailyCalories * 0.10))],  // 10% (evening snack, max 350)
       },
       5: {
         breakfast: Math.round(dailyCalories * 0.25), // 25%
         lunch: Math.round(dailyCalories * 0.30),     // 30%
         dinner: Math.round(dailyCalories * 0.20),    // 20%
         snacks: [
-          Math.round(dailyCalories * 0.10), // 10% (mid-morning)
-          Math.round(dailyCalories * 0.10), // 10% (mid-afternoon)
-          Math.round(dailyCalories * 0.05), // 5% (evening)
+          Math.min(350, Math.round(dailyCalories * 0.10)), // 10% (mid-morning, max 350)
+          Math.min(350, Math.round(dailyCalories * 0.10)), // 10% (mid-afternoon, max 350)
+          Math.min(350, Math.round(dailyCalories * 0.05)), // 5% (evening, max 350)
         ],
       },
     };
@@ -625,7 +643,8 @@ export class BatchMealGenerator {
   private buildBatchMealPrompt(
     userProfile: UserProfile,
     weeklyOutline: WeeklyOutline,
-    trainingSplit: any
+    trainingSplit: any,
+    nutritionFacts: NutritionFact[] = []
   ): string {
     const dailyTargets = weeklyOutline.dailyTargets;
     const mealFrequency = userProfile.mealFrequency || 4;
@@ -649,8 +668,9 @@ export class BatchMealGenerator {
     });
 
     // Build dietary guidance based on user preferences
-    const dietaryGuidance = this.buildDietaryGuidance(userProfile.preferences);
-    console.log('🍽️  [BATCH] Generated dietary guidance for preferences:', userProfile.preferences);
+    const dietaryGuidance = this.buildDietaryGuidance(userProfile);
+    console.log('[BatchMealGenerator] Full User Profile used for prompt:', JSON.stringify(userProfile, null, 2));
+    console.log('[BatchMealGenerator] Constructed Dietary Guidance snippet:', dietaryGuidance);
 
     // Build day information
     const dayInfo = trainingSplit.days.map((day: { dayName: string; isRestDay: boolean }, index: number) => {
@@ -667,38 +687,39 @@ export class BatchMealGenerator {
       };
     });
 
+    const mealPrepStyle = userProfile.mealPrepPreference || 'fresh_daily';
+
     return `You are an expert nutritionist generating a complete weekly meal plan. Generate ALL 7 days of meals in a single response.
 
-🚨 CRITICAL RULE #1 - MEAL VARIETY (MUST FOLLOW):
-EACH DAY MUST HAVE COMPLETELY DIFFERENT MEALS FOR EACH MEAL TYPE.
+🚨 CRITICAL RULE #1 - MEAL VARIETY:
+${mealPrepStyle === 'fresh_daily' ? `
+✅ REQUIREMENT: EACH DAY MUST HAVE COMPLETELY DIFFERENT MEALS FOR EACH MEAL TYPE. Every single breakfast, lunch, and dinner in the 7-day plan must be a UNIQUE recipe. Do not repeat meals across the week.
+` : mealPrepStyle === 'batch_cooking' ? `
+✅ REQUIREMENT: YOU MUST USE REPETITION TO ASSIST BATCH PREP. Choose 3-4 core recipes for lunch and dinner and repeat them throughout the week (e.g., Monday Lunch == Wednesday Lunch == Friday Lunch).
+` : `
+✅ REQUIREMENT: YOU MUST USE A "COOK ONCE, EAT TWICE" LEFTOVER STRATEGY. Usually, the dinner from one day should be the lunch for the following day (e.g., Monday Dinner == Tuesday Lunch).
+`}
 
-❌ FORBIDDEN: Repeating the same meal name for breakfast, lunch, and dinner on the same day
-✅ REQUIRED: Each meal type (breakfast, lunch, dinner, snack) must have a UNIQUE meal name with different ingredients
-
-CORRECT EXAMPLE - Day 1:
-- Breakfast: "Greek Yogurt Parfait with Berries and Granola"
-- Lunch: "Grilled Chicken Caesar Salad"
-- Dinner: "Baked Salmon with Sweet Potato and Broccoli"
-
-WRONG EXAMPLE - Day 1 (DO NOT DO THIS):
-- Breakfast: "Tuna with whole grain bread and zucchini"
-- Lunch: "Tuna with whole grain bread and zucchini"  ❌ SAME MEAL
-- Dinner: "Tuna with whole grain bread and zucchini"  ❌ SAME MEAL
+❌ FORBIDDEN: Repeating the same meal name for breakfast, lunch, and dinner ON THE SAME DAY. Each meal type (breakfast, lunch, dinner, snack) within a single day MUST be different.
 
 MEAL TYPE GUIDELINES:
 - Breakfast: Should include breakfast foods (eggs, oatmeal, yogurt, toast, smoothies, etc.)
 - Lunch: Should include lunch foods (salads, sandwiches, wraps, bowls, etc.)
 - Dinner: Should include dinner foods (protein + sides, stir-fries, pasta dishes, etc.)
-- Snack: Should be snack-appropriate (nuts, fruit, protein bars, etc.)
+- Snack: Should be snack-appropriate (nuts, fruit, protein bars, etc.). CRITICAL: Every snack MUST be UNDER 350 calories.
 
 INGREDIENT NAMING RULES (MUST FOLLOW):
 - List individual, base ingredients only. Do NOT use composite/generic names.
 - Forbidden terms in ingredient names: "mixed", "blend", "assorted", "pack", "combo".
 - Do NOT use prepared dish names as ingredient names (e.g., "turkey burger", "wrap", "sandwich", "burrito"). Instead list each component explicitly.
-- Examples:
-  * Wrong: "Mixed berries" → Right: "strawberries", "blueberries", "raspberries"
-  * Wrong: "Turkey burger" → Right: "ground turkey", "whole wheat bun", "lettuce", "tomato", "onion"
-  * Wrong: "Stir-fry mix" → Right: "broccoli", "bell pepper", "snap peas", "carrot"
+- **RAW INGREDIENT DECOMPOSITION**: For complex traditional dishes, ALWAYS use the authentic dish name as the \`mealName\` property, but list the RAW components as ingredients. 
+  - *Example*: For "Ugali and Sukumawiki", ingredients should be ["Maize Flour", "Water", "Kale/Collard Greens", "Onion", "Tomato", "Oil", "Salt"]. 
+  - NEVER use the dish name (e.g., "Ugali") as an ingredient itself.
+
+🚨 CUISINE AUTHENTICITY:
+- If a user specifies a regional cuisine (e.g., "Kenyan", "Nigerian", "Indian"), you MUST use recognized, authentic dish names for that region.
+- Avoid generic names like "Kenyan Breakfast Platter" or "African Stew". Instead use "Ugali with Sukumawiki", "Jollof Rice with Grilled Chicken", "Githeri", etc.
+- Research or use your internal knowledge of the specific cuisine to ensure the meal composition is culturally accurate while hitting the macro targets.
 
 USER PROFILE:
 - Goal: ${userProfile.goal}
@@ -741,6 +762,11 @@ Day ${day.dayNumber} (${day.dayName} - ${day.isTrainingDay ? 'Training' : 'Rest'
 - Meal Targets: Breakfast ~${day.mealTargets.breakfast} cal, Lunch ~${day.mealTargets.lunch} cal, Dinner ~${day.mealTargets.dinner} cal${day.mealTargets.snacks ? `, Snacks: ${day.mealTargets.snacks.map((s: number) => `~${s} cal`).join(', ')}` : ''}
 `).join('')}
 
+${nutritionFacts.length > 0 ? `
+🚨 NUTRITIONAL HARD TRUTHS & PRINCIPLES:
+${nutritionFacts.map(f => `- ${f.content}`).join('\n')}
+` : ''}
+
 CRITICAL REQUIREMENTS (IN ORDER OF IMPORTANCE):
 
 🎯 PRIORITY #1: DIETARY PREFERENCES & RESTRICTIONS
@@ -754,11 +780,10 @@ CRITICAL REQUIREMENTS (IN ORDER OF IMPORTANCE):
 2. Each day has EXACTLY ${mealFrequency} meals (breakfast, lunch, dinner, snack)
 3. Hit the calorie and macro targets for each day (shown in DAY-BY-DAY TARGETS above)
 
-🍽️ PRIORITY #3: MEAL VARIETY
-- ❌ NEVER repeat the same meal name for different meal types on the same day
-- ✅ Breakfast, lunch, and dinner MUST have different meal names and different ingredients
-   - ✅ Use meal-type-appropriate foods (breakfast foods for breakfast, lunch foods for lunch, etc.)
-   - ✅ Ensure variety across the entire week
+🍽️ PRIORITY #3: MEAL VARIETY & LOGIC
+- ✅ Within any single day: Breakfast ≠ Lunch ≠ Dinner.
+- ✅ Across the week: ${mealPrepStyle === 'fresh_daily' ? 'Maximize variety' : 'Follow the prep strategy mentioned above'}.
+- ✅ Portions: If a meal/recipe name is repeated, the ingredients and weights MUST be 100% identical.
 4. **MEAL CALORIE TARGETS**: Each meal should target the calorie distribution shown above. For example:
    ${mealFrequency === 4 ? `
    - Breakfast meals should target ~${mealDistribution.breakfast} calories
@@ -769,78 +794,137 @@ CRITICAL REQUIREMENTS (IN ORDER OF IMPORTANCE):
 5. **MACRO CALCULATION GUIDANCE - CRITICAL FOR ACCURACY**:
    Use these approximate macro values per 100g to estimate ingredient amounts:
 
-   **HIGH PROTEIN SOURCES** (prioritize for protein targets):
-   - Chicken breast: 31g protein, 3.6g fat, 0g carbs, 165 cal/100g → For 50g protein, use ~160g
-   - Turkey breast: 29g protein, 1g fat, 0g carbs, 135 cal/100g → For 50g protein, use ~170g
-   - Salmon: 20g protein, 13g fat, 0g carbs, 208 cal/100g → For 50g protein, use ~250g
-   - Tuna: 30g protein, 1g fat, 0g carbs, 132 cal/100g → For 50g protein, use ~165g
-   - Lean beef: 26g protein, 15g fat, 0g carbs, 250 cal/100g → For 50g protein, use ~190g
-   - Eggs (whole): 13g protein, 11g fat, 1.1g carbs, 155 cal/100g → For 30g protein, use ~230g (4 eggs)
-   - Egg whites: 11g protein, 0.2g fat, 0.7g carbs, 52 cal/100g → For 30g protein, use ~270g
-   - Greek yogurt: 10g protein, 0.4g fat, 3.6g carbs, 59 cal/100g → For 20g protein, use ~200g
-   - Cottage cheese: 11g protein, 4.3g fat, 3.4g carbs, 98 cal/100g → For 20g protein, use ~180g
-   - Tofu (firm): 8g protein, 4g fat, 2g carbs, 76 cal/100g → For 20g protein, use ~250g
+    **HIGH PROTEIN SOURCES** (for protein targets):
+    - Lean Poultry (Breast): 30g protein, 2g fat, 140 cal/100g
+    - Lean Red Meat: 26g protein, 10g fat, 200 cal/100g
+    - Oily Fish (Salmon): 20g protein, 12g fat, 200 cal/100g
+    - White Fish (Cod/Tilapia): 18g protein, 1g fat, 85 cal/100g
+    - Eggs (Large): 6g protein, 5g fat, 70 cal/item
+    - Plant Protein (Tofu/Tempeh): 10-20g protein, 5-10g fat, 100-200 cal/100g
+    - Legumes (Lentils/Beans): 8g protein, 20g carbs, 120 cal/100g
 
-   **CARBOHYDRATE SOURCES**:
-   - White rice (cooked): 2.7g protein, 0.3g fat, 28g carbs, 130 cal/100g → For 50g carbs, use ~180g
-   - Brown rice (cooked): 2.6g protein, 0.9g fat, 23g carbs, 112 cal/100g → For 50g carbs, use ~220g
-   - Quinoa (cooked): 4.4g protein, 1.9g fat, 21g carbs, 120 cal/100g → For 40g carbs, use ~190g
-   - Oats (dry): 13g protein, 7g fat, 67g carbs, 380 cal/100g → For 50g carbs, use ~75g
-   - Sweet potato: 1.6g protein, 0.1g fat, 20g carbs, 86 cal/100g → For 40g carbs, use ~200g
-   - Whole wheat pasta (cooked): 5g protein, 0.9g fat, 25g carbs, 131 cal/100g → For 50g carbs, use ~200g
-   - Whole wheat bread: 12g protein, 3g fat, 43g carbs, 247 cal/100g → For 30g carbs, use ~70g (2 slices)
-   - Banana: 1.1g protein, 0.3g fat, 23g carbs, 89 cal/100g → For 25g carbs, use ~110g (1 medium)
-   - Blueberries: 0.7g protein, 0.3g fat, 14g carbs, 57 cal/100g → For 20g carbs, use ~140g
-   - Black beans (cooked): 8.9g protein, 0.5g fat, 23g carbs, 132 cal/100g → For 30g carbs, use ~130g
+    **CARBOHYDRATE SOURCES**:
+    - Grains (Rice/Quinoa cooked): 2.5g protein, 25g carbs, 120 cal/100g
+    - Starchy Veg (Potato/Sweet Potato): 2g protein, 20g carbs, 90 cal/100g
+    - Pasta/Bread: 4g protein, 25-45g carbs, 130-250 cal/100g
+    - Fruits: 1g protein, 12-23g carbs, 50-90 cal/100g
 
-   **HEALTHY FATS**:
-   - Olive oil: 0g protein, 100g fat, 0g carbs, 884 cal/100g → For 10g fat, use ~10g (1 tbsp)
-   - Avocado: 2g protein, 15g fat, 9g carbs, 160 cal/100g → For 15g fat, use ~100g (1/2 medium)
-   - Almonds: 21g protein, 50g fat, 22g carbs, 579 cal/100g → For 15g fat, use ~30g
-   - Almond butter: 21g protein, 56g fat, 19g carbs, 614 cal/100g → For 15g fat, use ~27g (2 tbsp)
-   - Peanut butter: 25g protein, 50g fat, 20g carbs, 588 cal/100g → For 15g fat, use ~30g (2 tbsp)
-   - Chia seeds: 17g protein, 31g fat, 42g carbs, 486 cal/100g → For 10g fat, use ~32g
-   - Walnuts: 15g protein, 65g fat, 14g carbs, 654 cal/100g → For 15g fat, use ~23g
+    **HEALTHY FATS**:
+    - Oils/Butter: 0g protein, 100g fat, 880 cal/100g (9g per tbsp)
+    - Nuts/Seeds: 15-20g protein, 50g fat, 600 cal/100g
 
-   **VEGETABLES** (low calorie, add for volume/nutrients):
-   - Broccoli: 2.8g protein, 0.4g fat, 7g carbs, 34 cal/100g → Use 100-200g
-   - Spinach: 2.9g protein, 0.4g fat, 3.6g carbs, 23 cal/100g → Use 100-150g
-   - Asparagus: 2.2g protein, 0.1g fat, 3.9g carbs, 20 cal/100g → Use 100-150g
-   - Bell peppers: 1g protein, 0.3g fat, 6g carbs, 31 cal/100g → Use 100-150g
-   - Tomatoes: 0.9g protein, 0.2g fat, 3.9g carbs, 18 cal/100g → Use 100-200g
-   - Lettuce: 1.4g protein, 0.2g fat, 2.9g carbs, 15 cal/100g → Use 100-150g
+    > [!IMPORTANT]
+    > These examples are for MATHEMATICAL REFERENCE ONLY. Do not use them as a default menu. You MUST prioritize the USER'S CUISINE and DISLIKES above these examples.
 
-   **CALCULATION METHOD**:
-   For a ${mealDistribution.lunch} calorie lunch with ~55g protein, ~60g carbs, ~20g fats:
-   1. Start with protein: 180g chicken breast (≈56g protein, ≈6.5g fat, ≈0g carbs, ≈297 cal)
-   2. Add carbs: 200g sweet potato (≈3g protein, ≈0.2g fat, ≈40g carbs, ≈172 cal)
-   3. Add carbs: 100g quinoa (≈4g protein, ≈2g fat, ≈21g carbs, ≈120 cal)
-   4. Add fats: 10g olive oil (≈0g protein, ≈10g fat, ≈0g carbs, ≈88 cal)
-   5. Add vegetables: 150g asparagus (≈3g protein, ≈0.2g fat, ≈6g carbs, ≈30 cal)
-   6. Total: ≈66g protein, ≈19g fat, ≈67g carbs, ≈707 cal
+    **CALCULATION EXAMPLE**:
+    To hit ~500 cal with ~40g protein:
+    1. Protein: 150g of a 25g protein/100g source (≈38g protein, ≈10g fat, ≈240 cal)
+    2. Carbs: 150g of a 20g carb/100g source (≈30g carbs, ≈135 cal)
+    3. Fats: 1/2 tbsp oil + fiber veg (≈120 cal)
+    Total: ~40g protein, ~30g carbs, ~15g fat, ~500 cal.
 
-   **ACCURACY REQUIREMENTS**:
-   - Protein should be within ±20% of target (e.g., 55g target → 44-66g range)
-   - Carbs should be within ±25% of target (e.g., 60g target → 45-75g range)
-   - Fats should be within ±25% of target (e.g., 20g target → 15-25g range)
-   - Calories should be within ±15% of target (e.g., 650 cal target → 552-747 range)
+    **ACCURACY REQUIREMENTS**:
+    - Protein: ±15% of target
+    - Calories: ±10% of target
 
    **IMPORTANT**: These are approximations. The system will verify with USDA data and auto-adjust portions to hit exact targets.
+
+🚨 **CRITICAL: REALISTIC PORTION SIZES - MUST FOLLOW**:
+   You MUST use realistic, authentic serving sizes. Unrealistic portions will be rejected.
+
+   **INGREDIENT-SPECIFIC MAXIMUM LIMITS (per serving)**:
+   - Flour/Bread/Pasta: MAX 150g (typical: 50-100g for bread/pasta, 30-80g for flour in baked goods)
+   - Rice/Grains (cooked): MAX 200g (typical: 100-150g)
+   - Potatoes/Sweet Potatoes: MAX 300g (typical: 150-250g)
+   - Green Bananas/Plantains: MIN 200g for main dishes like Matoke (typical: 200-400g), not 50g!
+   - Onions: MAX 100g (typical: 50-80g for cooking)
+   - Leafy Greens (Kale, Spinach): MAX 200g (typical: 100-150g)
+   - Protein Sources: 100-250g depending on type (chicken breast: 150-200g, beef: 150-250g)
+   - Oils/Fats: MAX 15g (typical: 5-10g for cooking)
+   - Legumes/Beans (cooked): MAX 250g (typical: 150-200g)
+
+   **PROTEIN-RICH MEAL REQUIREMENT**:
+   - EVERY main meal (breakfast, lunch, dinner) MUST have at least 25g protein
+   - Snacks MUST have at least 15g protein
+   - Protein density: Aim for at least 0.15g protein per calorie (e.g., 500 cal meal = 75g protein minimum)
+   - Prioritize lean protein sources: chicken, fish, lean beef, eggs, legumes, tofu
+   - If a dish is low in protein (e.g., chapati, ugali), you MUST pair it with a protein source (meat, beans, eggs)
+
+🚨 **HEALTH & COOKING METHOD REQUIREMENTS** (SYSTEMATIC DETECTION):
+
+   **FORBIDDEN COOKING METHODS** (automatically detected and rejected):
+   - Deep frying: Any instruction containing "fry", "fried", "deep fry", "deep-fried" is FORBIDDEN
+   - Heavy pan-frying with excessive oil (>15g oil indicates deep frying)
+   - These methods create unhealthy trans fats and excessive calorie density
+   - Examples of FORBIDDEN: "Fry mandazi in oil", "Deep-fried chicken", "Fried dough"
+
+   **REQUIRED COOKING METHODS** (preferred):
+   - Grilling, baking, steaming, boiling, light sautéing (≤10g oil), roasting
+   - These methods preserve nutrients and minimize unhealthy fat absorption
+   - For traditional fried foods, use healthier alternatives: "Baked mandazi" instead of "Fried mandazi"
+
+   **AUTOMATIC HEALTH VALIDATION** (system will check):
+   1. Cooking method: Does NOT use deep frying or heavy frying
+   2. Sugar content: Added sugars ≤15g per serving
+   3. Protein density: ≥0.15g protein per calorie for main meals
+   4. Refined carbs: If using refined flour/grains, MUST pair with ≥25g protein
+   5. Meal completeness: At least 3 ingredients (not single-ingredient meals like "Mango" or "Banana")
+
+   **UNHEALTHY PATTERN DETECTION** (systematic rules, not manual lists):
+   The system automatically rejects meals that:
+   - Contain "fry" or "fried" in instructions (deep-fried foods like mandazi, donuts)
+   - Have >15g added sugar
+   - Have refined carbs without adequate protein pairing
+   - Are single-ingredient (incomplete meals)
+   - Have protein density <0.15g per calorie
+
+   **EXAMPLES OF UNHEALTHY MEALS TO AVOID**:
+   ❌ "Mandazi" with "Fry mandazi in oil" instruction → Use "Baked mandazi" instead
+   ❌ "Fried chicken" → Use "Grilled chicken" or "Baked chicken" instead
+   ❌ "Chapati" alone (refined carbs, no protein) → Make "Chapati with beans/eggs"
+   ❌ Just "Mango" (incomplete) → Make "Mango with Greek Yogurt and Nuts"
+
+   **EXAMPLES OF HEALTHY ALTERNATIVES**:
+   ✅ "Baked mandazi" (if culturally appropriate, use baking instead of frying)
+   ✅ "Grilled chicken" instead of fried
+   ✅ "Chapati with beans/eggs" (protein pairing)
+   ✅ "Mango Protein Smoothie" (complete meal with protein)
+
+   **CALORIE RANGE VALIDATION**:
+   - Breakfast: Must be within ±10% of target (e.g., if target is 600 cal, range is 540-660 cal)
+   - Lunch: Must be within ±10% of target
+   - Dinner: Must be within ±10% of target
+   - Snacks: Must be within ±15% of target (more flexible for smaller meals)
+   - If a meal is outside range, adjust ingredient amounts to bring it within range
 
 6. For each meal, provide:
    - **Meal name**: A creative, descriptive name based on the ingredients (e.g., "Avocado Toast with Poached Eggs", "Grilled Salmon with Quinoa and Asparagus", "Protein Acai Bowl with Berries", "Mediterranean Chicken Wrap"). Use descriptive names that reflect the actual meal composition, not generic names like "breakfast" or "lunch".
    - Meal type (breakfast, lunch, dinner, snack)
    - List of ingredients with amounts in grams. **Include at least 5 ingredients per meal**, covering primary components plus cooking fats (oil/butter), aromatics, spices, sauces, and garnishes (e.g., olive oil, garlic, salt, pepper, lemon juice, fresh herbs).
+   - **Estimated Macros PER INGREDIENT**: Provide rough estimates for calories, protein, carbs, and fats for EACH ingredient. These will be used as a fallback if USDA data lookup fails for rare items.
    - **Cooking instructions**: Provide 4-6 clear, step-by-step cooking instructions covering prep, cooking, finishing, and plating. Be specific about cooking methods, temperatures, times, and techniques. Examples:
      * For steak: ["Season steak with salt and pepper on both sides", "Heat grill or pan to high heat", "Cook steak for 4-5 minutes per side for medium-rare", "Rest for 5 minutes before slicing"]
      * For chicken: ["Preheat oven to 400°F", "Season chicken with herbs and spices", "Bake for 25-30 minutes until internal temperature reaches 165°F", "Let rest 5 minutes before serving"]
      * For pasta: ["Bring large pot of salted water to boil", "Add pasta and cook according to package directions", "Drain and toss with sauce", "Garnish with fresh herbs"]
    - Estimated macros (these will be verified with USDA data later)
-6. Meals should be practical, healthy, and meet dietary requirements
+6. **HEALTH & PROTEIN PRIORITY**:
+   - Meals MUST be protein-rich (see protein requirements above)
+   - Limit unhealthy options: Avoid excessive fried foods, refined carbs without protein pairing
+   - Ensure balanced macros: Even traditional dishes should be paired with protein sources
+   - Example: Chapati alone is NOT acceptable - pair with beans, meat, or eggs
+   - Example: Matoke alone is NOT acceptable - pair with groundnuts, beans, or meat
+
 7. Training days can have more carbs, rest days can have more fats
 8. **Meal names should be creative and appetizing**, reflecting the actual ingredients and preparation style
 9. **Instructions must be detailed and actionable** - users need to know how to actually cook the meal
 10. Include realistic pantry staples (oils, vinegars, citrus, aromatics, herbs) wherever appropriate so meals feel complete and flavorful
+
+**PORTION SIZE VALIDATION CHECKLIST** (verify before submitting):
+- ✅ No ingredient exceeds its maximum limit (see limits above)
+- ✅ Traditional dishes use culturally appropriate portions (e.g., Matoke uses 200-400g plantain, not 50g)
+- ✅ Each meal has adequate protein (25g+ for main meals, 15g+ for snacks)
+- ✅ Each meal is within calorie target range (±10% for main meals, ±15% for snacks)
+- ✅ Protein density is adequate (0.15g protein per calorie minimum)
 
 **FINAL VARIETY CHECK - Before submitting, verify EACH day:**
 - ✅ Day 1: Breakfast ≠ Lunch ≠ Dinner (all different meal names)
@@ -867,198 +951,72 @@ If the user specified:
 - Foods they love → Prioritize those foods throughout the week
 - Dietary restrictions → Strictly follow them (as important as macro targets)
 
-Generate meals for all 7 days now. Remember:
-1. RESPECT THE USER'S PREFERENCES (cuisine, likes, dislikes, restrictions)
-2. HIT THE MACRO TARGETS (calories, protein, carbs, fat)
-3. ENSURE MEAL VARIETY (each meal type on each day must be unique)`;
+🚨 FATAL EXCLUSIONS (DOUBLE CHECK):
+${(userProfile.dislikedIngredients || []).length > 0 ? `- STRICTLY FORBIDDEN: ZERO instances of ${(userProfile.dislikedIngredients || []).join(', ').toUpperCase()} in ANY meal.` : ''}
+${(userProfile.cuisinePreferences || []).length > 0 ? `- CUISINE REQUIREMENT: ALL main meals MUST be authentic ${(userProfile.cuisinePreferences || []).join(', ').toUpperCase()} dishes.` : ''}
+
+Generate all 7 days of meals now.`;
   }
 
   /**
    * Build detailed dietary guidance based on user preferences
    * Similar to how workout generation handles equipment constraints
    */
-  private buildDietaryGuidance(preferences: string): string {
-    if (!preferences || preferences.trim() === '') {
-      return `DIETARY PREFERENCES: None specified - create balanced, varied meals with common ingredients.`;
+  private buildDietaryGuidance(profile: UserProfile): string {
+    const preferences = profile.preferences || '';
+    const dietType = profile.dietType || 'None';
+    const allergies = profile.allergies || [];
+    const cuisinePreferences = profile.cuisinePreferences || [];
+    const dislikedIngredients = profile.dislikedIngredients || [];
+    const likedIngredients = profile.likedIngredients || [];
+    const mealComplexity = profile.mealComplexity || 'moderate';
+    const mealPrepPreference = profile.mealPrepPreference || 'fresh_daily';
+
+    let guidance = `DIETARY PROFILE & CRITICAL CONSTRAINTS:\n`;
+    guidance += `=========================================\n\n`;
+
+    guidance += `🎯 DIET TYPE: ${dietType.toUpperCase()}\n`;
+    guidance += `🏗️ CUISINE STYLE: ${cuisinePreferences.length > 0 ? cuisinePreferences.join(', ').toUpperCase() : 'ANY / VARIED'}\n`;
+    guidance += `🛑 ALLERGIES (FATAL - ZERO TOLERANCE): ${allergies.length > 0 ? allergies.join(', ').toUpperCase() : 'NONE'}\n`;
+    guidance += `❌ DISLIKED / FORBIDDEN INGREDIENTS: ${dislikedIngredients.length > 0 ? dislikedIngredients.join(', ').toUpperCase() : 'NONE'}\n`;
+    guidance += `❤️ PREFERRED / LIKED INGREDIENTS: ${likedIngredients.length > 0 ? likedIngredients.join(', ').toUpperCase() : 'NONE'}\n`;
+    guidance += `🍳 MEAL COMPLEXITY: ${mealComplexity.toUpperCase()}\n`;
+    guidance += `📦 MEAL PREP STYLE: ${mealPrepPreference.toUpperCase()}\n`;
+    guidance += `📝 ADDITIONAL NOTES: "${preferences}"\n\n`;
+
+    guidance += `⚠️ CRITICAL COMPLIANCE RULES (MANDATORY):\n`;
+    guidance += `1. CUISINE ADHERENCE: If a cuisine is specified (e.g., "${cuisinePreferences.join(', ')}"), EVERY main meal must be authentically from that cuisine. No generic Western meals.\n`;
+    guidance += `2. FATAL EXCLUSIONS: You MUST NOT include any ingredients listed in ALLERGIES or DISLIKED INGREDIENTS.\n`;
+
+    // Strategy based on prep preference
+    if (mealPrepPreference === 'fresh_daily') {
+      guidance += `3. VARIETY (MAXIMAL): Every single breakfast, lunch, and dinner in the 7-day plan must be a UNIQUE recipe. Do not repeat meals.\n`;
+    } else if (mealPrepPreference === 'batch_cooking') {
+      guidance += `3. VARIETY (BATCH PREP): You should repeat 3-4 core recipes for lunch and dinner throughout the week (e.g., "Monday Lunch" is the same as "Wednesday Lunch" and "Friday Lunch"). This simplifies bulk cooking.\n`;
+    } else if (mealPrepPreference === 'leftovers_ok') {
+      guidance += `3. VARIETY (LEFTOVERS): Use a "cook once, eat twice" strategy. For example, Monday's Dinner should usually be the same as Tuesday's Lunch.\n`;
     }
 
-    const prefs = preferences.toLowerCase();
-    let guidance = `DIETARY PREFERENCES & RESTRICTIONS:\n`;
-    guidance += `⚠️ CRITICAL: The following dietary requirements MUST be strictly followed:\n\n`;
+    guidance += `4. PORTION CONSISTENCY: If a meal/recipe is repeated on different days, the ingredient AMOUNTS in grams must remain EXACTLY identical. Do not adjust a repeated recipe to fit daily targets; instead, allow the daily totals to be slightly off or adjust non-repeated snacks.\n\n`;
 
-    // Pattern detection flags
-    const isVegan = prefs.includes('vegan');
-    const isVegetarian = prefs.includes('vegetarian') && !isVegan;
-    const isKeto = prefs.includes('keto') || prefs.includes('ketogenic');
-    const isLowCarb = (prefs.includes('low carb') || prefs.includes('low-carb')) && !isKeto;
-    const isPaleo = prefs.includes('paleo');
-    const isMediterranean = prefs.includes('mediterranean');
-    const isGlutenFree = prefs.includes('gluten-free') || prefs.includes('gluten free') || prefs.includes('celiac');
-    const isDairyFree = prefs.includes('dairy-free') || prefs.includes('dairy free') || prefs.includes('lactose');
-    const isNutFree = prefs.includes('nut-free') || prefs.includes('nut free') || prefs.includes('nut allergy');
-    const isPescatarian = prefs.includes('pescatarian') && !isVegan && !isVegetarian;
-    const isHighProtein = prefs.includes('high protein') || prefs.includes('high-protein');
-    const isWholeFoods = prefs.includes('whole food') || prefs.includes('whole-food') || prefs.includes('clean eating');
-
-    // Build specific guidance for each detected pattern
-    if (isVegan) {
-      guidance += `🌱 VEGAN DIET (STRICT - NO EXCEPTIONS):
-- ❌ FORBIDDEN: All animal products including meat, poultry, fish, seafood, dairy (milk, cheese, yogurt, butter), eggs, honey, gelatin, whey
-- ✅ PROTEIN SOURCES: Tofu (firm/silken), tempeh, seitan, edamame, lentils (red/green/black), chickpeas, black beans, kidney beans, pinto beans, quinoa, hemp seeds, nutritional yeast, pea protein powder, soy protein
-- ✅ DAIRY ALTERNATIVES: Almond milk, oat milk, soy milk, coconut milk/yogurt, cashew cheese, coconut cream
-- ✅ HEALTHY FATS: Avocado, nuts (almonds, walnuts, cashews), seeds (chia, flax, hemp, pumpkin), nut butters, tahini, olive oil, coconut oil
-- ✅ CARBS: Whole grains (quinoa, brown rice, oats, whole wheat pasta), sweet potatoes, regular potatoes, fruits
-- ✅ VEGETABLES: All vegetables are allowed
-- Example Meals: Tofu scramble with spinach, lentil curry with brown rice, chickpea pasta with marinara, quinoa Buddha bowl with tahini dressing, black bean tacos
-- IMPORTANT: Ensure adequate protein (25-35g per meal) from plant sources - combine legumes with grains for complete proteins\n\n`;
-    } else if (isVegetarian) {
-      guidance += `🥚 VEGETARIAN DIET:
-- ❌ FORBIDDEN: Meat, poultry, fish, seafood, gelatin
-- ✅ ALLOWED: Eggs, dairy products (milk, cheese, yogurt, butter), all plant-based foods
-- ✅ PROTEIN SOURCES: Eggs, Greek yogurt, cottage cheese, paneer, tofu, tempeh, lentils, chickpeas, black beans, quinoa, edamame, protein powder (whey or plant-based)
-- ✅ HEALTHY FATS: Cheese, avocado, nuts, seeds, nut butters, olive oil, butter (if not dairy-free)
-- Example Meals: Scrambled eggs with vegetables, Greek yogurt parfait, vegetarian chili, paneer tikka, egg salad sandwich, cheese and bean quesadilla
-- IMPORTANT: Vary protein sources throughout the week for complete amino acid profile\n\n`;
-    } else if (isPescatarian) {
-      guidance += `🐟 PESCATARIAN DIET:
-- ❌ FORBIDDEN: Meat (beef, pork, lamb), poultry (chicken, turkey)
-- ✅ ALLOWED: Fish, seafood, eggs, dairy, all plant-based foods
-- ✅ PROTEIN SOURCES: Salmon, tuna, cod, tilapia, shrimp, crab, mussels, eggs, Greek yogurt, cottage cheese, tofu, lentils, chickpeas
-- ✅ FOCUS: Prioritize fatty fish (salmon, mackerel, sardines) for omega-3s at least 2-3 times per week
-- Example Meals: Grilled salmon with quinoa, tuna salad, shrimp stir-fry, cod with roasted vegetables, seafood pasta
-- IMPORTANT: Choose wild-caught fish when possible, vary seafood types for nutrient diversity\n\n`;
+    // Complexity guidance
+    if (mealComplexity === 'simple') {
+      guidance += `👨‍🍳 COOKING GUIDANCE (SIMPLE): Keep recipes to 5-8 ingredients. Use quick cooking methods (stir-fry, boiling, raw). Avoid complex prep like marinating for hours.\n`;
+    } else if (mealComplexity === 'complex') {
+      guidance += `👨‍🍳 COOKING GUIDANCE (CHEF): Feel free to use 12+ ingredients per meal. Use advanced techniques: slow roasting, fermenting, marinating, and multiple pan components.\n`;
+    } else {
+      guidance += `👨‍🍳 COOKING GUIDANCE (MODERATE): Use 7-10 ingredients per meal. Standard home cooking techniques.\n`;
     }
 
-    if (isKeto) {
-      guidance += `🥑 KETOGENIC DIET (VERY LOW CARB):
-- ⚠️ STRICT CARB LIMIT: Maximum 20-30g net carbs per day (5-10g per meal, 5-10g for snacks)
-- ❌ FORBIDDEN: All grains (bread, rice, pasta, oats, quinoa), all starchy vegetables (potatoes, sweet potatoes, corn, peas), most fruits (except small portions of berries), sugar, beans/legumes
-- ✅ PROTEIN SOURCES: Fatty cuts of meat (ribeye, pork belly, chicken thighs with skin, salmon, mackerel), eggs, full-fat cheese
-- ✅ HEALTHY FATS (70-75% of calories): Avocado, olive oil, coconut oil, butter, ghee, heavy cream, MCT oil, nuts (macadamias, pecans, walnuts - limit to 1oz), seeds (chia, flax, hemp)
-- ✅ LOW-CARB VEGETABLES: Spinach, kale, lettuce, broccoli, cauliflower, zucchini, asparagus, bell peppers, mushrooms, Brussels sprouts (portion controlled)
-- ✅ ALLOWED FRUITS: Small portions of berries only (20-30g strawberries, blueberries, raspberries)
-- Example Meals: Scrambled eggs with avocado and bacon, salmon with butter and asparagus, ribeye with cauliflower mash, chicken thigh salad with olive oil dressing
-- MACRO TARGET: 70% fat, 25% protein, 5% carbs
-- IMPORTANT: Track net carbs (total carbs - fiber). Prioritize fat as primary energy source\n\n`;
-    } else if (isLowCarb) {
-      guidance += `🍖 LOW-CARB DIET:
-- ⚠️ MODERATE CARB LIMIT: 50-100g carbs per day (15-30g per meal)
-- ❌ MINIMIZE: Refined grains (white bread, white rice, regular pasta), sugary foods, processed carbs
-- ✅ LIMITED CARBS: Sweet potatoes, quinoa, brown rice, oats, whole grain bread (small portions - 50-100g cooked)
-- ✅ PROTEIN SOURCES: Chicken breast, turkey, lean beef, pork, fish, eggs, Greek yogurt
-- ✅ HEALTHY FATS: Avocado, nuts, seeds, olive oil, fatty fish
-- ✅ UNLIMITED: Non-starchy vegetables, leafy greens
-- Example Meals: Grilled chicken with roasted vegetables and small sweet potato, salmon with cauliflower rice, egg scramble with peppers and cheese
-- MACRO TARGET: 40% protein, 30% fat, 30% carbs
-- IMPORTANT: Focus on fiber-rich carbs from vegetables and limited whole grains\n\n`;
+    // Inject diet-specific rules if detected
+    const lowPrefs = (preferences + ' ' + dietType).toLowerCase();
+    if (lowPrefs.includes('vegan')) {
+      guidance += `🌱 VEGAN DIET RULES: No meat, poultry, fish, dairy, eggs, or honey. Use plant proteins (tofu, lentils, beans, seitan) exclusively.\n`;
+    } else if (lowPrefs.includes('vegetarian')) {
+      guidance += `🥚 VEGETARIAN DIET RULES: No meat, poultry, or fish. Dairy and eggs are allowed.\n`;
+    } else if (lowPrefs.includes('pescatarian')) {
+      guidance += `🐟 PESCATARIAN DIET RULES: No meat or poultry. Fish, seafood, eggs, and dairy are allowed.\n`;
     }
-
-    if (isPaleo) {
-      guidance += `🦴 PALEO DIET (WHOLE FOODS):
-- ❌ FORBIDDEN: All grains (wheat, rice, oats, corn), legumes (beans, lentils, peanuts), dairy products, refined sugar, processed foods, vegetable oils
-- ✅ PROTEIN SOURCES: Grass-fed beef, free-range chicken, wild-caught fish, eggs, pork
-- ✅ HEALTHY FATS: Avocado, nuts (almonds, walnuts, cashews - NO peanuts), seeds, coconut oil, olive oil, ghee
-- ✅ CARBS: Sweet potatoes, regular potatoes (white/red), squash, fruits, root vegetables
-- ✅ VEGETABLES: All vegetables are allowed
-- Example Meals: Grilled steak with roasted sweet potatoes, chicken with vegetables, salmon with cauliflower, egg scramble with avocado
-- IMPORTANT: Focus on unprocessed, whole foods that were available to our ancestors\n\n`;
-    }
-
-    if (isMediterranean) {
-      guidance += `🫒 MEDITERRANEAN DIET:
-- ✅ EMPHASIS: Olive oil as primary fat source, fish and seafood (2-3x per week), whole grains, legumes, fruits, vegetables, nuts, moderate dairy (yogurt, cheese)
-- ✅ PROTEIN SOURCES: Fish (salmon, sardines, mackerel), seafood, chicken, turkey, eggs, legumes (chickpeas, lentils), Greek yogurt
-- ✅ HEALTHY FATS: Extra virgin olive oil (generous amounts), olives, nuts (almonds, walnuts), seeds, avocado
-- ✅ WHOLE GRAINS: Whole wheat pasta, brown rice, quinoa, farro, bulgur, whole grain bread
-- ✅ FLAVOR PROFILE: Garlic, tomatoes, herbs (oregano, basil, rosemary), lemon, capers
-- ❌ MINIMIZE: Red meat (limit to 1-2x per month), processed meats, refined grains, sweets
-- Example Meals: Greek yogurt with nuts and honey, chickpea salad with olive oil, grilled fish with vegetables and quinoa, whole wheat pasta with tomato sauce
-- IMPORTANT: Use olive oil liberally, include fish regularly, emphasize plant-based proteins\n\n`;
-    }
-
-    if (isGlutenFree) {
-      guidance += `🌾 GLUTEN-FREE (CELIAC-SAFE):
-- ❌ FORBIDDEN: Wheat, barley, rye, regular oats (unless certified gluten-free), spelt, triticale, malt, brewer's yeast
-- ❌ HIDDEN SOURCES: Soy sauce (use tamari), some protein powders, processed foods with wheat derivatives
-- ✅ SAFE GRAINS: Rice (white, brown, wild), quinoa, certified gluten-free oats, corn, millet, buckwheat, amaranth
-- ✅ SAFE CARBS: Potatoes, sweet potatoes, rice noodles, corn tortillas, gluten-free bread/pasta
-- ✅ NATURALLY GLUTEN-FREE: All meats, fish, eggs, dairy, fruits, vegetables, nuts, seeds, legumes
-- Example Meals: Rice bowl with chicken and vegetables, gluten-free oatmeal, corn tortilla tacos, quinoa salad, rice noodle stir-fry
-- IMPORTANT: Check all packaged foods for hidden gluten, use gluten-free alternatives for grains\n\n`;
-    }
-
-    if (isDairyFree) {
-      guidance += `🥛 DAIRY-FREE / LACTOSE-FREE:
-- ❌ FORBIDDEN: Milk, cheese, yogurt, butter, cream, ice cream, whey protein, casein
-- ✅ DAIRY ALTERNATIVES: Almond milk, oat milk, soy milk, coconut milk/cream/yogurt, cashew cheese, coconut oil instead of butter
-- ✅ PROTEIN SOURCES: Meat, poultry, fish, eggs (if not vegan), legumes, tofu, plant-based protein powder
-- ✅ CALCIUM SOURCES: Fortified plant milks, leafy greens (kale, collards), almonds, tahini, fortified tofu
-- Example Meals: Oatmeal with almond milk, chicken with olive oil and vegetables, tofu scramble, smoothie with coconut yogurt
-- IMPORTANT: Replace dairy in all recipes with plant-based alternatives, check labels for hidden dairy (whey, casein)\n\n`;
-    }
-
-    if (isNutFree) {
-      guidance += `🚫 NUT-FREE (ALLERGY-SAFE):
-- ❌ FORBIDDEN: All tree nuts (almonds, walnuts, cashews, pecans, pistachios, macadamias, hazelnuts, Brazil nuts), peanuts, nut butters, nut oils, nut flours
-- ⚠️ CROSS-CONTAMINATION: Avoid foods processed in facilities with nuts
-- ✅ SAFE ALTERNATIVES: Seeds (sunflower seed butter, pumpkin seeds, chia seeds, hemp seeds, tahini/sesame butter), coconut (technically safe for most nut allergies)
-- ✅ SAFE FATS: Olive oil, avocado, coconut oil, seeds, fatty fish
-- ✅ SAFE PROTEINS: All meats, fish, eggs, dairy, legumes, tofu
-- Example Meals: Chicken with sunflower seed pesto, oatmeal with seeds and fruit, hummus with vegetables, salmon with tahini sauce
-- IMPORTANT: Replace all nut-based ingredients with seed-based alternatives\n\n`;
-    }
-
-    if (isHighProtein) {
-      guidance += `💪 HIGH PROTEIN FOCUS:
-- 🎯 TARGET: 35-45g protein per main meal, 15-20g per snack
-- ✅ PRIORITIZE: Lean meats (chicken breast, turkey, lean beef), fish (tuna, cod, tilapia), eggs, egg whites, Greek yogurt, cottage cheese, protein powder
-- ✅ PLANT PROTEINS: Tofu, tempeh, edamame, lentils, chickpeas, protein-fortified foods
-- IMPORTANT: Start each meal planning with protein source first, then build around it
-- Each main meal should have AT LEAST 180-250g of lean protein source (chicken, fish, tofu)\n\n`;
-    }
-
-    if (isWholeFoods) {
-      guidance += `🥗 WHOLE FOODS / CLEAN EATING:
-- ✅ EMPHASIS: Single-ingredient foods, minimally processed items
-- ❌ AVOID: Processed foods, artificial ingredients, preservatives, refined sugars, refined grains
-- ✅ PROTEIN: Fresh meats, fish, eggs, plain Greek yogurt, plain cottage cheese
-- ✅ CARBS: Whole grains (brown rice, quinoa, oats), sweet potatoes, fruits
-- ✅ FATS: Avocado, nuts, seeds, olive oil, coconut oil
-- IMPORTANT: Choose foods that look like they did when grown/raised, minimal ingredient lists\n\n`;
-    }
-
-    // CRITICAL: Always include the raw user preferences prominently
-    // This ensures ANY preference (not just predefined patterns) is respected
-    guidance += `\n🎯 USER'S EXACT PREFERENCES (CRITICAL - MUST FOLLOW):
-"${preferences}"
-
-⚠️ THIS IS EXTREMELY IMPORTANT: The user specifically requested the above preferences. You MUST interpret and strictly follow them, even if they don't match standard diet patterns above.
-
-Examples of how to interpret preferences:
-- "Mediterranean Food" → ALL meals must be authentic Mediterranean cuisine (Greek, Italian, Spanish, Turkish, Lebanese, Moroccan)
-- "Indian cuisine" → ALL meals must be Indian dishes (curry, dal, biryani, tandoori, etc.)
-- "Asian food" → ALL meals must be Asian cuisine (Chinese, Thai, Japanese, Korean, Vietnamese)
-- "Mexican food" → ALL meals must be Mexican dishes (tacos, burritos, enchiladas, etc.)
-- "No beef" → ZERO beef in any meal, use chicken, fish, pork, or plant proteins instead
-- "I love spicy food" → Include spicy elements (chili peppers, hot sauce, cayenne) in most meals
-- "No dairy" → ZERO milk, cheese, yogurt, butter, cream in any meal
-- "Allergic to shellfish" → ZERO shrimp, crab, lobster, mussels, clams, oysters
-- "Prefer chicken and fish" → Prioritize chicken and fish as protein sources, minimize red meat
-
-📋 GENERAL MEAL CREATION GUIDELINES:
-- Read and follow ALL dietary restrictions/preferences above before generating ANY meal
-- The user's exact preferences (shown above) are AS IMPORTANT as hitting macro targets
-- If a restriction forbids an ingredient, find appropriate substitutes from allowed lists
-- When in doubt about an ingredient, check if it violates any restriction/preference
-- Ensure every meal strictly complies with ALL applicable restrictions and preferences
-- Be creative with allowed ingredients to maintain meal variety and enjoyment
-- If user specified a cuisine type (Mediterranean, Indian, Asian, etc.), EVERY meal must be from that cuisine
-- If user specified food likes/dislikes, prioritize liked foods and NEVER include disliked foods
-
-⚠️ COMPLIANCE CHECK: Before finalizing each meal, verify:
-1. It contains ZERO forbidden ingredients from restrictions above
-2. It strictly follows the user's stated preferences (cuisine type, likes/dislikes, etc.)
-3. If a cuisine was specified, the meal name and ingredients match that cuisine authentically\n`;
 
     return guidance;
   }
@@ -1101,6 +1059,270 @@ Examples of how to interpret preferences:
       }
     } else {
       console.log('✅ [BATCH] Ingredient names look specific (no mixed/composite terms detected)');
+    }
+  }
+
+  /**
+   * Validate realistic portion sizes for ingredients
+   * Catches unrealistic portions like 500g flour for chapati or 50g green banana for matoke
+   */
+  private validateRealisticPortions(
+    meals: BatchMealGeneration,
+    weeklyOutline: WeeklyOutline,
+    userProfile: UserProfile
+  ): void {
+    const issues: string[] = [];
+    const warnings: string[] = [];
+
+    // Define ingredient-specific maximum limits (in grams)
+    const ingredientLimits: Record<string, { max: number; typical: string; cultural?: Record<string, { min?: number; max: number; typical: string }> }> = {
+      'wheat flour': { max: 150, typical: '50-100g for bread/pasta, 30-80g for baked goods' },
+      'flour': { max: 150, typical: '50-100g for bread/pasta, 30-80g for baked goods' },
+      'maize flour': { max: 150, typical: '80-120g for ugali' },
+      'rice': { max: 200, typical: '100-150g cooked' },
+      'potato': { max: 300, typical: '150-250g' },
+      'sweet potato': { max: 300, typical: '150-250g' },
+      'green banana': { 
+        max: 400, 
+        typical: '200-400g for main dishes like Matoke',
+        cultural: {
+          'kenyan': { min: 200, max: 400, typical: '200-400g for Matoke (NOT 50g!)' }
+        }
+      },
+      'plantain': { 
+        max: 400, 
+        typical: '200-400g for main dishes',
+        cultural: {
+          'kenyan': { min: 200, max: 400, typical: '200-400g for Matoke (NOT 50g!)' }
+        }
+      },
+      'onion': { max: 100, typical: '50-80g for cooking' },
+      'kale': { max: 200, typical: '100-150g' },
+      'spinach': { max: 200, typical: '100-150g' },
+      'collard greens': { max: 200, typical: '100-150g' },
+      'oil': { max: 15, typical: '5-10g for cooking' },
+      'olive oil': { max: 15, typical: '5-10g for cooking' },
+      'vegetable oil': { max: 15, typical: '5-10g for cooking' },
+      'chicken breast': { max: 250, typical: '150-200g' },
+      'beef': { max: 300, typical: '150-250g' },
+      'beans': { max: 250, typical: '150-200g cooked' },
+      'lentils': { max: 250, typical: '150-200g cooked' },
+    };
+
+    const cuisine = (userProfile.cuisinePreferences || [])[0]?.toLowerCase() || '';
+
+    meals.weeklyMeals.forEach((day) => {
+      day.meals.forEach((meal) => {
+        const mealName = (meal.mealName || '').toLowerCase();
+        const isChapati = mealName.includes('chapati');
+        const isMatoke = mealName.includes('matoke') || mealName.includes('matooke');
+        
+        meal.ingredients.forEach((ing) => {
+          const name = normalizeFoodName(ing.name || '');
+          const amount = ing.amount || 0;
+          
+          // Check against ingredient limits
+          for (const [key, limit] of Object.entries(ingredientLimits)) {
+            if (name.includes(key)) {
+              // Check cultural-specific limits first
+              if (limit.cultural && cuisine && limit.cultural[cuisine]) {
+                const culturalLimit = limit.cultural[cuisine];
+                if (culturalLimit.min && amount < culturalLimit.min) {
+                  issues.push(
+                    `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${meal.mealName}": ${ing.name} is ${amount}g, but ${cuisine} cuisine requires MIN ${culturalLimit.min}g (typical: ${culturalLimit.typical})`
+                  );
+                }
+                if (amount > culturalLimit.max) {
+                  issues.push(
+                    `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${meal.mealName}": ${ing.name} is ${amount}g, exceeds MAX ${culturalLimit.max}g for ${cuisine} cuisine (typical: ${culturalLimit.typical})`
+                  );
+                }
+              } else {
+                // Use general limits
+                if (amount > limit.max) {
+                  issues.push(
+                    `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${meal.mealName}": ${ing.name} is ${amount}g, exceeds MAX ${limit.max}g (typical: ${limit.typical})`
+                  );
+                }
+              }
+              break;
+            }
+          }
+
+          // Special checks for known problematic dishes
+          if (isChapati && (name.includes('flour') || name.includes('wheat'))) {
+            if (amount > 100) {
+              issues.push(
+                `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${meal.mealName}": Chapati uses ${amount}g flour, should be 50-100g per serving (NOT 500g!)`
+              );
+            }
+          }
+
+          if (isMatoke && (name.includes('green banana') || name.includes('plantain'))) {
+            if (amount < 200) {
+              issues.push(
+                `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${meal.mealName}": Matoke uses ${amount}g green banana/plantain, should be 200-400g per serving (NOT 50g!)`
+              );
+            }
+          }
+        });
+
+        // Check for low protein in main meals
+        const estimatedProtein = meal.estimatedProtein || 0;
+        const estimatedCalories = meal.estimatedCalories || 0;
+        const proteinDensity = estimatedCalories > 0 ? estimatedProtein / estimatedCalories : 0;
+
+        if (meal.mealType !== 'snack') {
+          if (estimatedProtein < 25) {
+            warnings.push(
+              `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${meal.mealName}": Only ${estimatedProtein.toFixed(1)}g protein, should have at least 25g for main meals`
+            );
+          }
+          if (proteinDensity < 0.15 && estimatedCalories > 0) {
+            warnings.push(
+              `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${meal.mealName}": Protein density is ${(proteinDensity * 100).toFixed(1)}% (${estimatedProtein}g/${estimatedCalories}cal), should be at least 15% (0.15g per calorie)`
+            );
+          }
+        } else {
+          if (estimatedProtein < 15) {
+            warnings.push(
+              `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${meal.mealName}": Only ${estimatedProtein.toFixed(1)}g protein, should have at least 15g for snacks`
+            );
+          }
+        }
+      });
+    });
+
+    if (issues.length > 0) {
+      console.error(`\n❌ [BATCH] UNREALISTIC PORTION SIZES DETECTED (${issues.length} issues):`);
+      issues.slice(0, 20).forEach((i) => console.error(`  - ${i}`));
+      if (issues.length > 20) {
+        console.error(`  ... and ${issues.length - 20} more`);
+      }
+      console.error(`\n⚠️  These meals may be regenerated or adjusted. Consider regenerating if issues are severe.`);
+    } else {
+      console.log('✅ [BATCH] Portion sizes look realistic');
+    }
+
+    if (warnings.length > 0) {
+      console.warn(`\n⚠️  [BATCH] PROTEIN WARNINGS (${warnings.length} warnings):`);
+      warnings.slice(0, 15).forEach((w) => console.warn(`  - ${w}`));
+      if (warnings.length > 15) {
+        console.warn(`  ... and ${warnings.length - 15} more`);
+      }
+    }
+  }
+
+  /**
+   * Validate meal health - systematically detect unhealthy meals
+   * Based on cooking methods, ingredient patterns, and nutritional characteristics
+   * NOT based on manual food lists - uses systematic rules
+   */
+  private validateMealHealth(meals: BatchMealGeneration): void {
+    const issues: string[] = [];
+    const warnings: string[] = [];
+
+    meals.weeklyMeals.forEach((day) => {
+      day.meals.forEach((meal) => {
+        const mealName = meal.mealName || '';
+        const instructions = (meal.instructions || []).join(' ').toLowerCase();
+        const estimatedCalories = meal.estimatedCalories || 0;
+        const estimatedProtein = meal.estimatedProtein || 0;
+        const ingredients = meal.ingredients || [];
+
+        // Rule 1: Detect unhealthy cooking methods (deep frying)
+        const hasDeepFrying = /deep\s*fry|deep\s*fried|deep-fry|deep-fried/.test(instructions);
+        const hasFrying = /\bfry\b|\bfried\b/.test(instructions);
+        
+        // Check for excessive oil (indicates deep frying)
+        const totalOil = ingredients.reduce((sum, ing) => {
+          const ingName = (ing.name || '').toLowerCase();
+          if (ingName.includes('oil') && !ingName.includes('olive') && !ingName.includes('coconut')) {
+            return sum + (ing.amount || 0);
+          }
+          return sum;
+        }, 0);
+
+        if (hasDeepFrying || (hasFrying && totalOil > 15)) {
+          issues.push(
+            `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${mealName}": Uses deep-frying or heavy frying (unhealthy cooking method). Use grilling, baking, or steaming instead.`
+          );
+        }
+
+        // Rule 2: Check for high added sugar
+        const addedSugar = ingredients.reduce((sum, ing) => {
+          const ingName = (ing.name || '').toLowerCase();
+          if (ingName.includes('sugar') || ingName.includes('honey') || ingName.includes('syrup') || ingName.includes('molasses')) {
+            return sum + (ing.amount || 0);
+          }
+          return sum;
+        }, 0);
+
+        if (addedSugar > 15) {
+          warnings.push(
+            `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${mealName}": High added sugar (${addedSugar}g). Should be ≤15g per serving.`
+          );
+        }
+
+        // Rule 3: Check for refined carbs without adequate protein
+        const hasRefinedCarbs = ingredients.some(ing => {
+          const ingName = (ing.name || '').toLowerCase();
+          return ingName.includes('flour') || ingName.includes('white rice') || 
+                 (ingName.includes('bread') && !ingName.includes('whole grain'));
+        });
+
+        if (hasRefinedCarbs && estimatedProtein < 20 && estimatedCalories > 500) {
+          warnings.push(
+            `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${mealName}": Contains refined carbs but only ${estimatedProtein.toFixed(1)}g protein. Should pair with ≥25g protein source.`
+          );
+        }
+
+        // Rule 4: Check for incomplete meals (single ingredient)
+        if (ingredients.length === 1) {
+          issues.push(
+            `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${mealName}": Incomplete meal (only 1 ingredient: ${ingredients[0].name}). Add complementary ingredients for a balanced meal.`
+          );
+        }
+
+        // Rule 5: Check protein density
+        if (estimatedCalories > 300) {
+          const proteinDensity = estimatedCalories > 0 ? estimatedProtein / estimatedCalories : 0;
+          const minProteinDensity = meal.mealType === 'snack' ? 0.10 : 0.15;
+          const minProtein = meal.mealType === 'snack' ? 15 : 25;
+
+          if (proteinDensity < minProteinDensity && estimatedProtein < minProtein) {
+            warnings.push(
+              `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${mealName}": Low protein density (${(proteinDensity * 100).toFixed(1)}%, ${estimatedProtein.toFixed(1)}g/${estimatedCalories}cal). Should be ≥${(minProteinDensity * 100).toFixed(0)}% (≥${minProtein}g protein).`
+            );
+          }
+        }
+
+        // Rule 6: Check for excessive calorie density (unless high-calorie target)
+        if (estimatedCalories > 1000) {
+          warnings.push(
+            `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${mealName}": Very high calories (${estimatedCalories}cal). Consider splitting into smaller portions or reducing calorie-dense ingredients.`
+          );
+        }
+      });
+    });
+
+    if (issues.length > 0) {
+      console.error(`\n❌ [BATCH] UNHEALTHY MEALS DETECTED (${issues.length} critical issues):`);
+      issues.slice(0, 20).forEach((i) => console.error(`  - ${i}`));
+      if (issues.length > 20) {
+        console.error(`  ... and ${issues.length - 20} more`);
+      }
+      console.error(`\n⚠️  These meals should be regenerated with healthier alternatives.`);
+    } else {
+      console.log('✅ [BATCH] No critical health issues detected');
+    }
+
+    if (warnings.length > 0) {
+      console.warn(`\n⚠️  [BATCH] HEALTH WARNINGS (${warnings.length} warnings):`);
+      warnings.slice(0, 15).forEach((w) => console.warn(`  - ${w}`));
+      if (warnings.length > 15) {
+        console.warn(`  ... and ${warnings.length - 15} more`);
+      }
     }
   }
 
@@ -1325,11 +1547,16 @@ Examples of how to interpret preferences:
           const data = usdaData[normalized];
 
           if (!data) {
-            console.warn(`⚠️  [BATCH] No USDA data for ingredient: ${ing.name}, using 0 macros`);
+            console.warn(`⚠️  [BATCH] No USDA data for ingredient: ${ing.name}, using AI fallback if available`);
             return {
               name: ing.name,
               amount: ing.amount,
-              nutrition: { calories: 0, protein: 0, carbs: 0, fats: 0 },
+              nutrition: {
+                calories: ing.estimatedCalories || 0,
+                protein: ing.estimatedProtein || 0,
+                carbs: ing.estimatedCarbs || 0,
+                fats: ing.estimatedFats || 0,
+              },
               fdcId: 0,
             };
           }
@@ -1459,6 +1686,24 @@ Examples of how to interpret preferences:
       usdaData
     );
 
+    // CRITICAL: Scale snack if it exceeds targets before optimization
+    if (meal.mealType === 'snack') {
+      const totalCalories = meal.totalMacros.calories;
+      const targetSnackCalories = mealTargets.calories;
+
+      if (totalCalories > targetSnackCalories + 20) { // Allow slight buffer
+        const scaleFactor = targetSnackCalories / totalCalories;
+        console.log(`⚖️  [BATCH] Scaling snack "${meal.mealName}" (per-meal) down by ${((1 - scaleFactor) * 100).toFixed(1)}% to hit ${targetSnackCalories} cal target.`);
+
+        optimizableIngredients.forEach(opt => {
+          opt.originalAmount *= scaleFactor;
+          opt.isLocked = true;
+          opt.minAmount = opt.originalAmount;
+          opt.maxAmount = opt.originalAmount;
+        });
+      }
+    }
+
     // Set up optimization targets with tolerances
     const targets = {
       calories: mealTargets.calories,
@@ -1570,8 +1815,35 @@ Examples of how to interpret preferences:
         };
 
         const isFixed = fixedIndices.includes(index) || !usdaEntry;
-        const minBound = isFixed ? ingredient.amount : Math.max(5, ingredient.amount * 0.25);
-        const maxBound = isFixed ? ingredient.amount : Math.min(500, ingredient.amount * 4);
+        // More conservative bounds to prevent unrealistic portions
+        const nameLower = ingredient.name.toLowerCase();
+        const ingredientMaxLimits: Record<string, number> = {
+          'flour': 150,
+          'wheat flour': 150,
+          'maize flour': 150,
+          'rice': 200,
+          'potato': 300,
+          'sweet potato': 300,
+          'green banana': 400,
+          'plantain': 400,
+          'onion': 100,
+          'kale': 200,
+          'spinach': 200,
+          'collard greens': 200,
+          'oil': 15,
+          'olive oil': 15,
+          'vegetable oil': 15,
+        };
+
+        let maxBound = isFixed ? ingredient.amount : Math.min(500, ingredient.amount * 2.0); // Changed from 4x to 2x
+        for (const [key, limit] of Object.entries(ingredientMaxLimits)) {
+          if (nameLower.includes(key)) {
+            maxBound = Math.min(maxBound, limit);
+            break;
+          }
+        }
+
+        const minBound = isFixed ? ingredient.amount : Math.max(5, ingredient.amount * 0.5); // Changed from 0.25x to 0.5x
 
         return {
           index,
@@ -1678,12 +1950,40 @@ Examples of how to interpret preferences:
         calories: usdaEntry.nutrition.calories / 100,
       };
 
-      // Set bounds: Allow 0.2x to 4x scaling
+      // Set bounds: More conservative scaling (0.5x to 2x) to prevent unrealistic portions
+      // Apply ingredient-specific maximum limits
+      const nameLower = ingredient.name.toLowerCase();
+      const ingredientMaxLimits: Record<string, number> = {
+        'flour': 150,
+        'wheat flour': 150,
+        'maize flour': 150,
+        'rice': 200,
+        'potato': 300,
+        'sweet potato': 300,
+        'green banana': 400,
+        'plantain': 400,
+        'onion': 100,
+        'kale': 200,
+        'spinach': 200,
+        'collard greens': 200,
+        'oil': 15,
+        'olive oil': 15,
+        'vegetable oil': 15,
+      };
+
+      let maxBound = ingredient.amount * 2.0; // Changed from 4x to 2x
+      for (const [key, limit] of Object.entries(ingredientMaxLimits)) {
+        if (nameLower.includes(key)) {
+          maxBound = Math.min(maxBound, limit);
+          break;
+        }
+      }
+
       adjustable.push({
         name: ingredient.name,
         originalAmount: ingredient.amount,
-        lowerBound: Math.max(1, ingredient.amount * 0.2),
-        upperBound: ingredient.amount * 4,
+        lowerBound: Math.max(1, ingredient.amount * 0.5), // Changed from 0.2x to 0.5x
+        upperBound: maxBound,
         perGram,
         fdcId: usdaEntry.fdcId,
         index,
@@ -2185,6 +2485,81 @@ Examples of how to interpret preferences:
       seasoningThreshold: 5,
     });
 
+    // CRITICAL: Sugar RAG Enforcement (Daily Limit: 30g added sugars)
+    const totalCurrentSugar = flatIngredients.reduce((acc, ing) => acc + (ing.nutrition.sugar || 0), 0);
+    const SUGAR_LIMIT = 30;
+
+    if (totalCurrentSugar > SUGAR_LIMIT) {
+      // Find ingredients that are "sensitive" sugars (Added Sugars: Sugar, Honey, Syrup)
+      // We exclude natural sugars from fruits which aren't typically "sensitive" ingredients
+      const sugarIngredients = flatIngredients
+        .map((ing, idx) => ({ ing, idx }))
+        .filter(entry => entry.ing.nutrition.sugar && (entry.ing.nutrition.sugar > 0) && isSensitiveIngredient(entry.ing.name));
+
+      const totalAddedSugar = sugarIngredients.reduce((acc, entry) => acc + (entry.ing.nutrition.sugar || 0), 0);
+
+      if (totalAddedSugar > 0) {
+        // How much do we need to cut from added sugars?
+        const excess = totalCurrentSugar - SUGAR_LIMIT;
+        // Scale down added sugars proportionally to attempt to hit the limit
+        const targetAddedSugar = Math.max(0, totalAddedSugar - excess);
+        const sugarScaleFactor = targetAddedSugar / totalAddedSugar;
+
+        console.log(`⚖️  [BATCH] Daily total sugar (${totalCurrentSugar.toFixed(1)}g) exceeds RAG limit (${SUGAR_LIMIT}g). Added sugar found: ${totalAddedSugar.toFixed(1)}g. Scaling added-sugar ingredients by ${((1 - sugarScaleFactor) * 100).toFixed(1)}%.`);
+
+        sugarIngredients.forEach(entry => {
+          const opt = optimizable[entry.idx];
+          opt.originalAmount *= sugarScaleFactor;
+          // Note: These will be locked by the sensitive ingredient check later, 
+          // but we'll manually ensure they are locked at the new amount below if needed.
+        });
+      } else if (totalCurrentSugar > SUGAR_LIMIT + 10) {
+        console.warn(`⚠️ [BATCH] Daily sugar (${totalCurrentSugar.toFixed(1)}g) exceeds limit, but no "Added Sugars" found to scale. This likely comes from natural sources (fruits).`);
+      }
+    }
+
+    // CRITICAL: Scale and lock snack ingredients + enforce sensitive ingredient locking
+    dayMeals.forEach((meal, mealIdx) => {
+      const isSnack = meal.mealType.toLowerCase().includes('snack');
+
+      meal.ingredients.forEach((ing, ingIdx) => {
+        // Find this ingredient in the flat 'optimizable' array
+        const globalIdx = indexMap.findIndex(m => m.mealIdx === mealIdx && m.ingIdx === ingIdx);
+        if (globalIdx === -1) return;
+
+        const opt = optimizable[globalIdx];
+
+        // 1. Handle Snack Scaling
+        if (isSnack) {
+          const totalCalories = meal.totalMacros.calories;
+          const targetSnackCalories = 350;
+
+          // If the snack generated by AI (and verified by USDA) is > target, scale it down
+          const snackScaleFactor = totalCalories > targetSnackCalories ? targetSnackCalories / totalCalories : 1;
+
+          if (snackScaleFactor < 1) {
+            if (ingIdx === 0) { // Log only once per snack
+              console.log(`⚖️  [BATCH] Scaling snack "${meal.mealName}" down by ${((1 - snackScaleFactor) * 100).toFixed(1)}% to hit ~${targetSnackCalories} cal limit.`);
+            }
+            opt.originalAmount *= snackScaleFactor;
+          }
+
+          // Snacks are ALWAYS locked to prevent the LP from shifting calories into them from main meals
+          opt.isLocked = true;
+          opt.minAmount = opt.originalAmount;
+          opt.maxAmount = opt.originalAmount;
+        }
+
+        // 2. Handle Sensitive Ingredient Locking (Sugar, Oils, Butter)
+        // This ensures that even if they weren't in a snack, they are locked at their (possibly sugar-scaled) amounts
+        if (isSensitiveIngredient(ing.name)) {
+          opt.isLocked = true;
+          opt.minAmount = opt.originalAmount;
+          opt.maxAmount = opt.originalAmount;
+        }
+      });
+    });
+
     // Build day targets with tolerances
     const targets = {
       calories: dayTargets.calories,
@@ -2240,12 +2615,12 @@ Examples of how to interpret preferences:
    */
   private async generateSupplementMealsForPlan(userProfile: UserProfile): Promise<void> {
     const { generateSupplementMeals } = await import('./SupplementMealGenerator');
-    
+
     // Use API config if set, otherwise try to get from userProfile or env
     const apiKey = this.apiConfig?.apiKey || userProfile.apiKey || '';
     const endpoint = this.apiConfig?.endpoint || userProfile.endpoint || 'groq';
     const model = this.apiConfig?.model || 'llama-3.3-70b-versatile';
-    
+
     if (!apiKey) {
       console.warn('⚠️ [BATCH] No API key for supplement meal generation, using defaults');
       const { getDefaultSupplementMeals } = await import('./SupplementMealGenerator');
@@ -2253,7 +2628,7 @@ Examples of how to interpret preferences:
       this.supplementMeals = (await import('./SupplementMealGenerator')).getDefaultSupplementMeals?.() || [];
       return;
     }
-    
+
     try {
       this.supplementMeals = await generateSupplementMeals(
         userProfile,
@@ -2284,9 +2659,6 @@ Examples of how to interpret preferences:
     trainingSplit: any,
     usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>
   ): Promise<MealWithUSDA[][]> {
-    const { GENERATION_TOLERANCES } = await import('@/constants/validation');
-    const { selectAndAdjustSupplementMeal, adjustSupplementMealToTarget } = await import('./SupplementMealGenerator');
-    
     const PROTEIN_TOLERANCE = GENERATION_TOLERANCES.PROTEIN_PERCENTAGE; // 10%
     const usedMealNames: string[] = []; // Track used supplement meals for variety
 
@@ -2297,7 +2669,7 @@ Examples of how to interpret preferences:
       let meals = [...dayMeals[dayIdx]];
       const day = trainingSplit.days[dayIdx];
       const dayTargets = this.calculateDayMacros(weeklyOutline, day?.isRestDay || false);
-      
+
       // Helper to calculate totals
       const calculateTotals = (mealList: MealWithUSDA[]) => mealList.reduce(
         (sum, meal) => ({
@@ -2312,7 +2684,7 @@ Examples of how to interpret preferences:
       let currentTotals = calculateTotals(meals);
       let proteinAccuracy = currentTotals.protein / dayTargets.protein;
       let proteinDeficit = dayTargets.protein - currentTotals.protein;
-      
+
       let supplementsAdded = 0;
       const MAX_SUPPLEMENTS = 3;
 
@@ -2320,23 +2692,23 @@ Examples of how to interpret preferences:
       while (proteinAccuracy < (1 - PROTEIN_TOLERANCE) && proteinDeficit > 2 && supplementsAdded < MAX_SUPPLEMENTS) {
         console.log(`⚠️ [PROTEIN] Day ${dayNum}: ${currentTotals.protein.toFixed(1)}g vs target ${dayTargets.protein}g (${(proteinAccuracy * 100).toFixed(1)}%)`);
         console.log(`   Need to add ${proteinDeficit.toFixed(1)}g protein`);
-        
+
         // Select and adjust a supplement meal
         const adjusted = this.supplementMeals.length > 0
           ? selectAndAdjustSupplementMeal(this.supplementMeals, proteinDeficit, {
-              maxCalories: proteinDeficit > 40 ? 500 : 400,
-              usedMealNames,
-            })
+            maxCalories: proteinDeficit > 40 ? 500 : 400,
+            usedMealNames,
+          })
           : null;
-        
+
         if (adjusted) {
           usedMealNames.push(adjusted.originalMeal.name);
-          
+
           // Convert to MealWithUSDA format
           const supplementMeal = this.convertSupplementToMeal(adjusted, dayNum, day?.dayName || `Day ${dayNum}`);
           meals.push(supplementMeal);
           supplementsAdded++;
-          
+
           console.log(`   ✅ Added "${adjusted.originalMeal.name}" (scale: ${adjusted.scaleFactor.toFixed(2)}x):`);
           console.log(`      +${adjusted.adjustedMacros.protein.toFixed(1)}g protein, +${adjusted.adjustedMacros.calories} kcal`);
         } else {
@@ -2345,16 +2717,16 @@ Examples of how to interpret preferences:
           const fallback = this.createPrecisionProteinShake(proteinDeficit, dayNum, day?.dayName || `Day ${dayNum}`);
           meals.push(fallback);
           supplementsAdded++;
-          
+
           console.log(`   ✅ Added precision shake: +${fallback.totalMacros.protein}g protein`);
         }
-        
+
         // Recalculate
         currentTotals = calculateTotals(meals);
         proteinAccuracy = currentTotals.protein / dayTargets.protein;
         proteinDeficit = dayTargets.protein - currentTotals.protein;
       }
-      
+
       // FINAL FALLBACK: Precision shake if still short
       if (proteinAccuracy < (1 - PROTEIN_TOLERANCE) && proteinDeficit > 2) {
         console.log(`🚨 [FINAL FALLBACK] Day ${dayNum}: Still ${proteinDeficit.toFixed(1)}g short`);
@@ -2363,14 +2735,14 @@ Examples of how to interpret preferences:
         currentTotals = calculateTotals(meals);
         console.log(`   ✅ GUARANTEED: ${currentTotals.protein.toFixed(1)}g protein (${(currentTotals.protein / dayTargets.protein * 100).toFixed(1)}%)`);
       }
-      
+
       if (supplementsAdded > 0) {
         console.log(`📊 Day ${dayNum} Final: ${currentTotals.protein.toFixed(1)}g protein (${(currentTotals.protein / dayTargets.protein * 100).toFixed(1)}% of ${dayTargets.protein}g target)`);
       }
-      
+
       supplementedDayMeals.push(meals);
     }
-    
+
     return supplementedDayMeals;
   }
 
@@ -2415,17 +2787,17 @@ Examples of how to interpret preferences:
     const WHEY_CALORIES_PER_GRAM = 3.6;
     const WHEY_CARBS_PER_GRAM = 0.05;
     const WHEY_FAT_PER_GRAM = 0.02;
-    
+
     const proteinWithBuffer = proteinNeeded * 1.05;
     const wheyAmount = Math.ceil(proteinWithBuffer / WHEY_PROTEIN_PER_GRAM);
-    
+
     const macros: MacroValues = {
       protein: Math.round(wheyAmount * WHEY_PROTEIN_PER_GRAM * 10) / 10,
       carbs: Math.round(wheyAmount * WHEY_CARBS_PER_GRAM * 10) / 10,
       fats: Math.round(wheyAmount * WHEY_FAT_PER_GRAM * 10) / 10,
       calories: Math.round(wheyAmount * WHEY_CALORIES_PER_GRAM),
     };
-    
+
     return {
       mealName: 'Protein Shake (Target Boost)',
       mealType: 'snack',

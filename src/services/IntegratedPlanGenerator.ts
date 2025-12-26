@@ -10,7 +10,7 @@
  * - State Management & Error Propagation
  */
 
-import { UserProfile } from '../models/UserProfile';
+import { UserProfile, getEffectiveGoalType } from '../models/UserProfile';
 import {
   CompletePlan,
   WeeklyOutline,
@@ -35,6 +35,10 @@ import { WorkoutVerificationService } from './WorkoutVerificationService';
 import { WeeklyWorkoutGenerator } from './WeeklyWorkoutGenerator';
 import { ShoppingListGenerationService } from './ShoppingListGenerationService';
 import { CardioGenerationService } from './CardioGenerationService';
+import {
+  nutritionCalculationService,
+  UserMetrics
+} from './NutritionCalculationService';
 
 /**
  * Generation State
@@ -127,6 +131,15 @@ export class IntegratedPlanGenerator {
       this.usdaService,
       this.cotService
     );
+
+    // Configure API for supplement generation
+    if (env.AI_API_KEY) {
+      this.batchMealGenerator.setApiConfig(
+        env.AI_API_KEY,
+        env.AI_ENDPOINT,
+        env.AI_MODEL_NAME
+      );
+    }
 
     // Initialize Workout Generation Services
     this.trainingSplitService = new TrainingSplitService(this.cotService);
@@ -287,6 +300,21 @@ export class IntegratedPlanGenerator {
         console.warn('⚠️  No session templates generated - skipping workout verification');
         this.addWarning('No workout sessions were generated');
       }
+
+      // Step 3.5: Reconcile Nutrition with Exercise Burn
+      // This ensures bulking/maintenance targets account for actual exercise expenditure
+      this.updateState({
+        progress: 45,
+        currentStep: 'Reconciling nutrition with exercise burn...',
+      }, opts.onStateUpdate);
+
+      await this.recalculateNutritionForExercise(
+        userProfile,
+        weeklyOutlines,
+        trainingSplit,
+        cardioTemplates,
+        trainingMetrics
+      );
 
       // Step 4: Generate Meal Plans
       console.log('🍽️  [GENERATION] Starting meal plan generation...');
@@ -1125,6 +1153,91 @@ export class IntegratedPlanGenerator {
       `Focus Areas: ${focusAreas}`,
       `Resistance Days: ${resistanceDays}`,
     ].join(' • ');
+  }
+
+  /**
+   * Recalculate nutrition targets based on actual generated exercise burn.
+   * This ensures that for bulking/maintenance goals, the targets are set 
+   * against (TDEE + actual burn) rather than just TDEE.
+   */
+  private async recalculateNutritionForExercise(
+    userProfile: UserProfile,
+    weeklyOutlines: WeeklyOutline[],
+    trainingSplit: TrainingSplit,
+    cardioTemplates: { weeklySchedules: any[] },
+    trainingMetrics: TrainingMetricSummary
+  ): Promise<void> {
+    const goalCategory = userProfile.goalCategory || 'maintenance';
+    const effectiveGoal = getEffectiveGoalType(goalCategory);
+
+    // Only apply for Bulking or Maintenance per user request
+    const isGainingOrMaintaining = effectiveGoal === 'muscle_gain' || effectiveGoal === 'maintenance';
+
+    if (!isGainingOrMaintaining) {
+      console.log(`ℹ️  [RECONCILIATION] Skipping exercise-adjusted targets for goal: ${goalCategory}`);
+      return;
+    }
+
+    console.log(`🔄 [RECONCILIATION] Adjusting nutrition targets for ${weeklyOutlines.length} weeks...`);
+
+    const metrics = {
+      weightKg: userProfile.weightKg,
+      heightCm: userProfile.heightCm,
+      age: userProfile.age,
+      sex: userProfile.sex,
+      bodyFat: userProfile.bodyFat,
+      activityLevel: userProfile.activityLevel,
+    } as UserMetrics;
+
+    const maintenance = await nutritionCalculationService.calculateMaintenanceCalories(metrics);
+    const baseTdee = trainingMetrics.tdee || maintenance.tdee;
+
+    for (const outline of weeklyOutlines) {
+      // 1. Calculate weekly resistance burn
+      const resistanceDaysCount = trainingSplit.days.filter(d => !d.isRestDay).length;
+      // Estimate ~250 cal per resistance session (user example)
+      const weeklyResistanceBurn = resistanceDaysCount * 250;
+
+      // 2. Calculate weekly cardio burn
+      const cardioSchedule = cardioTemplates.weeklySchedules.find(s => s.weekNumber === outline.weekNumber);
+      const weeklyCardioBurn = cardioSchedule?.totalWeeklyVolume?.totalCalories || 0;
+
+      // 3. Average daily exercise burn
+      const dailyExerciseBurn = (weeklyResistanceBurn + weeklyCardioBurn) / 7;
+
+      // 4. Create adjusted maintenance object (TDEE + Exercise)
+      // This represents the "True Maintenance" for this specific week's volume
+      const adjustedMaintenance = {
+        ...maintenance,
+        tdee: baseTdee + dailyExerciseBurn,
+        tdeeFormula: `${maintenance.tdeeFormula} + ${dailyExerciseBurn.toFixed(0)} avg exercise burn`
+      };
+
+      // 5. Calculate new macro targets using the adjusted baseline
+      const newMacros = await nutritionCalculationService.calculateMacroTargetsFromCategory(
+        metrics,
+        adjustedMaintenance,
+        {
+          goalCategory,
+          timelineWeeks: userProfile.timelineWeeks,
+          bodyFatGoal: userProfile.bodyFatGoal,
+        }
+      );
+
+      console.log(`✅ [RECONCILIATION] Week ${outline.weekNumber} targets adjusted:`);
+      console.log(`   Base TDEE: ${baseTdee.toFixed(0)} | Exercise: +${dailyExerciseBurn.toFixed(0)} | Adjusted Maintenance: ${adjustedMaintenance.tdee.toFixed(0)}`);
+      console.log(`   Initial Form Target: ${outline.dailyTargets.calories} | Actual Target: ${newMacros.calories}`);
+
+      // 6. Update outline so subsequent meal generation uses these higher targets
+      outline.dailyTargets = {
+        ...outline.dailyTargets,
+        calories: newMacros.calories,
+        protein: newMacros.protein,
+        carbs: newMacros.carbs,
+        fat: newMacros.fat,
+        proteinPerKg: newMacros.proteinPerKg,
+      };
+    }
   }
 }
 

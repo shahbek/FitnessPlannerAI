@@ -16,7 +16,7 @@ import { MacroValues } from '../../types/nutrition';
 import { normalizeFoodName, calculateMacrosForAmount } from '../../utils/usdaMapper';
 import { ProteinPriorityOptimizer, OptimizableIngredient, OptimizationResult, OptimizationTargets } from './ProteinPriorityOptimizer';
 import { LinearProgrammingOptimizer } from './LinearProgrammingOptimizer';
-import { isZeroImpactIngredient } from '../../constants/ingredients';
+import { isZeroImpactIngredient, isSensitiveIngredient } from '../../constants/ingredients';
 
 export interface HybridOptimizationResult extends OptimizationResult {
   method: 'lp' | 'protein-priority' | 'hybrid';
@@ -254,13 +254,14 @@ export class HybridMealOptimizer {
       const normalized = normalizeFoodName(ing.name);
       const usdaEntry = usdaData[normalized];
       const zeroImpact = isZeroImpactIngredient(ing.name);
+      const sensitive = isSensitiveIngredient(ing.name);
 
-      // Determine if ingredient should be locked (seasoning)
+      // Determine if ingredient should be locked (seasoning or sensitive)
       const isSmallAmount = ing.amount <= seasoningThreshold;
       const isSeasoningKeyword = seasoningKeywords.some(keyword =>
         ing.name.toLowerCase().includes(keyword)
       );
-      const isLocked = zeroImpact || isSmallAmount || isSeasoningKeyword || !usdaEntry;
+      const isLocked = zeroImpact || sensitive || isSmallAmount || isSeasoningKeyword || !usdaEntry;
 
       // Get per-100g nutrition
       const per100g = zeroImpact
@@ -275,9 +276,38 @@ export class HybridMealOptimizer {
         calories: per100g.calories / 100,
       };
 
-      // Set bounds (0.25x to 4x for adjustable, fixed for locked)
-      let minAmount = isLocked ? ing.amount : Math.max(1, ing.amount * 0.25);
-      let maxAmount = isLocked ? ing.amount : Math.min(500, ing.amount * 4.0);
+      // Set bounds with realistic portion constraints
+      // More conservative bounds to prevent unrealistic portions
+      let minAmount = isLocked ? ing.amount : Math.max(1, ing.amount * 0.5); // Changed from 0.25x to 0.5x
+      let maxAmount = isLocked ? ing.amount : Math.min(500, ing.amount * 2.0); // Changed from 4x to 2x
+
+      // Apply ingredient-specific maximum limits to prevent unrealistic portions
+      const nameLower = ing.name.toLowerCase();
+      const ingredientMaxLimits: Record<string, number> = {
+        'flour': 150,
+        'wheat flour': 150,
+        'maize flour': 150,
+        'rice': 200,
+        'potato': 300,
+        'sweet potato': 300,
+        'green banana': 400,
+        'plantain': 400,
+        'onion': 100,
+        'kale': 200,
+        'spinach': 200,
+        'collard greens': 200,
+        'oil': 15,
+        'olive oil': 15,
+        'vegetable oil': 15,
+      };
+
+      // Check if ingredient has a specific limit
+      for (const [key, limit] of Object.entries(ingredientMaxLimits)) {
+        if (nameLower.includes(key)) {
+          maxAmount = Math.min(maxAmount, limit);
+          break;
+        }
+      }
 
       if (!isLocked) {
         const isFatHeavy = density.fats >= 0.2; // ≥20g fat per 100g

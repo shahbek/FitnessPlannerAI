@@ -39,7 +39,7 @@ export class ShoppingListGenerationService {
 
     try {
       console.log('🛒 Starting shopping list generation with cost estimation...');
-      
+
       // ✅ VALIDATION: Ensure phaseMealTemplates weeks match weeklyOutlines weeks
       const mealTemplateWeeks = new Set<number>();
       phaseMealTemplates.flat().forEach((weekTemplate: any) => {
@@ -48,42 +48,42 @@ export class ShoppingListGenerationService {
         }
       });
       const outlineWeeks = new Set(weeklyOutlines.map(week => week.weekNumber));
-      
+
       // Check for missing weeks in meal templates
       const missingMealWeeks = Array.from(outlineWeeks).filter(week => !mealTemplateWeeks.has(week));
       if (missingMealWeeks.length > 0) {
         throw new Error(`❌ FAILED: Meal templates missing for weeks: ${missingMealWeeks.join(', ')}. Cannot generate shopping list without meals.`);
       }
-      
+
       // Check for extra weeks in meal templates (shouldn't happen, but validate)
       const extraMealWeeks = Array.from(mealTemplateWeeks).filter(week => !outlineWeeks.has(week));
       if (extraMealWeeks.length > 0) {
         console.warn(`⚠️ Meal templates contain extra weeks: ${extraMealWeeks.join(', ')}. Using weeklyOutlines as source of truth.`);
       }
-      
+
       // Use weeklyOutlines as the source of truth for plan duration
       const planWeeks = weeklyOutlines.length;
       console.log(`✅ Validated: ${planWeeks} weeks in plan, ${mealTemplateWeeks.size} weeks with meal templates`);
-      
+
       // Step 1: Extract all unique ingredients across all weeks
       const uniqueIngredients = this.extractUniqueIngredients(phaseMealTemplates, weeklyOutlines, userProfile);
-      
+
       console.log(`📊 Found ${uniqueIngredients.length} unique ingredients across all meal plans`);
-      
+
       if (uniqueIngredients.length === 0) {
         throw new Error('❌ FAILED: No ingredients found in meal templates. Cannot generate shopping list.');
       }
-      
+
       // Step 2: Calculate costs using hybrid approach (database + AI for unknown)
       console.log('💰 Step 2: Calculating ingredient costs (database + AI for unknown)...');
-      
+
       if (onReasoningUpdate) {
         onReasoningUpdate('## 💰 Calculating Ingredient Costs\n\nUsing price database for common ingredients, AI for others...', 'thinking');
       }
-      
+
       // Extract ingredients by week for proper cost calculation
       const weeklyIngredients = this.extractIngredientsByWeek(phaseMealTemplates, weeklyOutlines, userProfile);
-      
+
       // Get unique ingredient names across all weeks
       const allIngredientNames = new Set<string>();
       weeklyIngredients.forEach(weekMap => {
@@ -91,11 +91,11 @@ export class ShoppingListGenerationService {
           allIngredientNames.add(ingredientName);
         });
       });
-      
+
       // Separate ingredients into known (database) and unknown (need AI)
       const knownIngredientNames = new Set<string>();
       const unknownIngredientNames = new Set<string>();
-      
+
       allIngredientNames.forEach(ingredientName => {
         const priceInfo = this.costCalculator.getPriceInfo(ingredientName);
         if (priceInfo) {
@@ -104,16 +104,16 @@ export class ShoppingListGenerationService {
           unknownIngredientNames.add(ingredientName);
         }
       });
-      
+
       console.log(`📊 Ingredients: ${knownIngredientNames.size} in database, ${unknownIngredientNames.size} need AI pricing`);
-      
+
       // Collect all unknown ingredients with their usage across weeks
       const unknownIngredientsForAI: Array<{ name: string; weeks: number[]; totalAmount: number; unit: string }> = [];
       unknownIngredientNames.forEach(ingredientName => {
         const weeksUsed: number[] = [];
         let totalAmount = 0;
         let unit = 'g';
-        
+
         weeklyIngredients.forEach((weekMap, weekNumber) => {
           const ingredientData = weekMap.get(ingredientName);
           if (ingredientData) {
@@ -122,7 +122,7 @@ export class ShoppingListGenerationService {
             unit = ingredientData.unit; // Use unit from first occurrence
           }
         });
-        
+
         if (weeksUsed.length > 0) {
           unknownIngredientsForAI.push({
             name: ingredientName,
@@ -132,7 +132,7 @@ export class ShoppingListGenerationService {
           });
         }
       });
-      
+
       // Calculate costs for known ingredients (fast, accurate)
       const knownIngredientCosts = new Map<string, { costPerUnit: number; unit: string; item: any }>();
       knownIngredientNames.forEach(ingredientName => {
@@ -145,7 +145,7 @@ export class ShoppingListGenerationService {
           });
         }
       });
-      
+
       // Use AI to estimate costs for unknown ingredients
       let unknownIngredientCosts = new Map<string, { costPerUnit: number; unit: string }>();
       if (unknownIngredientsForAI.length > 0) {
@@ -163,14 +163,14 @@ export class ShoppingListGenerationService {
           unknownIngredientCosts = new Map();
         }
       }
-      
+
       // Calculate weekly costs for each ingredient
       const ingredientCostsForFormatting = this.calculateWeeklyCosts(
         weeklyIngredients,
         knownIngredientCosts,
         unknownIngredientCosts
       );
-      
+
       // Build comprehensive cost summary
       const costSummary = this.buildHybridCostSummary(
         uniqueIngredients,
@@ -178,16 +178,16 @@ export class ShoppingListGenerationService {
         unknownIngredientCosts,
         ingredientCostsForFormatting
       );
-      
+
       console.log(`✅ Cost calculation complete. ${knownIngredientNames.size} from database, ${unknownIngredientNames.size} from AI`);
-      
+
       if (onReasoningUpdate) {
         onReasoningUpdate(
           `## ✅ Cost Calculation Complete\n\nCalculated costs for all ingredients (${knownIngredientNames.size} from database, ${unknownIngredientNames.size} from AI).`,
           'thinking'
         );
       }
-      
+
       // Step 3: Format the cost data into weekly shopping lists
       console.log('📋 Step 3: Formatting shopping lists...');
       let parsed: any = null;
@@ -243,39 +243,39 @@ export class ShoppingListGenerationService {
       }
 
       console.log('✅ Shopping lists generated successfully');
-      
+
       if (onReasoningUpdate) {
         onReasoningUpdate('## ✅ Shopping Lists Complete\n\nAll weekly shopping lists with costs have been generated!', 'complete');
       }
-      
+
       // ✅ VALIDATION: Ensure all weeks have shopping lists (using planWeeks as source of truth)
       if (!parsed.weeklyShoppingLists || parsed.weeklyShoppingLists.length === 0) {
         throw new Error(`❌ FAILED: No weekly shopping lists generated. Expected lists for ${planWeeks} weeks.`);
       }
-      
+
       const weeksInShoppingLists = parsed.weeklyShoppingLists.map((list: any) => list.weekNumber).sort((a: number, b: number) => a - b);
       const expectedWeekNumbers = weeklyOutlines.map((week: any) => week.weekNumber).sort((a: number, b: number) => a - b);
       const missingWeeks = expectedWeekNumbers.filter((week: number) => !weeksInShoppingLists.includes(week));
       const extraWeeks = weeksInShoppingLists.filter((week: number) => !expectedWeekNumbers.includes(week));
-      
+
       if (missingWeeks.length > 0) {
         throw new Error(`❌ FAILED: Shopping lists missing for weeks: ${missingWeeks.join(', ')}. Expected ${planWeeks} weeks (from weeklyOutlines), got ${weeksInShoppingLists.length}.`);
       }
-      
+
       if (extraWeeks.length > 0) {
         console.warn(`⚠️ Shopping lists contain extra weeks: ${extraWeeks.join(', ')}. This should not happen - plan has ${planWeeks} weeks.`);
         // Filter out extra weeks to match plan duration
-        parsed.weeklyShoppingLists = parsed.weeklyShoppingLists.filter((list: any) => 
+        parsed.weeklyShoppingLists = parsed.weeklyShoppingLists.filter((list: any) =>
           expectedWeekNumbers.includes(list.weekNumber)
         );
       }
-      
+
       if (parsed.weeklyShoppingLists.length !== planWeeks) {
         throw new Error(`❌ FAILED: Shopping list count mismatch. Expected ${planWeeks} weeks (from weeklyOutlines), got ${parsed.weeklyShoppingLists.length} shopping lists.`);
       }
-      
+
       console.log(`✅ All ${planWeeks} weeks have shopping lists (validated against weeklyOutlines)`);
-      
+
       return parsed;
     } catch (error) {
       console.error('❌ Shopping list generation failed:', error);
@@ -393,23 +393,23 @@ export class ShoppingListGenerationService {
     _userProfile: any
   ): Map<number, Map<string, { amount: number; unit: string; meals: string[] }>> {
     const weeklyIngredients = new Map<number, Map<string, { amount: number; unit: string; meals: string[] }>>();
-    
+
     // phaseMealTemplates is array of arrays where inner arrays contain day templates
     // Each day template has: { weekNumber, dayNumber, meals: [...] }
     const allDayTemplates = phaseMealTemplates.flat();
-    
+
     // Group day templates by week
     const daysByWeek = new Map<number, any[]>();
     allDayTemplates.forEach((dayTemplate: any) => {
       const weekNumber = dayTemplate.weekNumber;
       if (!weekNumber) return;
-      
+
       if (!daysByWeek.has(weekNumber)) {
         daysByWeek.set(weekNumber, []);
       }
       daysByWeek.get(weekNumber)!.push(dayTemplate);
     });
-    
+
     // Process each week
     daysByWeek.forEach((dayTemplates, weekNumber) => {
       // Initialize week map
@@ -417,15 +417,15 @@ export class ShoppingListGenerationService {
         weeklyIngredients.set(weekNumber, new Map());
       }
       const weekIngredientMap = weeklyIngredients.get(weekNumber)!;
-      
+
       // Extract ingredients from ALL days in this week
       dayTemplates.forEach((dayTemplate: any) => {
         const meals = dayTemplate.meals || [];
-        
+
         // Each meal is eaten once per day, so we extract ingredients from all meals
         meals.forEach((meal: any) => {
           const mealName = meal.recipe?.name || meal.baseRecipe?.name || meal.name || meal.mealType || 'Unknown Meal';
-          
+
           // Handle multiple possible ingredient locations (CHECK ALL PATHS)
           let ingredients: any[] = [];
 
@@ -500,24 +500,24 @@ export class ShoppingListGenerationService {
               console.log(`   ✅ Recovered ${ingredients.length} ingredients from alternate path`);
             }
           }
-          
+
           ingredients.forEach((ingredient: any) => {
             const ingredientName = (ingredient.name || '').trim();
             if (!ingredientName) return;
-            
+
             // Parse amount (e.g., "100g" -> 100, "g")
             const amountStr = ingredient.amount || '0';
             const amountMatch = amountStr.match(/(\d+\.?\d*)\s*([a-zA-Z]+)?/);
             const amountPerMeal = amountMatch ? parseFloat(amountMatch[1]) : 0;
             const unit = amountMatch?.[2] || 'g';
-            
+
             // IMPORTANT: This meal is eaten ONCE PER DAY
             // If we're processing day 1, this is day 1's amount
             // We need to sum across all 7 days
             // But since we're iterating through all days, we just add the amount once per day
             // The total will be the sum of all days
             const normalizedName = ingredientName.toLowerCase();
-            
+
             // Group ingredients within the week (sum amounts across all days)
             if (weekIngredientMap.has(normalizedName)) {
               const existing = weekIngredientMap.get(normalizedName)!;
@@ -586,10 +586,10 @@ export class ShoppingListGenerationService {
     userProfile: any
   ): UniqueIngredient[] {
     const ingredientMap = new Map<string, UniqueIngredient>();
-    
+
     // Use the new week-by-week extraction
     const weeklyIngredients = this.extractIngredientsByWeek(phaseMealTemplates, weeklyOutlines, userProfile);
-    
+
     // Aggregate across all weeks
     weeklyIngredients.forEach((weekMap, weekNumber) => {
       weekMap.forEach((ingredientData, ingredientName) => {
@@ -611,7 +611,7 @@ export class ShoppingListGenerationService {
         }
       });
     });
-    
+
     return Array.from(ingredientMap.values()).sort((a, b) => b.occurrences - a.occurrences);
   }
 
@@ -625,14 +625,14 @@ export class ShoppingListGenerationService {
     const lines: string[] = [];
     lines.push('=== INGREDIENT COST TABLE ===\n');
     lines.push(`Calculated costs using Canadian market price database (2024-2025 prices)\n`);
-    
+
     uniqueIngredients.forEach((ing, idx) => {
       const costData = ingredientCosts.get(ing.name);
       if (!costData) return;
-      
+
       const amountString = `${Math.round(ing.totalAmount)}${ing.unit || 'g'}`;
       const priceInfo = costData.item;
-      
+
       lines.push(`${idx + 1}. ${ing.name}`);
       if (priceInfo) {
         lines.push(`   - Price: $${priceInfo.pricePerUnit.toFixed(2)}/${priceInfo.unit}`);
@@ -650,7 +650,7 @@ export class ShoppingListGenerationService {
       }
       lines.push('');
     });
-    
+
     return lines.join('\n');
   }
 
@@ -663,9 +663,9 @@ export class ShoppingListGenerationService {
 USER LOCATION: ${userProfile.location || 'Canada'}
 
 UNIQUE INGREDIENTS (${uniqueIngredients.length} total):
-${uniqueIngredients.slice(0, 50).map((ing, idx) => 
-  `${idx + 1}. ${ing.name} - Used ${ing.occurrences}x across ${ing.usedInWeeks.length} weeks (Total: ${Math.round(ing.totalAmount)}${ing.unit})`
-).join('\n')}
+${uniqueIngredients.slice(0, 50).map((ing, idx) =>
+      `${idx + 1}. ${ing.name} - Used ${ing.occurrences}x across ${ing.usedInWeeks.length} weeks (Total: ${Math.round(ing.totalAmount)}${ing.unit})`
+    ).join('\n')}
 ${uniqueIngredients.length > 50 ? `\n... and ${uniqueIngredients.length - 50} more ingredients` : ''}
 
 YOUR TASK:
@@ -715,7 +715,26 @@ CRITICAL:
     unknownIngredients: Array<{ name: string; weeks: number[]; totalAmount: number; unit: string }>,
     userProfile: any
   ): Promise<Map<string, { costPerUnit: number; unit: string }>> {
-    if (unknownIngredients.length === 0) {
+    const costMap = new Map<string, { costPerUnit: number; unit: string }>();
+
+    // Filter out free/irrelevant ingredients first
+    const FREE_INGREDIENTS = ['water', 'tap water', 'ice', 'ice cubes', 'salt', 'pepper', 'black pepper', 'sea salt', 'air'];
+
+    const ingredientsToQuery = unknownIngredients.filter(ing => {
+      const name = ing.name.toLowerCase().trim();
+      // Check if it's in free list or contains 'water' but is short (to avoid 'watermelon')
+      if (FREE_INGREDIENTS.some(free => name === free) || (name.includes('water') && name.length < 10 && !name.includes('melon'))) {
+        costMap.set(name, { costPerUnit: 0, unit: '100g' });
+        return false;
+      }
+      return true;
+    });
+
+    if (ingredientsToQuery.length === 0 && costMap.size > 0) {
+      return costMap;
+    }
+
+    if (ingredientsToQuery.length === 0) {
       return new Map();
     }
 
@@ -723,10 +742,10 @@ CRITICAL:
 
 USER LOCATION: ${userProfile.location || 'Canada'}
 
-UNKNOWN INGREDIENTS (${unknownIngredients.length} total):
-${unknownIngredients.map((ing, idx) => 
-  `${idx + 1}. ${ing.name} - Used in weeks ${ing.weeks.join(', ')} (Total needed: ${Math.round(ing.totalAmount)}${ing.unit})`
-).join('\n')}
+UNKNOWN INGREDIENTS (${ingredientsToQuery.length} total):
+${ingredientsToQuery.map((ing, idx) =>
+      `${idx + 1}. ${ing.name} - Used in weeks ${ing.weeks.join(', ')} (Total needed: ${Math.round(ing.totalAmount)}${ing.unit})`
+    ).join('\n')}
 
 YOUR TASK:
 For EACH ingredient, provide:
@@ -738,6 +757,7 @@ CRITICAL:
 - Major chains: Loblaws, Metro, Sobeys, Real Canadian Superstore
 - Consider typical package sizes available in stores
 - Prices should be in CAD
+- If an item is practically free or a basic staple (like tap water), use 0.00
 
 Return ONLY valid JSON in this exact format (no markdown, no explanations):
 {
@@ -751,7 +771,7 @@ Return ONLY valid JSON in this exact format (no markdown, no explanations):
   ]
 }
 
-IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredients listed above.`;
+IMPORTANT: You MUST provide pricing for ALL ${ingredientsToQuery.length} ingredients listed above.`;
 
     try {
       const model = this.groq('llama-3.3-70b-versatile');
@@ -762,7 +782,7 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
       });
 
       const responseText = result.text || '';
-      
+
       // Extract JSON
       const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
@@ -770,17 +790,15 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
       }
 
       const parsed = JSON.parse(jsonMatch[0]);
-      
+
       if (!parsed.ingredients || !Array.isArray(parsed.ingredients)) {
         throw new Error('AI response missing ingredients array');
       }
 
       // Map results
-      const costMap = new Map<string, { costPerUnit: number; unit: string }>();
-      
       parsed.ingredients.forEach((item: any) => {
         const name = (item.name || '').toLowerCase().trim();
-        if (name && item.pricePerUnit && item.unit) {
+        if (name && item.pricePerUnit !== undefined && item.unit) {
           costMap.set(name, {
             costPerUnit: parseFloat(item.pricePerUnit) || 0,
             unit: item.unit
@@ -788,21 +806,41 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
         }
       });
 
-      // Validate all ingredients got prices
-      const missingPrices = unknownIngredients.filter(ing => 
+      // Validate all ingredients got prices - but be RESILIENT
+      const missingPrices = ingredientsToQuery.filter(ing =>
         !costMap.has(ing.name.toLowerCase())
       );
 
       if (missingPrices.length > 0) {
-        throw new Error(`AI failed to provide prices for ${missingPrices.length} ingredients: ${missingPrices.map(i => i.name).join(', ')}`);
+        console.warn(`⚠️ AI failed to provide prices for ${missingPrices.length} ingredients: ${missingPrices.map(i => i.name).join(', ')}. Using default fallback pricing ($0.05/100g).`);
+
+        // Add fallbacks for missing items instead of throwing
+        missingPrices.forEach(ing => {
+          costMap.set(ing.name.toLowerCase(), {
+            costPerUnit: 0.05, // Small nominal value
+            unit: '100g'
+          });
+        });
       }
 
-      console.log(`✅ AI estimated prices for ${costMap.size} unknown ingredients`);
+      console.log(`✅ AI estimated prices for ${costMap.size} unknown ingredients (including ${missingPrices.length} fallbacks and ${unknownIngredients.length - ingredientsToQuery.length} free items)`);
       return costMap;
 
     } catch (error) {
       console.error('❌ AI ingredient cost estimation failed:', error);
-      throw new Error(`Failed to estimate costs for unknown ingredients: ${error instanceof Error ? error.message : 'Unknown error'}. This is required - no fallback pricing available.`);
+
+      // CRITICAL: Fallback to nominal pricing for EVERYTHING if the AI call fails completely
+      // This prevents the entire generator from crashing
+      console.warn('⚠️ AI call failed completely. Falling back to nominal pricing ($0.25/100g) for all items to allow generation to continue.');
+
+      const fallbackMap = new Map<string, { costPerUnit: number; unit: string }>();
+      unknownIngredients.forEach(ing => {
+        fallbackMap.set(ing.name.toLowerCase(), {
+          costPerUnit: 0.25, // Slightly higher fallback for total failure
+          unit: '100g'
+        });
+      });
+      return fallbackMap;
     }
   }
 
@@ -820,7 +858,7 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
       weekMap.forEach((ingredientData, ingredientName) => {
         // Get price info
         let priceInfo: { costPerUnit: number; unit: string; weightPerUnit?: number } | null = null;
-        
+
         const knownCost = knownIngredientCosts.get(ingredientName);
         if (knownCost) {
           priceInfo = {
@@ -842,7 +880,7 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
             } else if (unknownCost.unit === 'piece' || unknownCost.unit === 'each') {
               weightPerUnit = 100; // Estimate
             }
-            
+
             priceInfo = {
               costPerUnit: unknownCost.costPerUnit,
               unit: unknownCost.unit,
@@ -863,7 +901,7 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
           let grams = ingredientData.amount;
           if (ingredientData.unit === 'kg') grams = ingredientData.amount * 1000;
           else if (ingredientData.unit === 'g') grams = ingredientData.amount;
-          
+
           // Convert to price unit
           if (priceInfo.unit === 'kg') {
             amountInPriceUnit = grams / 1000;
@@ -910,7 +948,7 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
     uniqueIngredients.forEach((ing, idx) => {
       const knownCost = knownIngredientCosts.get(ing.name);
       const unknownCost = unknownIngredientCosts.get(ing.name);
-      
+
       if (!knownCost && !unknownCost) {
         console.warn(`⚠️ No cost info for ingredient: ${ing.name}`);
         return;
@@ -918,7 +956,7 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
 
       const priceInfo = knownCost || { costPerUnit: unknownCost!.costPerUnit, unit: unknownCost!.unit, item: null };
       const method = knownCost ? 'database' : 'AI estimated';
-      
+
       // Calculate total cost across all weeks
       const weeklyCostMap = weeklyCosts.get(ing.name);
       let totalCost = 0;
@@ -979,7 +1017,7 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
         weekMap.get(category)!.push(ing);
       }
     }
-    
+
     // Build enhanced prompt with weekly cost information if available
     let costDetails = '';
     if (weeklyCosts && weeklyCosts.size > 0) {
@@ -990,7 +1028,7 @@ IMPORTANT: You MUST provide pricing for ALL ${unknownIngredients.length} ingredi
         });
       });
     }
-    
+
     return `Extract ingredient costs and create weekly shopping lists in JSON format.
 
 COST ANALYSIS:
@@ -1001,10 +1039,10 @@ ${weeklyOutlines.map(week => `Week ${week.weekNumber} (${week.phase})`).join('\n
 
 INGREDIENT USAGE BY WEEK (with categories):
 ${Array.from(ingredientsByWeek.entries()).map(([weekNum, categoryMap]) => {
-  return `Week ${weekNum}:\n${Array.from(categoryMap.entries()).map(([cat, ings]) => 
-    `  ${cat}: ${ings.map(i => i.name).join(', ')}`
-  ).join('\n')}`;
-}).join('\n\n')}
+      return `Week ${weekNum}:\n${Array.from(categoryMap.entries()).map(([cat, ings]) =>
+        `  ${cat}: ${ings.map(i => i.name).join(', ')}`
+      ).join('\n')}`;
+    }).join('\n\n')}
 
 YOUR TASK:
 1. Create a master shopping list with ALL ingredients and their costs (extract from cost analysis)
@@ -1234,7 +1272,7 @@ CRITICAL:
    */
   private extractAndParseJSON(text: string): any {
     console.log('📋 Response length:', text.length);
-    
+
     // Try to find JSON object
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
@@ -1243,7 +1281,7 @@ CRITICAL:
       } catch (error) {
         const parseError = error as SyntaxError;
         console.warn('⚠️ JSON parse failed, attempting fixes...');
-        
+
         // Extract error position for better diagnostics
         const positionMatch = parseError.message.match(/position (\d+)/);
         if (positionMatch) {
@@ -1252,7 +1290,7 @@ CRITICAL:
           const end = Math.min(jsonMatch[0].length, errorPos + 200);
           console.warn(`   Error at position ${errorPos}:`);
           console.warn(`   Context: ...${jsonMatch[0].substring(start, end)}...`);
-          
+
           // If error mentions array, try specific array fixes first
           if (parseError.message.includes('array') || parseError.message.includes(']')) {
             console.warn('   Detected array-related error, applying array-specific fixes...');
@@ -1264,7 +1302,7 @@ CRITICAL:
             }
           }
         }
-        
+
         const fixed = this.fixCommonJSONIssues(jsonMatch[0]);
         try {
           return JSON.parse(fixed);
@@ -1280,7 +1318,7 @@ CRITICAL:
         }
       }
     }
-    
+
     // Try code block extraction
     const codeBlockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
     if (codeBlockMatch) {
@@ -1290,21 +1328,21 @@ CRITICAL:
         console.error('Failed to parse code block JSON:', e);
       }
     }
-    
+
     // Try flexible extraction with enhanced error recovery
     const firstBrace = text.indexOf('{');
     const lastBrace = text.lastIndexOf('}');
-    
+
     if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
       const extracted = text.substring(firstBrace, lastBrace + 1);
-      
+
       // Try multiple fix strategies
       const strategies = [
         () => this.fixCommonJSONIssues(extracted),
         () => this.aggressiveJSONFix(extracted),
         () => this.fixArrayIssues(extracted)
       ];
-      
+
       for (const fixFn of strategies) {
         try {
           const fixed = fixFn();
@@ -1314,9 +1352,9 @@ CRITICAL:
           continue;
         }
       }
-      
+
       console.error('Failed to parse extracted JSON after all fix attempts');
-      
+
       // Last resort: try to extract just the weeklyShoppingLists array
       const listsMatch = extracted.match(/"weeklyShoppingLists"\s*:\s*\[([\s\S]*)\]/);
       if (listsMatch) {
@@ -1328,7 +1366,7 @@ CRITICAL:
         }
       }
     }
-    
+
     throw new Error('Could not extract JSON from response');
   }
 
@@ -1337,14 +1375,14 @@ CRITICAL:
    */
   private fixCommonJSONIssues(jsonString: string): string {
     let fixed = jsonString;
-    
+
     // Step 1: Fix trailing commas (must be first)
     fixed = fixed.replace(/,(\s*[}\]])/g, '$1');
-    
+
     // Step 2: Fix missing commas in arrays (find patterns like: ]\s*" or ]\s*{ or ]\s*\[ or ]\s*\d)
     // This handles: ["item1" "item2"] or [1 2 3] -> ["item1", "item2"] or [1, 2, 3]
     fixed = fixed.replace(/(["\d\]}])\s+(["\d\[\{])/g, '$1, $2');
-    
+
     // Step 3: Fix missing commas after array elements before closing bracket
     // Pattern: ..."item" ] or ...123 ] -> ..."item", ] or ...123, ]
     fixed = fixed.replace(/(["\d\]\}])\s*\]/g, (match, p1) => {
@@ -1362,26 +1400,26 @@ CRITICAL:
       }
       return match;
     });
-    
+
     // Step 4: Fix single quotes to double quotes (be careful with contractions)
     fixed = fixed.replace(/'([^']*)'(?=\s*[,:}\]])/g, '"$1"');
-    
+
     // Step 5: Fix unquoted property names
     fixed = fixed.replace(/([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$]*)(\s*:)/g, '$1"$2"$3');
-    
+
     // Step 6: Remove duplicate commas
     fixed = fixed.replace(/,{2,}/g, ',');
-    
+
     // Step 7: Fix commas before closing brackets/braces (shouldn't exist after step 1, but double-check)
     fixed = fixed.replace(/,(\s*[}\]])/g, '$1');
-    
+
     // Step 8: Fix unclosed strings (add closing quote if missing)
     // This is a simple heuristic - count quotes and fix obvious issues
     let quoteCount = 0;
     let inString = false;
     let escapeNext = false;
     const chars = fixed.split('');
-    
+
     for (let i = 0; i < chars.length; i++) {
       const char = chars[i];
       if (escapeNext) {
@@ -1397,7 +1435,7 @@ CRITICAL:
         quoteCount++;
       }
     }
-    
+
     // If we have an odd number of quotes and end without closing, try to fix
     if (inString && quoteCount % 2 !== 0) {
       // Try to add closing quote before next structural character
@@ -1412,7 +1450,7 @@ CRITICAL:
         }
       }
     }
-    
+
     return fixed;
   }
 
@@ -1421,32 +1459,32 @@ CRITICAL:
    */
   private aggressiveJSONFix(jsonString: string): string {
     let fixed = this.fixCommonJSONIssues(jsonString);
-    
+
     // Remove any leading/trailing whitespace or non-JSON characters
     fixed = fixed.trim();
-    
+
     // Handle common text before JSON (remove "Here is the JSON:" type stuff)
     fixed = fixed.replace(/^[^{]*/, '');
-    
+
     // Handle common text after JSON
     fixed = fixed.replace(/[^}]*$/, '');
-    
+
     // Fix newlines that might be breaking strings
     fixed = fixed.replace(/\n(?=\s*")/g, ' ');
-    
+
     // Fix single line breaks inside strings
     fixed = fixed.replace(/: "([^"]*)\n([^"]*)"/g, ': "$1 $2"');
-    
+
     // Remove any BOM characters
     fixed = fixed.replace(/^\uFEFF/, '');
-    
+
     // Handle escaped quotes properly
     fixed = fixed.replace(/\\"/g, '\\"');
-    
+
     // Handle infinity and NaN (replace with null or 0)
     fixed = fixed.replace(/:\s*Infinity/g, ': null');
     fixed = fixed.replace(/:\s*NaN/g, ': 0');
-    
+
     return fixed;
   }
 
@@ -1455,7 +1493,7 @@ CRITICAL:
    */
   private fixArrayIssues(jsonString: string): string {
     let fixed = jsonString;
-    
+
     // Fix pattern: item1 item2 ] -> item1, item2 ]
     // Match content between [ and ] that's missing commas
     fixed = fixed.replace(/\[\s*([^\]]+)\s*\]/g, (match, content) => {
@@ -1465,10 +1503,10 @@ CRITICAL:
         const parts: string[] = [];
         let current = '';
         let inQuotes = false;
-        
+
         for (let i = 0; i < content.length; i++) {
           const char = content[i];
-          if (char === '"' && (i === 0 || content[i-1] !== '\\')) {
+          if (char === '"' && (i === 0 || content[i - 1] !== '\\')) {
             inQuotes = !inQuotes;
             current += char;
           } else if (char === ' ' && !inQuotes && current.trim()) {
@@ -1481,17 +1519,17 @@ CRITICAL:
         if (current.trim()) {
           parts.push(current.trim());
         }
-        
+
         if (parts.length > 1) {
           return '[' + parts.join(', ') + ']';
         }
       }
       return match;
     });
-    
+
     // Fix missing commas in arrays - handle common patterns
     // Enhanced state machine to properly track array context and fix missing commas
-    
+
     // First, fix obvious missing commas between array elements
     // Pattern: "value1" "value2" -> "value1", "value2"
     // This must be done carefully to only match inside arrays
@@ -1499,59 +1537,59 @@ CRITICAL:
     let depth = 0;
     let inString = false;
     let escapeNext = false;
-    
+
     // Build a character-by-character fix that tracks context
     let output = '';
     for (let i = 0; i < fixedCopy.length; i++) {
       const char = fixedCopy[i];
-      
+
       if (escapeNext) {
         escapeNext = false;
         output += char;
         continue;
       }
-      
+
       if (char === '\\') {
         escapeNext = true;
         output += char;
         continue;
       }
-      
+
       if (char === '"' && !escapeNext) {
         inString = !inString;
         output += char;
         continue;
       }
-      
+
       if (inString) {
         output += char;
         continue;
       }
-      
+
       if (char === '[') {
         depth++;
         output += char;
         continue;
       }
-      
+
       if (char === ']') {
         depth--;
         output += char;
         continue;
       }
-      
+
       // If we're inside an array and see whitespace, check if we need to add a comma
       if (depth > 0 && /\s/.test(char)) {
         // Look ahead and behind to see if we're between two values
         const beforeMatch = fixedCopy.substring(Math.max(0, i - 50), i).match(/(["\d}\]\]])\s*$/);
         const afterMatch = fixedCopy.substring(i + 1, Math.min(fixedCopy.length, i + 51)).match(/^\s*(["\d\[\{])/);
-        
+
         if (beforeMatch && afterMatch) {
           const beforeChar = beforeMatch[1];
           const afterChar = afterMatch[1];
           // Check if we have two values that need a comma
           if ((beforeChar === '"' || /\d/.test(beforeChar) || beforeChar === '}' || beforeChar === ']') &&
-              (afterChar === '"' || /\d/.test(afterChar) || afterChar === '[' || afterChar === '{')) {
+            (afterChar === '"' || /\d/.test(afterChar) || afterChar === '[' || afterChar === '{')) {
             // Check if there's already a comma nearby
             const recentText = fixedCopy.substring(Math.max(0, i - 10), i);
             if (!recentText.endsWith(',')) {
@@ -1561,12 +1599,12 @@ CRITICAL:
           }
         }
       }
-      
+
       output += char;
     }
-    
+
     fixed = output;
-    
+
     // Additional fix: Handle missing commas before closing brackets more directly
     // Pattern: value followed by whitespace then ] -> value, ]
     fixed = fixed.replace(/([^,\s\]}])\s*(\])/g, (match, p1, p2) => {
@@ -1576,10 +1614,10 @@ CRITICAL:
       }
       return match;
     });
-    
+
     // Fix trailing commas in arrays (shouldn't exist but handle if model generates them)
     fixed = fixed.replace(/,(\s*])/g, '$1');
-    
+
     return fixed;
   }
 
