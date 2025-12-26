@@ -14,14 +14,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // Extract path from catch-all route
-  const { path } = req.query;
+  // Vercel puts the matched segments in req.query.path
+  const { path, ...otherQueryParams } = req.query;
   const pathString = Array.isArray(path) ? path.join('/') : (path || '');
   
+  // Build query string from remaining params (excluding Vercel's internal 'path' param)
+  const queryParams = new URLSearchParams();
+  Object.entries(otherQueryParams).forEach(([key, value]) => {
+    if (value !== undefined) {
+      if (Array.isArray(value)) {
+        value.forEach(v => queryParams.append(key, String(v)));
+      } else {
+        queryParams.set(key, String(value));
+      }
+    }
+  });
+  const queryString = queryParams.toString();
+  
   // Build destination URL
-  const queryString = req.url?.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
-  // Remove Vercel's internal path param from query string
-  const cleanQueryString = queryString.replace(/[?&]path=[^&]*/g, '').replace(/^\?&/, '?').replace(/^&/, '');
-  const destinationUrl = `${CONVEX_AUTH_URL}/${pathString}${cleanQueryString}`;
+  const destinationUrl = `${CONVEX_AUTH_URL}/${pathString}${queryString ? '?' + queryString : ''}`;
   
   console.log(`[Auth Proxy] ${req.method} ${req.url} -> ${destinationUrl}`);
 
