@@ -13,45 +13,41 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).end();
   }
 
-  // Extract path from req.url (Vercel's catch-all doesn't populate req.query.path as expected)
-  // req.url format: "/api/auth/get-session" or "/api/auth/callback/google?state=...&path=..."
+  // Extract path from req.url
+  // req.url format: "/api/auth/get-session?...path=get-session"
   let subPath = '';
-  let queryString = '';
   
   if (req.url) {
     // Parse the URL to separate path and query
     const urlParts = req.url.split('?');
     const pathPart = urlParts[0]; // "/api/auth/get-session"
-    const queryPart = urlParts[1] || ''; // "state=...&path=..."
     
     // Extract sub-path after /api/auth/
     const pathMatch = pathPart.match(/^\/api\/auth\/(.+)$/);
     if (pathMatch) {
       subPath = pathMatch[1];
     }
-    
-    // Parse query string and remove Vercel's internal 'path' param
+  }
+  
+  // Build destination URL - construct it manually to avoid URL resolution issues
+  const destinationUrl = `${CONVEX_AUTH_BASE}${subPath}`;
+  
+  // Parse and add query params from req.url (excluding 'path')
+  const urlObj = new URL(destinationUrl);
+  if (req.url && req.url.includes('?')) {
+    const queryPart = req.url.split('?')[1];
     if (queryPart) {
       const params = new URLSearchParams(queryPart);
       params.delete('path'); // Remove Vercel's internal routing param
-      queryString = params.toString();
+      // Add remaining params to destination URL
+      params.forEach((value, key) => {
+        urlObj.searchParams.set(key, value);
+      });
     }
   }
   
-  // Build destination URL
-  // IMPORTANT: Don't use leading slash - it replaces the base path
-  // CONVEX_AUTH_BASE already ends with /api/auth, so we append subPath directly
-  const destinationUrl = new URL(subPath || '', CONVEX_AUTH_BASE);
-  
-  // Add query params (excluding 'path')
-  if (queryString) {
-    const params = new URLSearchParams(queryString);
-    params.forEach((value, key) => {
-      destinationUrl.searchParams.set(key, value);
-    });
-  }
-  
-  console.log(`[Auth Proxy] ${req.method} /api/auth/${subPath || '(empty)'}${queryString ? '?' + queryString : ''} -> ${destinationUrl.toString()}`);
+  const finalUrl = urlObj.toString();
+  console.log(`[Auth Proxy] ${req.method} /api/auth/${subPath || '(empty)'} -> ${finalUrl}`);
 
   try {
     // Prepare headers
@@ -81,7 +77,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // Forward request to Convex
-    const response = await fetch(destinationUrl.toString(), {
+    const response = await fetch(finalUrl, {
       method: req.method || 'GET',
       headers: forwardHeaders,
       body,
