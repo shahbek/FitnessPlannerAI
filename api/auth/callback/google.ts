@@ -24,6 +24,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   
   const finalUrl = urlObj.toString();
   console.log(`[Auth Proxy Callback] ${req.method} -> ${finalUrl}`);
+  console.log(`[Auth Proxy Callback] Cookies being sent:`, req.headers.cookie);
 
   try {
     const forwardHeaders: Record<string, string> = {
@@ -36,6 +37,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       forwardHeaders['cookie'] = Array.isArray(req.headers.cookie) 
         ? req.headers.cookie.join('; ') 
         : req.headers.cookie;
+      console.log(`[Auth Proxy Callback] Forwarding cookies to Convex:`, forwardHeaders['cookie']);
+    } else {
+      console.log(`[Auth Proxy Callback] NO COOKIES in request - this will cause invalid_code error`);
     }
 
     // Forward request to Convex (HEAD requests don't have body)
