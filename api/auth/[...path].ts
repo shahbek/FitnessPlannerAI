@@ -4,6 +4,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 const CONVEX_AUTH_BASE = 'https://clean-swordfish-102.convex.site/api/auth/';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  console.log(`[Auth Proxy] Function invoked: ${req.method} ${req.url}`);
+  
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
