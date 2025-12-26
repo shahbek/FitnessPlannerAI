@@ -1,7 +1,7 @@
 // Vercel Serverless Function to proxy /api/auth/* requests to Convex
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
-const CONVEX_AUTH_BASE = 'https://clean-swordfish-102.convex.site/api/auth';
+const CONVEX_AUTH_BASE = 'https://clean-swordfish-102.convex.site/api/auth/';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Handle CORS preflight
@@ -39,8 +39,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
   
   // Build destination URL
-  const destinationPath = subPath ? `/${subPath}` : '';
-  const destinationUrl = new URL(destinationPath, CONVEX_AUTH_BASE);
+  // IMPORTANT: Don't use leading slash - it replaces the base path
+  // CONVEX_AUTH_BASE already ends with /api/auth, so we append subPath directly
+  const destinationUrl = new URL(subPath || '', CONVEX_AUTH_BASE);
   
   // Add query params (excluding 'path')
   if (queryString) {
