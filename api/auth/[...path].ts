@@ -6,6 +6,11 @@ const CONVEX_AUTH_BASE = 'https://clean-swordfish-102.convex.site/api/auth/';
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   console.log(`[Auth Proxy] Function invoked: ${req.method} ${req.url}`);
   
+  // Log cookies for callback routes (critical for OAuth state validation)
+  if (req.url?.includes('callback')) {
+    console.log(`[Auth Proxy] Callback route - Cookies being sent:`, req.headers.cookie || 'NO COOKIES');
+  }
+  
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -86,13 +91,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       redirect: 'manual',
     });
 
-    // Forward response headers
-    const skipHeaders = new Set(['connection', 'transfer-encoding', 'content-encoding', 'content-length']);
+    // Forward response headers (CRITICAL: Handle Set-Cookie for OAuth state/session)
+    const skipHeaders = new Set(['connection', 'transfer-encoding', 'content-encoding', 'content-length', 'set-cookie']);
     response.headers.forEach((value, key) => {
       if (!skipHeaders.has(key.toLowerCase())) {
         res.setHeader(key, value);
       }
     });
+    
+    // Handle Set-Cookie headers separately (critical for OAuth state and sessions)
+    const cookies = response.headers.getSetCookie?.() || [];
+    if (cookies.length > 0) {
+      cookies.forEach(cookie => {
+        res.appendHeader('Set-Cookie', cookie);
+      });
+      if (req.url?.includes('callback')) {
+        console.log(`[Auth Proxy] Callback - Set-Cookie headers forwarded:`, cookies.length);
+      }
+    } else {
+      const setCookieHeader = response.headers.get('set-cookie');
+      if (setCookieHeader) {
+        res.setHeader('Set-Cookie', setCookieHeader);
+      }
+    }
 
     // Handle redirects (critical for OAuth)
     if ([301, 302, 303, 307, 308].includes(response.status)) {
