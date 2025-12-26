@@ -13,49 +13,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).end();
   }
 
-  // Extract path - try req.query.path first (Vercel catch-all), fallback to parsing req.url
+  // Extract path from req.url (Vercel's catch-all doesn't populate req.query.path as expected)
+  // req.url format: "/api/auth/get-session" or "/api/auth/callback/google?state=...&path=..."
   let subPath = '';
+  let queryString = '';
   
-  if (req.query.path) {
-    // Vercel catch-all route provides path segments in req.query.path
-    const pathSegments = req.query.path;
-    const pathArray = Array.isArray(pathSegments) 
-      ? pathSegments 
-      : [String(pathSegments)];
-    subPath = pathArray.join('/');
-  } else if (req.url) {
-    // Fallback: parse from req.url if catch-all didn't work
-    // req.url will be like "/api/auth/get-session" or "/api/auth/callback/google?state=..."
-    const urlMatch = req.url.match(/^\/api\/auth\/([^?]+)/);
-    if (urlMatch) {
-      subPath = urlMatch[1];
+  if (req.url) {
+    // Parse the URL to separate path and query
+    const urlParts = req.url.split('?');
+    const pathPart = urlParts[0]; // "/api/auth/get-session"
+    const queryPart = urlParts[1] || ''; // "state=...&path=..."
+    
+    // Extract sub-path after /api/auth/
+    const pathMatch = pathPart.match(/^\/api\/auth\/(.+)$/);
+    if (pathMatch) {
+      subPath = pathMatch[1];
+    }
+    
+    // Parse query string and remove Vercel's internal 'path' param
+    if (queryPart) {
+      const params = new URLSearchParams(queryPart);
+      params.delete('path'); // Remove Vercel's internal routing param
+      queryString = params.toString();
     }
   }
   
-  console.log('[Auth Proxy Debug] req.url:', req.url, 'req.query.path:', req.query.path, '-> subPath:', subPath);
-  
-  // Get all query params EXCEPT 'path' (which is Vercel's internal routing param)
-  const queryParams = new URLSearchParams();
-  Object.entries(req.query).forEach(([key, value]) => {
-    if (key !== 'path' && value !== undefined) {
-      if (Array.isArray(value)) {
-        value.forEach(v => queryParams.append(key, String(v)));
-      } else {
-        queryParams.set(key, String(value));
-      }
-    }
-  });
-  
-  // Build destination URL - subPath should be like "get-session" or "callback/google"
+  // Build destination URL
   const destinationPath = subPath ? `/${subPath}` : '';
   const destinationUrl = new URL(destinationPath, CONVEX_AUTH_BASE);
   
-  // Add query params
-  queryParams.forEach((value, key) => {
-    destinationUrl.searchParams.set(key, value);
-  });
+  // Add query params (excluding 'path')
+  if (queryString) {
+    const params = new URLSearchParams(queryString);
+    params.forEach((value, key) => {
+      destinationUrl.searchParams.set(key, value);
+    });
+  }
   
-  console.log(`[Auth Proxy] ${req.method} /api/auth/${subPath || '(empty)'} -> ${destinationUrl.toString()}`);
+  console.log(`[Auth Proxy] ${req.method} /api/auth/${subPath || '(empty)'}${queryString ? '?' + queryString : ''} -> ${destinationUrl.toString()}`);
 
   try {
     // Prepare headers
