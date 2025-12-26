@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
 import { DEFAULT_FORM_STATE, GOAL_CATEGORY_OPTIONS } from '@/constants';
 import { GoalCategory, BodyFatGoal } from '@/models/UserProfile';
 import {
@@ -42,17 +43,33 @@ interface FormData {
   schedule: string;
 
   // Nutrition
-  preferences: string;
+  preferences: string; // Keeping as "Additional Notes"
   mealFrequency?: number;
+
+  // New Nutrition Fields
+  dietType: string;
+  allergies: string; // Changed from string[] to string for user-written input
+  cuisinePreferences: string[]; // Keep badges for quick selection
+  customCuisines: string; // New field for custom cuisines
+  mealComplexity: string;
+  mealPrepPreference: string;
+  cookingTimePerMeal: number;
+  likedIngredients: string;
+  dislikedIngredients: string;
+  activityLevel: 'sedentary' | 'light' | 'moderate' | 'active' | 'very_active'; // New field
 }
 
-interface CompleteFormData extends FormData {
+// Override string fields with arrays for the API
+interface CompleteFormData extends Omit<FormData, 'likedIngredients' | 'dislikedIngredients' | 'allergies' | 'customCuisines'> {
   apiKey: string;
   endpoint: string;
   model: string;
-  // Legacy fields for backward compatibility
   primaryGoal?: string;
   targetBf?: number;
+  likedIngredients: string[];
+  dislikedIngredients: string[];
+  allergies: string[];
+  cuisinePreferences: string[];
 }
 
 interface MultistepProfileFormProps {
@@ -81,7 +98,19 @@ const defaultFormData: FormData = {
   workoutSplit: DEFAULT_FORM_STATE.workoutSplit,
   equipment: DEFAULT_FORM_STATE.equipment,
   schedule: DEFAULT_FORM_STATE.schedule,
-  preferences: DEFAULT_FORM_STATE.preferences
+  preferences: DEFAULT_FORM_STATE.preferences,
+
+  // New Defaults
+  dietType: 'omnivore',
+  allergies: '',
+  cuisinePreferences: [],
+  customCuisines: '',
+  mealComplexity: 'moderate',
+  mealPrepPreference: 'fresh_daily',
+  cookingTimePerMeal: 30,
+  likedIngredients: '',
+  dislikedIngredients: '',
+  activityLevel: 'moderate'
 };
 
 export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileFormProps) {
@@ -90,6 +119,17 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
 
   const updateFormData = (field: keyof FormData, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const toggleCuisineSelection = (value: string) => {
+    setFormData(prev => {
+      const current = prev.cuisinePreferences;
+      if (current.includes(value)) {
+        return { ...prev, cuisinePreferences: current.filter(item => item !== value) };
+      } else {
+        return { ...prev, cuisinePreferences: [...current, value] };
+      }
+    });
   };
 
   const updateBodyFatGoal = (field: keyof BodyFatGoal, value: number | undefined) => {
@@ -106,7 +146,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
   const handleGoalCategoryChange = (value: GoalCategory) => {
     setFormData(prev => {
       const newData = { ...prev, goalCategory: value };
-      
+
       // If switching to body_fat_goal, initialize bodyFatGoal
       if (value === 'body_fat_goal') {
         newData.bodyFatGoal = {
@@ -117,7 +157,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
         // Clear body fat goal when switching away
         newData.bodyFatGoal = undefined;
       }
-      
+
       return newData;
     });
   };
@@ -135,17 +175,29 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
   };
 
   const handleSubmit = () => {
+    // Parse comma-separated strings into arrays
+    const liked = formData.likedIngredients.split(',').map(s => s.trim()).filter(Boolean);
+    const disliked = formData.dislikedIngredients.split(',').map(s => s.trim()).filter(Boolean);
+    const allergiesList = formData.allergies.split(',').map(s => s.trim()).filter(Boolean);
+
+    // Combine selected cuisines with custom ones
+    const customCuisinesList = formData.customCuisines.split(',').map(s => s.trim()).filter(Boolean);
+    const allCuisines = [...new Set([...formData.cuisinePreferences, ...customCuisinesList])];
+
     // Merge form data with API configuration from DEFAULT_FORM_STATE
     const completeFormData: CompleteFormData = {
       ...formData,
+      likedIngredients: liked,
+      dislikedIngredients: disliked,
+      allergies: allergiesList,
+      cuisinePreferences: allCuisines,
       apiKey: DEFAULT_FORM_STATE.apiKey,
-      endpoint: 'groq', // Use simplified endpoint identifier
+      endpoint: 'groq',
       model: DEFAULT_FORM_STATE.model,
-      // Add legacy fields for backward compatibility
       primaryGoal: goalCategoryToLegacyGoal(formData.goalCategory),
       targetBf: formData.bodyFatGoal?.targetBf
-    };
-    onComplete(completeFormData);
+    } as any; // Cast for compatibility with expected prop type if needed, but fields are handled
+    onComplete(completeFormData as any);
   };
 
   const isStepValid = (step: number): boolean => {
@@ -154,22 +206,22 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
         return !!(formData.age > 0 && formData.sex && formData.heightCm > 0 && formData.weightKg > 0);
       case 2: {
         const baseValid = !!(
-          formData.goalCategory && 
-          formData.timelineWeeks > 0 && 
-          formData.timelineWeeks <= 24 && 
-          formData.trainingDaysPerWeek > 0 && 
+          formData.goalCategory &&
+          formData.timelineWeeks > 0 &&
+          formData.timelineWeeks <= 24 &&
+          formData.trainingDaysPerWeek > 0 &&
           formData.workoutLevel
         );
-        
+
         // If body_fat_goal, require body fat inputs
         if (formData.goalCategory === 'body_fat_goal') {
-          return baseValid && 
+          return baseValid &&
             formData.bodyFatGoal !== undefined &&
             formData.bodyFatGoal.currentBf > 0 &&
             formData.bodyFatGoal.targetBf > 0 &&
             formData.bodyFatGoal.currentBf !== formData.bodyFatGoal.targetBf;
         }
-        
+
         return baseValid;
       }
       case 3:
@@ -270,25 +322,22 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
             {/* Goal Category Selection */}
             <div>
               <Label htmlFor="goalCategory" className="text-base font-medium">What's your goal? *</Label>
-              <Select 
-                value={formData.goalCategory} 
+              <Select
+                value={formData.goalCategory}
                 onValueChange={(value) => handleGoalCategoryChange(value as GoalCategory)}
               >
-                <SelectTrigger className="mt-2">
+                <SelectTrigger className="mt-2 text-left h-auto py-3">
                   <SelectValue placeholder="Select your goal" />
                 </SelectTrigger>
                 <SelectContent>
                   {GOAL_CATEGORY_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
-                      <div className="flex flex-col items-start">
-                        <span className="font-medium">{option.label}</span>
-                        <span className="text-xs text-muted-foreground">{option.description}</span>
-                      </div>
+                      <span className="font-medium text-base">{option.label}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              
+
               {/* Show selected goal description */}
               {formData.goalCategory && (
                 <div className="mt-2 p-3 bg-muted/50 rounded-lg">
@@ -306,7 +355,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   <Target className="h-4 w-4" />
                   <span className="font-medium">Body Fat Target</span>
                 </div>
-                
+
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="currentBf">Current Body Fat % *</Label>
@@ -339,7 +388,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
 
                 {/* Body fat goal validation feedback */}
                 {formData.bodyFatGoal && formData.bodyFatGoal.currentBf && formData.bodyFatGoal.targetBf && (
-                  <BodyFatGoalFeedback 
+                  <BodyFatGoalFeedback
                     currentBf={formData.bodyFatGoal.currentBf}
                     targetBf={formData.bodyFatGoal.targetBf}
                     timelineWeeks={formData.timelineWeeks}
@@ -386,19 +435,39 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
               </div>
             </div>
 
-            <div>
-              <Label htmlFor="workoutLevel">Experience Level *</Label>
-              <Select value={formData.workoutLevel} onValueChange={(value) => updateFormData('workoutLevel', value)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select level" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="beginner">Beginner (0-1 year)</SelectItem>
-                  <SelectItem value="intermediate">Intermediate (1-4 years)</SelectItem>
-                  <SelectItem value="advanced">Advanced (4-7 years)</SelectItem>
-                  <SelectItem value="expert">Expert (7+ years)</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="workoutLevel">Gym Experience Level *</Label>
+                <Select value={formData.workoutLevel} onValueChange={(value) => updateFormData('workoutLevel', value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select level" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="beginner">Beginner (0-1 year)</SelectItem>
+                    <SelectItem value="intermediate">Intermediate (1-4 years)</SelectItem>
+                    <SelectItem value="advanced">Advanced (4-7 years)</SelectItem>
+                    <SelectItem value="expert">Expert (7+ years)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground mt-1">Affects workout volume & exercise selection</p>
+              </div>
+
+              <div>
+                <Label htmlFor="activityLevel">Daily Activity Level (TDEE) *</Label>
+                <Select value={formData.activityLevel} onValueChange={(value) => updateFormData('activityLevel', value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select activity" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sedentary">Sedentary (Office job, little movement)</SelectItem>
+                    <SelectItem value="light">Lightly Active (Occasional walks/movement)</SelectItem>
+                    <SelectItem value="moderate">Moderately Active (Active job or daily walking)</SelectItem>
+                    <SelectItem value="active">Very Active (Construction, intense manual labor)</SelectItem>
+                    <SelectItem value="very_active">Extra Active (Professional athlete, zero sitting)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-[10px] text-muted-foreground mt-1">Determines calorie tracking accuracy</p>
+              </div>
             </div>
           </div>
         );
@@ -455,44 +524,182 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
         );
 
       case 4:
+        const DIET_TYPES = [
+          { value: 'omnivore', label: 'Standard (Omnivore)' },
+          { value: 'vegetarian', label: 'Vegetarian' },
+          { value: 'vegan', label: 'Vegan' },
+          { value: 'pescatarian', label: 'Pescatarian' },
+          { value: 'keto', label: 'Keto' },
+          { value: 'paleo', label: 'Paleo' },
+          { value: 'gluten_free', label: 'Gluten Free' }
+        ];
+
+        const ALLERGIES = ['Peanuts', 'Tree Nuts', 'Dairy', 'Gluten', 'Soy', 'Eggs', 'Fish', 'Shellfish'];
+        const CUISINES = ['Italian', 'Mexican', 'Asian', 'Mediterranean', 'American', 'Indian', 'Middle Eastern', 'Thai'];
+
         return (
           <div className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="dietType">Diet Type *</Label>
+                <Select value={formData.dietType} onValueChange={(value) => updateFormData('dietType', value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select diet" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DIET_TYPES.map(dt => (
+                      <SelectItem key={dt.value} value={dt.value}>{dt.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="mealFrequency">Meals Per Day</Label>
+                <Select
+                  value={formData.mealFrequency?.toString()}
+                  onValueChange={(value) => updateFormData('mealFrequency', parseInt(value))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select frequency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="3">3 meals</SelectItem>
+                    <SelectItem value="4">4 meals</SelectItem>
+                    <SelectItem value="5">5 meals</SelectItem>
+                    <SelectItem value="6">6 meals</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Allergies */}
             <div>
-              <Label htmlFor="preferences">Food Preferences & Dietary Restrictions</Label>
+              <Label htmlFor="allergies" className="mb-2 block">Allergies & Fatal Restrictions (comma separated)</Label>
+              <Input
+                id="allergies"
+                value={formData.allergies}
+                onChange={(e) => updateFormData('allergies', e.target.value)}
+                placeholder="Peanuts, Shellfish, Gluten..."
+              />
+              <p className="text-xs text-muted-foreground mt-1">AI will strictly avoid these in every recipe</p>
+            </div>
+
+            {/* Cuisines */}
+            <div className="space-y-3">
+              <Label className="block">Preferred Cuisines</Label>
+              <div className="flex flex-wrap gap-2">
+                {CUISINES.map(cuisine => {
+                  const isSelected = formData.cuisinePreferences.includes(cuisine);
+                  return (
+                    <Badge
+                      key={cuisine}
+                      variant="outline"
+                      className={`cursor-pointer transition-all hover:bg-primary/20 ${isSelected ? 'bg-primary/10 border-primary text-primary' : ''}`}
+                      onClick={() => toggleCuisineSelection(cuisine)}
+                    >
+                      {cuisine}
+                    </Badge>
+                  );
+                })}
+              </div>
+              <div className="mt-2">
+                <Label htmlFor="customCuisines" className="text-xs text-muted-foreground">Or add custom ones (comma separated)</Label>
+                <Input
+                  id="customCuisines"
+                  value={formData.customCuisines}
+                  onChange={(e) => updateFormData('customCuisines', e.target.value)}
+                  placeholder="Nordic, Middle Eastern, Ethiopian..."
+                  className="h-8 text-sm mt-1"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <Label htmlFor="cookingTime">Max Cook Time</Label>
+                <Select
+                  value={formData.cookingTimePerMeal.toString()}
+                  onValueChange={(v) => updateFormData('cookingTimePerMeal', parseInt(v))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="15">15 mins</SelectItem>
+                    <SelectItem value="30">30 mins</SelectItem>
+                    <SelectItem value="45">45 mins</SelectItem>
+                    <SelectItem value="60">60+ mins</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="complexity">Complexity</Label>
+                <Select
+                  value={formData.mealComplexity}
+                  onValueChange={(v) => updateFormData('mealComplexity', v)}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="simple">Simple (Quick)</SelectItem>
+                    <SelectItem value="moderate">Moderate</SelectItem>
+                    <SelectItem value="complex">Gourmet</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <Label htmlFor="prepStyle">Prep Style</Label>
+                <Select
+                  value={formData.mealPrepPreference}
+                  onValueChange={(v) => updateFormData('mealPrepPreference', v)}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fresh_daily">Fresh Daily</SelectItem>
+                    <SelectItem value="batch_cooking">Batch Cook</SelectItem>
+                    <SelectItem value="leftovers_ok">Leftovers OK</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="liked">Foods I Love (comma separated)</Label>
+                <Input
+                  id="liked"
+                  value={formData.likedIngredients}
+                  onChange={(e) => updateFormData('likedIngredients', e.target.value)}
+                  placeholder="Avocado, Salmon, Rice..."
+                />
+              </div>
+              <div>
+                <Label htmlFor="disliked">Foods to Avoid (comma separated)</Label>
+                <Input
+                  id="disliked"
+                  value={formData.dislikedIngredients}
+                  onChange={(e) => updateFormData('dislikedIngredients', e.target.value)}
+                  placeholder="Mushrooms, Cilantro..."
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="preferences">Additional Notes</Label>
               <Textarea
                 id="preferences"
                 value={formData.preferences}
                 onChange={(e) => updateFormData('preferences', e.target.value)}
-                placeholder="List your food preferences, dietary restrictions, allergies, or foods you enjoy/dislike, e.g., 'Vegetarian, allergic to nuts, love Mediterranean food, dislike spicy food'"
-                rows={4}
+                placeholder="Any other details? e.g. 'I intermittent fast until 12pm'"
+                rows={2}
               />
             </div>
 
-            <div>
-              <Label htmlFor="mealFrequency">Preferred Meal Frequency</Label>
-              <Select
-                value={formData.mealFrequency?.toString()}
-                onValueChange={(value) => updateFormData('mealFrequency', parseInt(value))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select meal frequency" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="3">3 meals per day</SelectItem>
-                  <SelectItem value="4">4 meals per day</SelectItem>
-                  <SelectItem value="5">5 meals per day</SelectItem>
-                  <SelectItem value="6">6 meals per day</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Goal Summary */}
             <div className="p-4 bg-muted/50 rounded-lg">
               <h4 className="font-medium mb-2">Goal Summary</h4>
               <div className="text-sm text-muted-foreground space-y-1">
                 <p><span className="font-medium">Goal:</span> {getGoalCategoryOption(formData.goalCategory)?.label}</p>
                 <p><span className="font-medium">Timeline:</span> {formData.timelineWeeks} weeks</p>
-                <p><span className="font-medium">Training:</span> {formData.trainingDaysPerWeek} days/week</p>
                 {formData.goalCategory === 'body_fat_goal' && formData.bodyFatGoal && (
                   <p><span className="font-medium">Body Fat:</span> {formData.bodyFatGoal.currentBf}% → {formData.bodyFatGoal.targetBf}%</p>
                 )}
@@ -606,36 +813,36 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
  * Body Fat Goal Feedback Component
  * Shows real-time feedback about the feasibility of body fat goals
  */
-function BodyFatGoalFeedback({ 
-  currentBf, 
-  targetBf, 
-  timelineWeeks, 
+function BodyFatGoalFeedback({
+  currentBf,
+  targetBf,
+  timelineWeeks,
   weightKg,
-  sex 
-}: { 
-  currentBf: number; 
-  targetBf: number; 
+  sex
+}: {
+  currentBf: number;
+  targetBf: number;
   timelineWeeks: number;
   weightKg: number;
   sex: 'male' | 'female';
 }) {
   // Essential body fat minimums
   const essentialBf = sex === 'female' ? 13 : 5;
-  
+
   // Calculate change
   const currentFatMass = weightKg * (currentBf / 100);
   const targetFatMass = weightKg * (targetBf / 100);
   const fatChange = currentFatMass - targetFatMass;
   const isLosing = fatChange > 0;
-  
+
   // Weekly change rate
   const weeklyChange = Math.abs(fatChange) / timelineWeeks;
   const weeklyChangePercent = (weeklyChange / weightKg) * 100;
-  
+
   // Determine feasibility
   let status: 'success' | 'warning' | 'error';
   let message: string;
-  
+
   if (targetBf < essentialBf) {
     status = 'error';
     message = `Target ${targetBf}% is below essential body fat (${essentialBf}%). This is not safe.`;
@@ -655,15 +862,15 @@ function BodyFatGoalFeedback({
     status = 'success';
     message = `Achievable goal: ~${fatChange.toFixed(1)}kg fat loss over ${timelineWeeks} weeks (${weeklyChangePercent.toFixed(1)}% BW/week).`;
   }
-  
+
   const statusColors = {
     success: 'text-green-600 bg-green-50 border-green-200',
     warning: 'text-amber-600 bg-amber-50 border-amber-200',
     error: 'text-red-600 bg-red-50 border-red-200'
   };
-  
+
   const StatusIcon = status === 'error' ? AlertCircle : status === 'warning' ? AlertCircle : CheckCircle;
-  
+
   return (
     <div className={`p-3 rounded-lg border ${statusColors[status]} flex items-start gap-2`}>
       <StatusIcon className="h-4 w-4 mt-0.5 flex-shrink-0" />

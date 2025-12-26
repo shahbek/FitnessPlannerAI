@@ -65,9 +65,18 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId, isAu
   useEffect(() => {
     if (activeTab === 'meals' && parsedData?.comprehensiveMeals?.length) {
       console.log('\n🍽️ [UI] Meal names for current plan:');
-      parsedData.comprehensiveMeals.forEach((meal, index) => {
-        console.log(`  Meal ${index + 1}: ${meal.name}`);
-      });
+      const mealDetails = parsedData.comprehensiveMeals.map(meal => ({
+        mealName: meal.name,
+        ingredients: meal.ingredients,
+        macros: {
+          calories: meal.totalCalories,
+          protein: meal.proteinGrams,
+          carbs: meal.carbsGrams,
+          fat: meal.fatGrams
+        },
+        instructions: meal.cookingInstructions
+      }));
+      console.log(JSON.stringify(mealDetails, null, 2));
       console.log('');
     }
   }, [activeTab, parsedData]);

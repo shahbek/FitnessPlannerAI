@@ -332,27 +332,37 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
         return;
       }
 
-      // Deduct tokens immediately (Charge)
+      // Record generation attempt at START (before generation begins)
+      // This ensures ALL attempts are tracked, including failures
+      // Use "pending" status - does NOT deduct tokens yet
       if (recordTokenUsage) {
         try {
-          await recordTokenUsage({
+          const result = await recordTokenUsage({
             operationType: "plan_generation",
             tokensUsed: PLAN_GENERATION_COST,
-            status: "success", // Charge immediately
+            status: "pending", // Track attempt, don't deduct yet
+            operationSteps: [
+              "feasibility_assessment",
+              "strategic_framework",
+              "weekly_outlines",
+              "exercise_library",
+              "session_templates",
+              "meal_templates",
+              "shopping_lists"
+            ],
             details: {
+              startedAt: new Date().toISOString(),
               generator: "integrated",
-              goal: dataToUse.primaryGoal,
+              userProfile: {
+                goal: dataToUse.primaryGoal,
+                timeline: dataToUse.timelineWeeks,
+              },
             },
           });
-          console.log(`💰 Deducted ${PLAN_GENERATION_COST} tokens for plan generation`);
-        } catch (paymentError: any) {
-          console.error("❌ Payment failed:", paymentError);
-          toast({
-            variant: 'destructive',
-            title: 'Payment Failed',
-            description: paymentError.message || "Could not process token payment.",
-          });
-          return; // Block generation if payment fails
+          console.log('📝 Recorded generation attempt (pending):', result);
+        } catch (tokenError) {
+          console.error("Failed to record generation attempt:", tokenError);
+          // Don't block generation, but log the error
         }
       }
 
@@ -443,6 +453,34 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
 
     } catch (err: any) {
       console.error('Integrated plan generation failed:', err);
+
+      // Record failed generation attempt (no token deduction)
+      if (recordTokenUsage) {
+        try {
+          await recordTokenUsage({
+            operationType: "plan_generation",
+            tokensUsed: 100, // PLAN_GENERATION_COST
+            status: "failed", // Failed - no token deduction
+            operationSteps: [
+              "feasibility_assessment",
+              "strategic_framework",
+              "weekly_outlines",
+              "exercise_library",
+              "session_templates",
+              "meal_templates",
+              "shopping_lists"
+            ],
+            details: {
+              error: err?.message || integratedError || "Unknown error",
+              failedAt: new Date().toISOString(),
+              errorDetails: err instanceof Error ? err.stack : String(err),
+            },
+          });
+          console.log('❌ Recorded failed generation attempt');
+        } catch (tokenError) {
+          console.error("Failed to record failed token usage:", tokenError);
+        }
+      }
 
       // Clean up failed optimistic plan
       setWorkoutHistory(prev => prev.filter(w => w.data?.isGenerating && !w.convexId));
