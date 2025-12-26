@@ -1,3 +1,4 @@
+// Force rebuild
 import { action, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -105,6 +106,7 @@ export const searchFoods = action({
     args: {
         query: v.string(),
         limit: v.optional(v.number()),
+        dataType: v.optional(v.array(v.string())),
     },
     handler: async (ctx, args) => {
         const limit = args.limit || 20;
@@ -134,7 +136,7 @@ export const searchFoods = action({
             const searchUrl = `${USDA_API_BASE}/foods/search?api_key=${apiKey}`;
             const searchBody = {
                 query: args.query,
-                dataType: ['Foundation', 'SR Legacy', 'Survey (FNDDS)'],
+                dataType: args.dataType || ['Foundation', 'SR Legacy', 'Survey (FNDDS)'],
                 pageSize: 25,
             };
 

@@ -42,6 +42,18 @@ export const upsertUserProfile = mutation({
     dislikedFoods: v.optional(v.array(v.string())),
     bodyFat: v.optional(v.number()),
     targetBodyFat: v.optional(v.number()),
+
+    // New Nutrition Fields
+    dietType: v.optional(v.string()),
+    allergies: v.optional(v.array(v.string())),
+    cuisinePreferences: v.optional(v.array(v.string())),
+    mealComplexity: v.optional(v.string()),
+    mealPrepPreference: v.optional(v.string()),
+    cookingTimePerMeal: v.optional(v.number()),
+    likedIngredients: v.optional(v.array(v.string())),
+    dislikedIngredients: v.optional(v.array(v.string())),
+    schedule: v.optional(v.string()),
+    preferences: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
@@ -119,7 +131,7 @@ export const getImageUrl = mutation({
     if (args.imageStorageId === null) {
       return null;
     }
-    
+
     // Get the URL for the stored file
     return await ctx.storage.getUrl(args.imageStorageId);
   },

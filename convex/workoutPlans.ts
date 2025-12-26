@@ -311,14 +311,14 @@ export const activateWorkoutPlan = mutation({
       throw new Error("Workout plan not found or unauthorized");
     }
 
-    // Calculate Monday of the current week
+    // Calculate Monday of the current week (UTC)
     const now = new Date();
-    const dayOfWeek = now.getDay(); // 0 is Sunday, 1 is Monday...
+    const dayOfWeek = now.getUTCDay(); // 0 is Sunday, 1 is Monday...
     const daysSinceMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
 
     const monday = new Date(now);
-    monday.setDate(now.getDate() - daysSinceMonday);
-    monday.setHours(0, 0, 0, 0);
+    monday.setUTCDate(now.getUTCDate() - daysSinceMonday);
+    monday.setUTCHours(0, 0, 0, 0);
 
     const startDate = monday.getTime();
 

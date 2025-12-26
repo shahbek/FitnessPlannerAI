@@ -38,10 +38,20 @@ export default defineSchema({
     sessionDuration: v.optional(v.number()),
     equipmentAccess: v.optional(v.array(v.string())),
 
-    // Dietary
-    dietaryRestrictions: v.optional(v.array(v.string())),
-    foodPreferences: v.optional(v.array(v.string())),
-    dislikedFoods: v.optional(v.array(v.string())),
+    // Dietary & Nutrition
+    dietaryRestrictions: v.optional(v.array(v.string())), // Keeping for backward compatibility
+    foodPreferences: v.optional(v.array(v.string())), // Keeping for backward compatibility
+    dislikedFoods: v.optional(v.array(v.string())), // Keeping for backward compatibility
+
+    // New Structured Nutrition Fields
+    dietType: v.optional(v.string()), // e.g., "vegan", "keto", "omnivore"
+    allergies: v.optional(v.array(v.string())), // e.g., ["peanuts", "gluten"]
+    cuisinePreferences: v.optional(v.array(v.string())), // e.g., ["italian", "mexican"]
+    mealComplexity: v.optional(v.string()), // "simple", "moderate", "complex"
+    mealPrepPreference: v.optional(v.string()), // "fresh_daily", "batch_cooking", "leftovers"
+    cookingTimePerMeal: v.optional(v.number()), // Minutes, e.g. 30
+    likedIngredients: v.optional(v.array(v.string())), // Specific ingredients to prioritize
+    dislikedIngredients: v.optional(v.array(v.string())), // Specific ingredients to avoid
 
     // Created/Updated
     createdAt: v.number(),

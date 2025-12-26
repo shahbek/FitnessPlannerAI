@@ -45,7 +45,8 @@ export const createCheckoutSession = action({
         };
       }
 
-      const baseUrl = process.env.CONVEX_SITE_URL || process.env.SITE_URL || "http://localhost:5173";
+      // Redirect to the frontend application, not the Convex backend
+      const baseUrl = process.env.SITE_URL || "http://localhost:5173";
 
       console.log(`Creating session for user ${user._id} with package ${args.packageId}`);
       console.log(`Using base URL: ${baseUrl}`);
