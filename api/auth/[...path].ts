@@ -30,9 +30,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const pathPart = urlParts[0]; // "/api/auth/get-session"
 
     // Extract sub-path after /api/auth/
-    const pathMatch = pathPart.match(/^\/api\/auth\/(.+)$/);
+    const pathMatch = pathPart.match(/^\/?api\/auth\/(.+)$/);
     if (pathMatch) {
       subPath = pathMatch[1];
+    } else {
+      // Fallback for when the regex doesn't match but we know it's an auth route
+      if (pathPart.includes('/api/auth/')) {
+        subPath = pathPart.split('/api/auth/')[1];
+      } else {
+        // If we are at the root of the function but Vercel passed the full path
+        subPath = pathPart.replace(/^\//, '');
+      }
     }
   }
 
