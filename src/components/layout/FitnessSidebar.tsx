@@ -84,33 +84,24 @@ export function FitnessSidebar({
 
   const handleSignOut = async () => {
     try {
-      console.log('🚪 Signing out...');
+      console.log('🚪 Nuclear Logout initiated...');
 
-      // Attempt to sign out
-      await signOut();
-
-      console.log('✅ Signed out successfully');
-
-      // Aggressively clear local state
+      // 1. Clear Local State IMMEDIATELY (Prevent any UI flickering or re-saves)
+      localStorage.removeItem('fitness_planner_user_cache');
       localStorage.clear();
       sessionStorage.clear();
 
-      // Small delay to ensure server processes the request
-      setTimeout(() => {
-        // Use replace to prevent back-button navigation to authenticated state
-        window.location.replace('/');
-      }, 500);
+      // 2. Call Server Sign Out
+      await signOut();
+
+      console.log('✅ Server Sign Out complete');
+
     } catch (error: any) {
-      console.error('❌ Sign out failed:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Sign out failed',
-        description: error.message || 'Please try clearing your browser cookies manually.',
-      });
-      // Fallback redirect even if it fails, after a longer delay to show toast
-      setTimeout(() => {
-        window.location.replace('/');
-      }, 2000);
+      console.error('❌ Sign out error (ignoring and forcing reload):', error);
+    } finally {
+      // 3. FORCE HARD RELOAD (No SPA navigation)
+      // This wipes the memory state of React query, ensuring a fresh boot.
+      window.location.href = '/';
     }
   };
 
