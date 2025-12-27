@@ -21,6 +21,22 @@ export function LoginPage({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Pre-Login Purge: Ensure no stale state exists when visiting login page
+  useState(() => {
+    // We use useState lazy init instead of useEffect to run it BEFORE render 
+    // to prevent any flicker of "logged in" state if this component is mounted.
+    try {
+      if (localStorage.getItem('fitness_planner_user_cache')) {
+        console.log('🧹 Pre-login purge: Clearing stale user cache');
+        localStorage.removeItem('fitness_planner_user_cache');
+      }
+      // Optional: Clear everything to be safe, but keep 'theme' if you use it
+      // localStorage.clear(); 
+    } catch (e) {
+      console.error('Failed to clear cache', e);
+    }
+  });
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
