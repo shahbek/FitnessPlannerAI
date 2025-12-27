@@ -61,7 +61,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     };
 
     // Forward important headers
-    const headersToForward = ['content-type', 'accept', 'cookie', 'authorization', 'user-agent', 'origin', 'referer'];
+    const headersToForward = ['content-type', 'accept', 'cookie', 'authorization', 'user-agent', 'origin', 'referer', 'x-forwarded-for'];
     console.log(`[Auth Proxy] Sub-path extracted: "${subPath}"`);
     for (const header of headersToForward) {
       if (req.headers[header]) {

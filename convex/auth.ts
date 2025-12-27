@@ -15,6 +15,9 @@ export const createAuth = (
   ctx: GenericCtx<DataModel>,
   { optionsOnly } = { optionsOnly: false },
 ) => {
+  if (!optionsOnly) {
+    console.log(`[Auth Backend] Initializing with siteUrl: "${siteUrl}"`);
+  }
   return betterAuth({
     // disable logging when createAuth is called just to generate options
     logger: {
