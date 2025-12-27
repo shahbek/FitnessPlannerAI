@@ -18,13 +18,12 @@ export const authClient = createAuthClient({
   plugins: [convexClient()],
 });
 
-export const { 
-  signIn, 
-  signUp, 
-  signOut, 
+export const {
+  signIn,
+  signUp,
+  signOut,
   useSession,
-  forgetPassword,
+  requestPasswordReset,
   resetPassword,
   updateUser,
 } = authClient;
-

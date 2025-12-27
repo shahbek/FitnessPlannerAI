@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { forgetPassword } from "@/lib/auth-client";
+import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,9 +23,14 @@ export function ForgotPasswordPage({ onBackToLogin }: { onBackToLogin: () => voi
     try {
       console.log('🔐 Requesting password reset...');
 
-      const result = await forgetPassword({
+      const result = await authClient.requestPasswordReset({
         email,
         redirectTo: "/reset-password", // Where to redirect after clicking reset link
+      }, {
+        onRequest: (ctx) => {
+          // Additional context if needed
+          return ctx;
+        },
       });
 
       if (result.error) {
