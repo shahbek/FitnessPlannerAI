@@ -34,7 +34,23 @@ export default defineConfig({
         ]
       },
       workbox: {
-        maximumFileSizeToCacheInBytes: 5000000
+        maximumFileSizeToCacheInBytes: 5000000,
+        // CRITICAL: Never let the PWA navigation fallback intercept API routes.
+        // OAuth callbacks must hit the server to validate state + set cookies.
+        navigateFallbackDenylist: [/^\/api\//],
+        // CRITICAL: Always go to the network for auth endpoints (no caching).
+        runtimeCaching: [
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith('/api/auth'),
+            handler: 'NetworkOnly',
+            method: 'GET',
+          },
+          {
+            urlPattern: ({ url }) => url.pathname.startsWith('/api/auth'),
+            handler: 'NetworkOnly',
+            method: 'POST',
+          },
+        ],
       }
     })
   ],
