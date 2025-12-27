@@ -36,25 +36,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  // Build destination URL - construct it manually to avoid URL resolution issues
-  const destinationUrl = `${CONVEX_AUTH_BASE}${subPath}`;
+  // Build destination URL - preserves raw query string to avoid double-encoding issues
+  const queryIndex = req.url ? req.url.indexOf('?') : -1;
+  let queryString = queryIndex !== -1 ? req.url!.substring(queryIndex) : '';
 
-  // Parse and add query params from req.url (excluding 'path')
-  const urlObj = new URL(destinationUrl);
-  if (req.url && req.url.includes('?')) {
-    const queryPart = req.url.split('?')[1];
-    if (queryPart) {
-      const params = new URLSearchParams(queryPart);
-      params.delete('path'); // Remove Vercel's internal routing param
-      // Add remaining params to destination URL
-      params.forEach((value, key) => {
-        urlObj.searchParams.set(key, value);
-      });
-    }
+  // Strip 'path' param if it was added by Vercel's legacy routing (rare but safe)
+  if (queryString.includes('path=')) {
+    const params = new URLSearchParams(queryString);
+    params.delete('path');
+    const newQuery = params.toString();
+    queryString = newQuery ? `?${newQuery}` : '';
   }
 
-  const finalUrl = urlObj.toString();
-  console.log(`[Auth Proxy] ${req.method} /api/auth/${subPath || '(empty)'} -> ${finalUrl}`);
+  const finalUrl = `${CONVEX_AUTH_BASE}${subPath}${queryString}`;
+  console.log(`[Auth Proxy] Sub-path: "${subPath}"`);
+  console.log(`[Auth Proxy] ${req.method} -> ${finalUrl}`);
 
   try {
     // Prepare headers

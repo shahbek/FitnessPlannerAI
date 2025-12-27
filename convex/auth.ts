@@ -6,7 +6,7 @@ import { query } from "./_generated/server";
 import { betterAuth } from "better-auth";
 import authConfig from "./auth.config";
 
-const siteUrl = process.env.SITE_URL!;
+const siteUrl = process.env.SITE_URL!.replace(/\/$/, "");
 
 // The component client has methods needed for integrating Convex with Better Auth
 export const authComponent = createClient<DataModel>(components.betterAuth);
