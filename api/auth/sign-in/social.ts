@@ -109,12 +109,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
 
         // Forward response headers (CRITICAL: Handle Set-Cookie for OAuth state/session)
-        const skipHeaders = new Set(['connection', 'transfer-encoding', 'content-encoding', 'content-length', 'set-cookie']);
+        const skipHeaders = new Set(['connection', 'transfer-encoding', 'content-encoding', 'content-length', 'set-cookie', 'cache-control']);
         response.headers.forEach((value, key) => {
             if (!skipHeaders.has(key.toLowerCase())) {
                 res.setHeader(key, value);
             }
         });
+
+        // FORCE NO CACHE (Critical for Auth Flows)
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
 
         // Handle Set-Cookie headers separately (critical for OAuth state and sessions)
         const cookies = response.headers.getSetCookie?.() || [];
