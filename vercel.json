@@ -1,9 +1,4 @@
 {
-    "functions": {
-        "api/auth/[...path].ts": {
-            "includeFiles": "api/auth/**"
-        }
-    },
     "rewrites": [
         {
             "source": "/((?!api/).*)",
