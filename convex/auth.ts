@@ -64,15 +64,14 @@ export const createAuth = (
     ],
     advanced: {
       trustProxyHeaders: true,
-      // CRITICAL: Ensure cookies survive the Google -> App redirect loop
+      // NUCLEAR OPTION: "None" required for robust cross-site redirects (Google -> App)
+      // "Lax" is sometimes too strict for certain browser/redirect combinations.
       defaultCookieAttributes: {
         secure: true,
-        sameSite: "lax", // Allows cookies to be sent on top-level navigation from Google
+        sameSite: "none",
         httpOnly: true,
       },
-      // Ensure cross-subdomain compatibility if needed, though 'lax' usually handles it.
-      // We avoid setting 'domain' explicitly unless necessary to prevent conflict between www and root.
-      cookiePrefix: "fitness_planner", // Namespace cookies to avoid collisions with other apps on localhost
+      cookiePrefix: "fitness_planner",
     },
   });
 };
