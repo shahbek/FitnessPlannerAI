@@ -7,6 +7,8 @@ import { betterAuth } from "better-auth";
 import authConfig from "./auth.config";
 
 const siteUrl = process.env.SITE_URL!.replace(/\/$/, "");
+const googleClientId = process.env.AUTH_GOOGLE_ID?.trim();
+const googleClientSecret = process.env.AUTH_GOOGLE_SECRET?.trim();
 
 // The component client has methods needed for integrating Convex with Better Auth
 export const authComponent = createClient<DataModel>(components.betterAuth);
@@ -17,11 +19,14 @@ export const createAuth = (
 ) => {
   if (!optionsOnly) {
     console.log(`[Auth Backend] Initializing with siteUrl: "${siteUrl}"`);
+    console.log(`[Auth Backend] Google Client ID prefix: ${googleClientId?.substring(0, 10)}...`);
+    console.log(`[Auth Backend] Google Client Secret defined: ${!!googleClientSecret} (Length: ${googleClientSecret?.length})`);
   }
   return betterAuth({
     // disable logging when createAuth is called just to generate options
     logger: {
-      disabled: optionsOnly,
+      disabled: false,
+      level: "debug",
     },
     baseURL: siteUrl,
     database: authComponent.adapter(ctx),
@@ -49,16 +54,17 @@ export const createAuth = (
     },
     socialProviders: {
       google: {
-        clientId: process.env.AUTH_GOOGLE_ID!,
-        clientSecret: process.env.AUTH_GOOGLE_SECRET!,
-        // Explicitly set redirectURI to ensure it matches Google Cloud Console exactly
-        redirectURI: `${siteUrl}/api/auth/callback/google`,
+        clientId: googleClientId!,
+        clientSecret: googleClientSecret!,
       },
     },
     plugins: [
       // The Convex plugin is required for Convex compatibility
       convex({ authConfig }),
     ],
+    advanced: {
+      trustedProxyHeaders: true,
+    },
   });
 };
 

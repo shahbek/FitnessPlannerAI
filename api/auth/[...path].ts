@@ -60,21 +60,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       'x-forwarded-proto': 'https',
     };
 
+    console.log(`[Auth Proxy] Incoming Host: ${req.headers.host}`);
+    console.log(`[Auth Proxy] All incoming headers:`, JSON.stringify(req.headers));
+
     // Forward important headers
-    const headersToForward = ['content-type', 'accept', 'cookie', 'authorization', 'user-agent', 'origin', 'referer', 'x-forwarded-for'];
-    console.log(`[Auth Proxy] Sub-path extracted: "${subPath}"`);
+    const headersToForward = ['content-type', 'accept', 'cookie', 'authorization', 'user-agent', 'origin', 'referer', 'x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host'];
     for (const header of headersToForward) {
       if (req.headers[header]) {
+        console.log(`[Auth Proxy] Forwarding header ${header}: ${header === 'cookie' ? 'REDACTED' : req.headers[header]}`);
         forwardHeaders[header] = Array.isArray(req.headers[header])
           ? req.headers[header]![0]
           : req.headers[header] as string;
       }
     }
 
+    // Fallback: If Origin is missing but required for CSRF (POST requests), try to derive it from Referer or Host
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !forwardHeaders['origin']) {
+      const fallbackOrigin = req.headers.referer ? new URL(req.headers.referer).origin : `https://${req.headers.host || 'www.supercomp.app'}`;
+      console.log(`[Auth Proxy] Warning: Missing Origin header for ${req.method} request. Using fallback: ${fallbackOrigin}`);
+      forwardHeaders['origin'] = fallbackOrigin;
+    }
+
     // Prepare body
     let body: string | undefined;
     if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
+      console.log(`[Auth Proxy] Request body detected (type: ${typeof req.body})`);
       body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+      console.log(`[Auth Proxy] Body snippet: ${body.substring(0, 100)}`);
       if (body && !forwardHeaders['content-type']) {
         forwardHeaders['content-type'] = 'application/json';
       }
