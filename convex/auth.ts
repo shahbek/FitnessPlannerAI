@@ -63,7 +63,16 @@ export const createAuth = (
       convex({ authConfig }),
     ],
     advanced: {
-      trustedProxyHeaders: true,
+      trustProxyHeaders: true,
+      // CRITICAL: Ensure cookies survive the Google -> App redirect loop
+      defaultCookieAttributes: {
+        secure: true,
+        sameSite: "lax", // Allows cookies to be sent on top-level navigation from Google
+        httpOnly: true,
+      },
+      // Ensure cross-subdomain compatibility if needed, though 'lax' usually handles it.
+      // We avoid setting 'domain' explicitly unless necessary to prevent conflict between www and root.
+      cookiePrefix: "fitness_planner", // Namespace cookies to avoid collisions with other apps on localhost
     },
   });
 };
