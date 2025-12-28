@@ -22,10 +22,10 @@ import {
 
 interface FormData {
   // Base fields from DEFAULT_FORM_STATE
-  age: number;
+  age: number | '';
   sex: string;
-  heightCm: number;
-  weightKg: number;
+  heightCm: number | '';
+  weightKg: number | '';
   bodyFat?: number; // Optional: current body fat for BMR calculation (non-body_fat_goal modes)
 
   // New goal category system
@@ -33,8 +33,8 @@ interface FormData {
   bodyFatGoal?: BodyFatGoal; // Only used when goalCategory === 'body_fat_goal'
 
   // Timeline
-  timelineWeeks: number;
-  trainingDaysPerWeek: number;
+  timelineWeeks: number | '';
+  trainingDaysPerWeek: number | '';
   workoutLevel: string;
 
   // Training Preferences
@@ -203,13 +203,13 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
   const isStepValid = (step: number): boolean => {
     switch (step) {
       case 1:
-        return !!(formData.age > 0 && formData.sex && formData.heightCm > 0 && formData.weightKg > 0);
+        return !!(formData.age !== '' && formData.age > 0 && formData.sex && formData.heightCm !== '' && formData.heightCm > 0 && formData.weightKg !== '' && formData.weightKg > 0);
       case 2: {
         const baseValid = !!(
           formData.goalCategory &&
-          formData.timelineWeeks > 0 &&
+          formData.timelineWeeks !== '' && formData.timelineWeeks > 0 &&
           formData.timelineWeeks <= 24 &&
-          formData.trainingDaysPerWeek > 0 &&
+          formData.trainingDaysPerWeek !== '' && formData.trainingDaysPerWeek > 0 &&
           formData.workoutLevel
         );
 
@@ -250,7 +250,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   id="age"
                   type="number"
                   value={formData.age}
-                  onChange={(e) => updateFormData('age', parseInt(e.target.value) || 0)}
+                  onChange={(e) => updateFormData('age', e.target.value === '' ? '' : parseInt(e.target.value))}
                   placeholder="25"
                   className="font-mono"
                 />
@@ -275,7 +275,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   id="heightCm"
                   type="number"
                   value={formData.heightCm}
-                  onChange={(e) => updateFormData('heightCm', parseInt(e.target.value) || 0)}
+                  onChange={(e) => updateFormData('heightCm', e.target.value === '' ? '' : parseInt(e.target.value))}
                   placeholder="175"
                   className="font-mono"
                 />
@@ -287,7 +287,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   id="weightKg"
                   type="number"
                   value={formData.weightKg}
-                  onChange={(e) => updateFormData('weightKg', parseInt(e.target.value) || 0)}
+                  onChange={(e) => updateFormData('weightKg', e.target.value === '' ? '' : parseInt(e.target.value))}
                   placeholder="70"
                   className="font-mono"
                 />
@@ -410,8 +410,12 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   max={24}
                   value={formData.timelineWeeks}
                   onChange={(e) => {
-                    const value = parseInt(e.target.value) || 0;
-                    const clampedValue = Math.min(Math.max(value, 1), 24);
+                    if (e.target.value === '') {
+                      updateFormData('timelineWeeks', '');
+                      return;
+                    }
+                    const value = parseInt(e.target.value);
+                    const clampedValue = Math.min(Math.max(value, 1), 24); // Still clamp but only if valid
                     updateFormData('timelineWeeks', clampedValue);
                   }}
                   placeholder="16"
@@ -428,7 +432,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   min={1}
                   max={7}
                   value={formData.trainingDaysPerWeek}
-                  onChange={(e) => updateFormData('trainingDaysPerWeek', parseInt(e.target.value) || 0)}
+                  onChange={(e) => updateFormData('trainingDaysPerWeek', e.target.value === '' ? '' : parseInt(e.target.value))}
                   placeholder="4"
                   className="font-mono"
                 />
