@@ -87,6 +87,13 @@ export default defineSchema({
       protein: v.number(),
       carbs: v.number(),
       fat: v.number(),
+      dailyTargets: v.optional(v.array(v.object({
+        day: v.string(),
+        calories: v.number(),
+        protein: v.number(),
+        carbs: v.number(),
+        fat: v.number(),
+      }))),
     }))),
 
     // Metadata
