@@ -3,10 +3,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { TrendingDown, User } from 'lucide-react';
 import {
-  estimateBodyFatFromBMI,
-  calculateBMI,
   calculateWeeklyDeficitSummary,
-  getTDEE
+  getTDEE,
+  calculateAdvancedBodyCompositionProjection,
+  calculateBMI,
+  estimateBodyFatFromBMI
 } from '@/utils/planCalculations';
 import {
   AreaChart,
@@ -43,7 +44,6 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
   const height = planUserProfile?.height || userProfile?.height || 180;
   const gender = planUserProfile?.gender || userProfile?.gender || 'male';
 
-  // Get TDEE using centralized function
   const tdee = useMemo(() => {
     return getTDEE(plan, planUserProfile) || 2200;
   }, [plan, planUserProfile]);
@@ -61,187 +61,11 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
 
   // Get experience level for muscle gain rate calculation
   const experienceLevel = planUserProfile?.experienceLevel || userProfile?.experienceLevel || 'intermediate';
-  const userGender = (gender?.toLowerCase() === 'male' || gender?.toLowerCase() === 'm') ? 'male' : 'female';
-  const userAge = planUserProfile?.age || userProfile?.age || 30;
 
-  /**
-   * Calculate maximum weekly muscle gain rate based on training experience
-   * Based on research by Lyle McDonald, Alan Aragon, and meta-analyses
-   * 
-   * Natural muscle gain rates (kg/week):
-   * - Beginner (0-1 years): 0.20-0.25 kg/week (males), 0.10-0.125 kg/week (females)
-   * - Intermediate (1-3 years): 0.10-0.15 kg/week (males), 0.05-0.075 kg/week (females)  
-   * - Advanced (3+ years): 0.05-0.08 kg/week (males), 0.025-0.04 kg/week (females)
-   * 
-   * Factors: Age reduces rate by ~1% per year after 30
-   */
-  const getMaxWeeklyMuscleGain = (): number => {
-    const level = experienceLevel.toLowerCase();
-    let baseRate: number;
-
-    if (level === 'beginner' || level === 'novice') {
-      baseRate = userGender === 'male' ? 0.22 : 0.11;
-    } else if (level === 'advanced' || level === 'expert') {
-      baseRate = userGender === 'male' ? 0.06 : 0.03;
-    } else {
-      // Intermediate (default)
-      baseRate = userGender === 'male' ? 0.12 : 0.06;
-    }
-
-    // Age adjustment: reduce by 1% per year after 30
-    const ageAdjustment = userAge > 30 ? Math.max(0.5, 1 - (userAge - 30) * 0.01) : 1;
-
-    // Protein adjustment: need at least 1.6g/kg for optimal muscle synthesis
-    const proteinAdjustment = proteinPerKg >= 1.6 ? 1 : (proteinPerKg / 1.6);
-
-    return baseRate * ageAdjustment * proteinAdjustment;
-  };
-
-  // Calculate projections using the SAME method as weekly progression card
+  // Calculate projections using the shared utility
   const projections = useMemo(() => {
-    if (weeklyOutlines.length === 0 || !tdee || !startingWeight) {
-      return [];
-    }
-
-    const maxWeeklyMuscleGain = getMaxWeeklyMuscleGain();
-
-    // Calories required to build 1 kg of muscle tissue
-    // Research suggests ~2,500-3,500 kcal needed per kg muscle (including water/glycogen)
-    const KCAL_PER_KG_MUSCLE = 2800;
-
-    const results: Array<{
-      weekNumber: number;
-      weight: number;
-      bodyFat: number;
-      fatMass: number;
-      leanMass: number;
-      weeklyWeightChange: number;
-      cumulativeWeightChange: number;
-      weeklyFatLoss: number;
-      cumulativeFatLoss: number;
-    }> = [];
-
-    let currentWeight = startingWeight;
-    let currentFatMass = startingWeight * (startingBodyFat / 100);
-    let currentLeanMass = startingWeight - currentFatMass;
-    let cumulativeWeightChange = 0;
-    let cumulativeFatLoss = 0;
-
-    weeklyOutlines.forEach((week: any) => {
-      const weekNumber = week.weekNumber;
-
-      // Use the SAME calculation as weekly progression card
-      // Pass empty array for weeklySchedule if missing, as new logic relies on plan
-      const deficitSummary = calculateWeeklyDeficitSummary(
-        weekNumber,
-        tdee,
-        weeklySchedule || [],
-        plan,
-        currentWeight
-      );
-
-      // Positive = deficit (fat loss), Negative = surplus (potential muscle gain)
-      const weeklyBalance = deficitSummary?.projectedWeightLossKg || 0;
-      const isDeficit = weeklyBalance > 0;
-
-      // DEBUG LOG
-      if (weekNumber === 1 || weekNumber === weeklyOutlines.length) {
-        console.group(`📉 BodyComp Week ${weekNumber}`);
-        console.log('Current Weight:', currentWeight.toFixed(1));
-        console.log('TDEE Used:', tdee);
-        console.log('Weekly Balance (LossKg):', weeklyBalance);
-        console.log('Is Deficit?', isDeficit);
-        if (deficitSummary) {
-          console.log('Total Intake:', deficitSummary.dailyDeficits.reduce((a: number, b: any) => a + b.caloriesConsumed, 0));
-          console.log('Total Output:', deficitSummary.dailyDeficits.reduce((a: number, b: any) => a + b.resistanceCalories + b.cardioCalories + 2500, 0)); // rough check
-        }
-        console.groupEnd();
-      }
-
-      let fatChange: number;
-      let leanMassChange: number;
-
-      if (isDeficit) {
-        // DEFICIT: Fat loss with minimal muscle loss
-        // 7,700 kcal deficit = 1 kg fat loss
-        const weeklyFatLoss = weeklyBalance;
-
-        // Lean mass preservation based on protein intake
-        let leanMassLossRatio = 0.05;
-        if (proteinPerKg >= 2.0) {
-          leanMassLossRatio = 0.02;
-        } else if (proteinPerKg >= 1.8) {
-          leanMassLossRatio = 0.05;
-        } else if (proteinPerKg >= 1.5) {
-          leanMassLossRatio = 0.10;
-        } else {
-          leanMassLossRatio = 0.15;
-        }
-
-        fatChange = -weeklyFatLoss;
-        leanMassChange = -weeklyFatLoss * leanMassLossRatio;
-
-      } else {
-        // SURPLUS: Muscle gain with some fat gain
-        const weeklySurplus = Math.abs(weeklyBalance); // in kg (from 7700 rule)
-        const weeklySurplusKcal = weeklySurplus * 7700; // convert back to kcal
-
-        // Calculate max muscle gain for this week
-        // Limited by: genetics, training stimulus, protein synthesis rate
-        const maxMuscleGainThisWeek = maxWeeklyMuscleGain;
-
-        // Calories that CAN go to muscle (limited by max rate)
-        const kcalForMuscle = maxMuscleGainThisWeek * KCAL_PER_KG_MUSCLE;
-
-        // Actual muscle gain = min of (surplus available, max possible)
-        const actualMuscleGain = Math.min(
-          weeklySurplusKcal / KCAL_PER_KG_MUSCLE,
-          maxMuscleGainThisWeek
-        );
-
-        // Remaining surplus after muscle synthesis → stored as fat
-        const remainingSurplusKcal = Math.max(0, weeklySurplusKcal - (actualMuscleGain * KCAL_PER_KG_MUSCLE));
-        const fatGain = remainingSurplusKcal / 7700;
-
-        // With optimal protein (≥1.6g/kg), muscle synthesis is maximized
-        // With suboptimal protein, more goes to fat
-        const proteinEfficiency = proteinPerKg >= 1.6 ? 1 : (proteinPerKg / 1.6) * 0.7;
-
-        leanMassChange = actualMuscleGain * proteinEfficiency;
-        fatChange = fatGain + (actualMuscleGain * (1 - proteinEfficiency)); // Unused protein calories → fat
-      }
-
-      // Update masses
-      const newFatMass = Math.max(0, currentFatMass + fatChange);
-      const newLeanMass = Math.max(0, currentLeanMass + leanMassChange);
-      const newWeight = newFatMass + newLeanMass;
-      const newBodyFat = newWeight > 0 ? (newFatMass / newWeight) * 100 : 0;
-
-      // Track changes
-      const totalWeightChange = (newWeight - currentWeight);
-      cumulativeWeightChange += totalWeightChange;
-      cumulativeFatLoss += (fatChange < 0 ? Math.abs(fatChange) : 0);
-
-      results.push({
-        weekNumber,
-        weight: newWeight,
-        bodyFat: newBodyFat,
-        fatMass: newFatMass,
-        leanMass: newLeanMass,
-        weeklyWeightChange: totalWeightChange,
-        cumulativeWeightChange,
-        weeklyFatLoss: fatChange < 0 ? Math.abs(fatChange) : -fatChange, // Negative if gaining fat
-        cumulativeFatLoss,
-      });
-
-      // Update current values for next iteration
-      currentWeight = newWeight;
-      currentFatMass = newFatMass;
-      currentLeanMass = newLeanMass;
-    });
-
-    return results;
-  }, [weeklyOutlines, weeklySchedule, startingWeight, startingBodyFat, proteinPerKg, tdee, plan, experienceLevel, userGender, userAge]);
+    return calculateAdvancedBodyCompositionProjection(plan, weeklySchedule || [], userProfile);
+  }, [plan, weeklySchedule, userProfile]);
 
   if (projections.length === 0) {
     return (

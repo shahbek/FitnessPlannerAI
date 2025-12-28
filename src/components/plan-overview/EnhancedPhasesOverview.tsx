@@ -1,6 +1,12 @@
 import { useMemo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { extractPlanMetrics } from '@/utils/planMetricsExtractor';
+import {
+  calculateAdvancedBodyCompositionProjection,
+  getTDEE,
+  calculateWeeklyExerciseCalories,
+  calculateDailyDeficit
+} from '@/utils/planCalculations';
 import { UserProfileSummary } from './UserProfileSummary';
 import { EnergyBalanceVisualization } from './EnergyBalanceVisualization';
 import { BodyCompositionProjection } from './BodyCompositionProjection';
@@ -42,22 +48,45 @@ export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile, work
     const weeklyOutlines = plan?.weeklyOutlines || [];
     const totalWeeks = weeklyOutlines.length;
     const goal = userProfile?.primaryGoal?.replace(/_/g, ' ') || 'fitness';
-    const dailyDeficit = metrics.dailyDeficit || 0;
-    const weeklyWeightLoss = totalWeeks > 0 && dailyDeficit > 0 ? (dailyDeficit * 7 / 7700).toFixed(2) : 0;
-    const totalWeightLoss = totalWeeks > 0 && dailyDeficit > 0 ? ((dailyDeficit * 7 * totalWeeks) / 7700).toFixed(1) : 0;
+
+    // 1. Calculate TRUE Energy Balance (TDEE + Exercise - Intake)
+    const tdee = getTDEE(plan, userProfile) || 2200;
+    const targetCalories = metrics.targetCalories || 0;
+
+    // Calculate average daily exercise burn across the plan
+    let totalExerciseBurn = 0;
+    weeklyOutlines.forEach((week: any) => {
+      const exercise = calculateWeeklyExerciseCalories(week, userProfile?.weight || 70, plan);
+      totalExerciseBurn += exercise.total; // Weekly total
+    });
+    const avgDailyExerciseBurn = totalWeeks > 0 ? Math.round((totalExerciseBurn / totalWeeks) / 7) : 0;
+
+    // Positive = Deficit (Weight Loss), Negative = Surplus (Weight Gain)
+    const dailyBalanceROI = (tdee + avgDailyExerciseBurn) - targetCalories;
+    const isDeficit = dailyBalanceROI >= 0;
+    const dailySurplusOrDeficit = Math.abs(Math.round(dailyBalanceROI));
+
+    // 2. Get Projections using SHARED UTILITY
+    const projections = calculateAdvancedBodyCompositionProjection(plan, weeklySchedule || [], userProfile);
+    const finalProjection = projections[projections.length - 1];
+
+    const totalWeightChange = finalProjection ? (finalProjection.weight - (userProfile?.weight || finalProjection.weight + finalProjection.cumulativeWeightChange)) : 0;
+    const weeklyWeightChange = totalWeeks > 0 ? totalWeightChange / totalWeeks : 0;
+
     const proteinPerKg = userProfile?.weight && metrics.protein > 0 ? (metrics.protein / userProfile.weight).toFixed(1) : '1.8';
 
     return {
       totalWeeks,
       goal,
-      dailyDeficit: Math.abs(dailyDeficit),
-      weeklyWeightLoss,
-      totalWeightLoss,
+      dailySurplusOrDeficit,
+      isDeficit,
+      weeklyWeightChange: Math.abs(weeklyWeightChange).toFixed(2),
+      totalWeightChange: Math.abs(totalWeightChange).toFixed(1),
       proteinPerKg,
       trainingDays: metrics.trainingFrequency || userProfile?.workoutDaysPerWeek || 0,
-      targetCalories: metrics.targetCalories || 0,
+      targetCalories: Math.round(targetCalories),
     };
-  }, [plan, userProfile, metrics]);
+  }, [plan, userProfile, metrics, weeklySchedule]);
 
   return (
     <div className="space-y-6 pb-20">
@@ -80,15 +109,14 @@ export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile, work
                   fitness program is designed to support your <strong className="font-semibold text-slate-900 capitalize">{planSummary.goal}</strong> goals
                   through a structured approach combining nutrition and resistance training.
                   The plan prescribes a daily caloric intake of <strong className="font-semibold text-slate-900">{Math.round(planSummary.targetCalories)} kcal</strong>
-                  {planSummary.dailyDeficit > 0 && (
-                    <>, creating a <strong className="font-semibold text-slate-900">{planSummary.dailyDeficit} kcal</strong> daily deficit</>
-                  )}, with protein set at <strong className="font-semibold text-slate-900">{planSummary.proteinPerKg}g/kg</strong> body weight
+                  , creating a <strong className="font-semibold text-slate-900">{planSummary.dailySurplusOrDeficit} kcal</strong> daily {planSummary.isDeficit ? 'deficit' : 'surplus'}
+                  , with protein set at <strong className="font-semibold text-slate-900">{planSummary.proteinPerKg}g/kg</strong> body weight
                   to optimize muscle protein synthesis and preserve lean mass.
                   Training frequency is established at <strong className="font-semibold text-slate-900">{planSummary.trainingDays} sessions per week</strong>,
                   utilizing progressive overload principles across three distinct phases: Foundation, Progression, and Peak.
-                  {planSummary.dailyDeficit > 0 && planSummary.totalWeeks > 0 && (
-                    <> Based on the prescribed energy deficit, projected outcomes include approximately <strong className="font-semibold text-slate-900">{planSummary.weeklyWeightLoss} kg</strong> of
-                      weekly weight reduction, yielding an estimated total loss of <strong className="font-semibold text-slate-900">{planSummary.totalWeightLoss} kg</strong> over
+                  {planSummary.totalWeeks > 0 && (
+                    <> Based on the prescribed energy balance, projected outcomes include approximately <strong className="font-semibold text-slate-900">{planSummary.weeklyWeightChange} kg</strong> of
+                      weekly weight {planSummary.isDeficit ? 'reduction' : 'gain'}, yielding an estimated total {planSummary.isDeficit ? 'loss' : 'gain'} of <strong className="font-semibold text-slate-900">{planSummary.totalWeightChange} kg</strong> over
                       the program duration.</>
                   )}
                 </p>

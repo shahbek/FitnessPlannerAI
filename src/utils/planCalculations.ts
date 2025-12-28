@@ -784,3 +784,185 @@ export function calculateWeeklyDeficitSummary(
     projectedWeightLossLbs: Math.round(projectedWeightLossLbs * 100) / 100
   };
 }
+
+/**
+ * Advanced body composition projection over time
+ * Handles both deficit (fat loss focus) and surplus (muscle gain limits)
+ */
+export function calculateAdvancedBodyCompositionProjection(
+  plan: any,
+  weeklySchedule: any[],
+  userProfile: any
+) {
+  const weeklyOutlines = Array.isArray(plan?.weeklyOutlines) ? plan.weeklyOutlines : [];
+
+  // Use plan metrics first, then fallback to calculations
+  const planUserProfile = plan?.userProfile || userProfile;
+  const startingWeight = planUserProfile?.weight || userProfile?.weight || 88;
+  const height = planUserProfile?.height || userProfile?.height || 180;
+  const gender = planUserProfile?.gender || userProfile?.gender || 'male';
+
+  // Get TDEE using centralized function
+  const tdee = getTDEE(plan, planUserProfile) || 2200;
+
+  // Get protein per kg from framework
+  const framework = plan?.phaseAwareFramework || plan?.strategicFramework || {};
+  const proteinPerKg = framework?.nutritionApproach?.macroTargets?.proteinPerKg ||
+    (startingWeight > 0 && plan?.metrics?.macros?.protein
+      ? plan.metrics.macros.protein / startingWeight
+      : 2.0);
+
+  // Estimate starting body fat if not provided
+  const bmi = calculateBMI(height, startingWeight);
+  const startingBodyFat = planUserProfile?.bodyFat || userProfile?.bodyFat || estimateBodyFatFromBMI(bmi, gender);
+
+  // Get experience level for muscle gain rate calculation
+  const experienceLevel = planUserProfile?.experienceLevel || userProfile?.experienceLevel || 'intermediate';
+  const userGender = (gender?.toLowerCase() === 'male' || gender?.toLowerCase() === 'm') ? 'male' : 'female';
+  const userAge = planUserProfile?.age || userProfile?.age || 30;
+
+  /**
+   * Calculate maximum weekly muscle gain rate based on training experience
+   */
+  const getMaxWeeklyMuscleGain = (): number => {
+    const level = experienceLevel.toLowerCase();
+    let baseRate: number;
+
+    if (level === 'beginner' || level === 'novice') {
+      baseRate = userGender === 'male' ? 0.22 : 0.11;
+    } else if (level === 'advanced' || level === 'expert') {
+      baseRate = userGender === 'male' ? 0.06 : 0.03;
+    } else {
+      // Intermediate (default)
+      baseRate = userGender === 'male' ? 0.12 : 0.06;
+    }
+
+    // Age adjustment: reduce by 1% per year after 30
+    const ageAdjustment = userAge > 30 ? Math.max(0.5, 1 - (userAge - 30) * 0.01) : 1;
+
+    // Protein adjustment: need at least 1.6g/kg for optimal muscle synthesis
+    const proteinAdjustment = proteinPerKg >= 1.6 ? 1 : (proteinPerKg / 1.6);
+
+    return baseRate * ageAdjustment * proteinAdjustment;
+  };
+
+  if (weeklyOutlines.length === 0 || !tdee || !startingWeight) {
+    return [];
+  }
+
+  const maxWeeklyMuscleGain = getMaxWeeklyMuscleGain();
+
+  // Calories required to build 1 kg of muscle tissue
+  const KCAL_PER_KG_MUSCLE = 2800;
+
+  const results: Array<{
+    weekNumber: number;
+    weight: number;
+    bodyFat: number;
+    fatMass: number;
+    leanMass: number;
+    weeklyWeightChange: number;
+    cumulativeWeightChange: number;
+    weeklyFatLoss: number;
+    cumulativeFatLoss: number;
+  }> = [];
+
+  let currentWeight = startingWeight;
+  let currentFatMass = startingWeight * (startingBodyFat / 100);
+  let currentLeanMass = startingWeight - currentFatMass;
+  let cumulativeWeightChange = 0;
+  let cumulativeFatLoss = 0;
+
+  weeklyOutlines.forEach((week: any) => {
+    const weekNumber = week.weekNumber;
+
+    const deficitSummary = calculateWeeklyDeficitSummary(
+      weekNumber,
+      tdee,
+      weeklySchedule || [],
+      plan,
+      currentWeight
+    );
+
+    // Positive = deficit (fat loss), Negative = surplus (potential muscle gain)
+    const weeklyBalance = deficitSummary?.projectedWeightLossKg || 0;
+    const isDeficit = weeklyBalance > 0;
+
+    let fatChange: number;
+    let leanMassChange: number;
+
+    if (isDeficit) {
+      // DEFICIT: Fat loss with minimal muscle loss
+      const weeklyFatLoss = weeklyBalance;
+
+      // Lean mass preservation based on protein intake
+      let leanMassLossRatio = 0.05;
+      if (proteinPerKg >= 2.0) {
+        leanMassLossRatio = 0.02;
+      } else if (proteinPerKg >= 1.8) {
+        leanMassLossRatio = 0.05;
+      } else if (proteinPerKg >= 1.5) {
+        leanMassLossRatio = 0.10;
+      } else {
+        leanMassLossRatio = 0.15;
+      }
+
+      fatChange = -weeklyFatLoss;
+      leanMassChange = -weeklyFatLoss * leanMassLossRatio;
+
+    } else {
+      // SURPLUS: Muscle gain with some fat gain
+      const weeklySurplus = Math.abs(weeklyBalance); // in kg (from 7700 rule)
+      const weeklySurplusKcal = weeklySurplus * 7700; // convert back to kcal
+
+      // Calculate max muscle gain for this week
+      const maxMuscleGainThisWeek = maxWeeklyMuscleGain;
+
+      // Actual muscle gain = min of (surplus available, max possible)
+      const actualMuscleGain = Math.min(
+        weeklySurplusKcal / KCAL_PER_KG_MUSCLE,
+        maxMuscleGainThisWeek
+      );
+
+      // Remaining surplus after muscle synthesis → stored as fat
+      const remainingSurplusKcal = Math.max(0, weeklySurplusKcal - (actualMuscleGain * KCAL_PER_KG_MUSCLE));
+      const fatGain = remainingSurplusKcal / 7700;
+
+      // With optimal protein (≥1.6g/kg), muscle synthesis is maximized
+      const proteinEfficiency = proteinPerKg >= 1.6 ? 1 : (proteinPerKg / 1.6) * 0.7;
+
+      leanMassChange = actualMuscleGain * proteinEfficiency;
+      fatChange = fatGain + (actualMuscleGain * (1 - proteinEfficiency)); // Unused protein calories → fat
+    }
+
+    // Update masses
+    const newFatMass = Math.max(0, currentFatMass + fatChange);
+    const newLeanMass = Math.max(0, currentLeanMass + leanMassChange);
+    const newWeight = newFatMass + newLeanMass;
+    const newBodyFat = newWeight > 0 ? (newFatMass / newWeight) * 100 : 0;
+
+    // Track changes
+    const totalWeightChange = (newWeight - currentWeight);
+    cumulativeWeightChange += totalWeightChange;
+    cumulativeFatLoss += (fatChange < 0 ? Math.abs(fatChange) : 0);
+
+    results.push({
+      weekNumber,
+      weight: newWeight,
+      bodyFat: newBodyFat,
+      fatMass: newFatMass,
+      leanMass: newLeanMass,
+      weeklyWeightChange: totalWeightChange,
+      cumulativeWeightChange,
+      weeklyFatLoss: fatChange < 0 ? Math.abs(fatChange) : -fatChange, // Negative if gaining fat
+      cumulativeFatLoss,
+    });
+
+    // Update current values for next iteration
+    currentWeight = newWeight;
+    currentFatMass = newFatMass;
+    currentLeanMass = newLeanMass;
+  });
+
+  return results;
+}
