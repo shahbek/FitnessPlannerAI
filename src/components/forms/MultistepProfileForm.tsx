@@ -391,8 +391,8 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   <BodyFatGoalFeedback
                     currentBf={formData.bodyFatGoal.currentBf}
                     targetBf={formData.bodyFatGoal.targetBf}
-                    timelineWeeks={formData.timelineWeeks}
-                    weightKg={formData.weightKg}
+                    timelineWeeks={Number(formData.timelineWeeks) || 0}
+                    weightKg={Number(formData.weightKg) || 0}
                     sex={formData.sex as 'male' | 'female'}
                   />
                 )}
@@ -726,7 +726,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h2 className="text-2xl font-bold font-editorial">Create New Workout Program</h2>
+              <h2 className="text-2xl font-bold font-editorial">Create new Fitness Program</h2>
               <p className="text-muted-foreground">Step {currentStep} of {steps.length}</p>
             </div>
             <Button variant="ghost" onClick={onCancel} className="text-muted-foreground">

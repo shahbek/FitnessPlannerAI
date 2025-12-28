@@ -11,6 +11,7 @@ import { TodayMealsSection } from '@/components/daily-tracker/TodayMealsSection'
 import { TodayHydrationCard } from '@/components/daily-tracker/TodayHydrationCard';
 import { TodayWeightCard } from '@/components/daily-tracker/TodayWeightCard';
 import { parseWorkoutData } from '@/utils/workoutDataParser';
+import { StreakCounter } from '@/components/daily-tracker/StreakCounter';
 import { cn } from '@/lib/utils';
 import { getTDEE, estimateResistanceCalories } from '@/utils/planCalculations';
 
@@ -450,6 +451,9 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
         isLoading ? "opacity-60 pointer-events-none" : "opacity-100",
         !isPlanActive && "pointer-events-none"
       )}>
+        {/* Streak Counter */}
+        <StreakCounter workoutPlanId={workoutPlanId} isAuthFresh={isAuthFresh} />
+
         {/* Quick Stats Bar */}
         <Card className="rounded-3xl border-2 border-white/60 bg-gradient-to-br from-white via-slate-50 to-slate-100 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.08),inset_0_3px_6px_rgba(0,0,0,0.05),inset_0_-2px_4px_rgba(255,255,255,0.9),inset_0_1px_0_rgba(255,255,255,0.8)]">
           <CardContent className="p-4 sm:p-6">
