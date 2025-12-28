@@ -217,12 +217,15 @@ export function TodayMealsSection({
                 ].map(({ key, label, unit, color, bg, barBg }) => {
                   const consumed = Math.round(consumedMacros[key as keyof typeof consumedMacros]);
                   const target = Math.round(targetMacros[key as keyof typeof targetMacros]);
+                  const remaining = Math.max(0, target - consumed); // Prevent negative numbers if over target? Or show negative? Usually 0 is cleaner or negative to show overage. User asked to "track remaining". I'll default to allowing negatives if they want to see overage, but standard trackers often show 0 or negative. Let's just show the raw math so they know they are over.
+                  // Actually, let's stick to true remaining. If over, it goes negative.
+                  const displayValue = target - consumed;
                   const pct = Math.min(100, Math.round((consumed / target) * 100));
 
                   return (
                     <div key={key} className={cn("rounded-2xl p-3 flex flex-col items-center justify-center border border-slate-100/50", bg)}>
                       <div className={cn("text-lg font-black tracking-tight leading-none mb-1", color)}>
-                        {consumed}
+                        {displayValue}
                         <span className="text-[10px] font-bold ml-0.5 opacity-60">{unit}</span>
                       </div>
                       <div className="w-full h-1 bg-black/5 rounded-full overflow-hidden mb-1">
@@ -232,7 +235,7 @@ export function TodayMealsSection({
                         />
                       </div>
                       <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                        {label}
+                        {label} Left
                       </div>
                     </div>
                   );
