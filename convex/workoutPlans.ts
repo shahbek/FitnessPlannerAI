@@ -69,6 +69,13 @@ function extractMetadata(fullPlanData: any): {
             protein: week.dailyTargets.protein || 0,
             carbs: week.dailyTargets.carbs || 0,
             fat: week.dailyTargets.fat || 0,
+            dailyTargets: week.dailyTargetsOverride ? week.dailyTargetsOverride.map((dt: any, index: number) => ({
+              day: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][index] || `Day ${index + 1}`,
+              calories: dt.calories || 0,
+              protein: dt.protein || 0,
+              carbs: dt.carbs || 0,
+              fat: dt.fat || 0,
+            })) : undefined,
           };
         }
         return null;

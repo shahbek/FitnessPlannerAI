@@ -67,8 +67,54 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
   const [openDayTooltip, setOpenDayTooltip] = useState<string | null>(null);
   // Track which deficit tooltip is open
   const [openDeficitTooltip, setOpenDeficitTooltip] = useState<number | null>(null);
-  
+
   const weeklyOutlines = Array.isArray(plan?.weeklyOutlines) ? plan.weeklyOutlines : [];
+
+  // Debug Logging for Verification
+  React.useEffect(() => {
+    if (weeklyOutlines.length > 0 && plan?.userProfile) {
+      console.group('📊 WEEKLY PROGRESSION VERIFICATION LOG');
+      console.log('Timestamp:', new Date().toISOString());
+      console.log('User TDEE:', getTDEE(plan));
+
+      weeklyOutlines.forEach((week: any) => {
+        const tdee = getTDEE(plan) || 2000;
+        const deficitSummary = calculateWeeklyDeficitSummary(
+          week.weekNumber,
+          tdee,
+          weeklySchedule || [],
+          plan,
+          plan.userProfile.weight || 70
+        );
+
+        console.group(`Week ${week.weekNumber} Breakdown`);
+        console.log('Phase:', week.phase);
+
+        // Log Cardio & Resistance Inputs
+        const resistanceDays = week.trainingSchedule?.resistanceDays || [];
+        const cardioSchedule = plan?.weeklyCardioSchedules?.find((s: any) => s.weekNumber === week.weekNumber);
+
+        console.log('Res Days:', resistanceDays.length, 'Cardio Sessions:', cardioSchedule?.sessions?.length || 0);
+
+        if (deficitSummary) {
+          console.table(deficitSummary.dailyDeficits.map((d: any) => ({
+            Day: d.day,
+            'Intake (In)': d.caloriesConsumed,
+            'TDEE (Base)': tdee,
+            'Res Burn (Est)': d.resistanceCalories,
+            'Cardio Burn': d.cardioCalories,
+            'Total Out': tdee + d.resistanceCalories + d.cardioCalories,
+            'NET DEFICIT': d.deficit
+          })));
+          console.log(`Weekly Total Deficit: ${deficitSummary.totalWeeklyDeficit}`);
+        } else {
+          console.warn('Could not calculate deficit summary');
+        }
+        console.groupEnd();
+      });
+      console.groupEnd();
+    }
+  }, [plan, weeklyOutlines, weeklySchedule]);
 
   if (weeklyOutlines.length === 0) {
     return (
@@ -361,7 +407,7 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
       : [];
 
     // Calculate weekly deficit summary
-    const deficitSummary = weeklySchedule 
+    const deficitSummary = weeklySchedule
       ? calculateWeeklyDeficitSummary(week.weekNumber, tdee, weeklySchedule, plan, userWeightKg)
       : null;
 
@@ -545,7 +591,7 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                       </span>
                       {hasDetails ? (
                         <TooltipProvider delayDuration={200}>
-                          <Tooltip 
+                          <Tooltip
                             open={isTooltipOpen}
                             onOpenChange={(open) => {
                               if (open) setOpenDayTooltip(dayTooltipId);
@@ -607,7 +653,7 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                   const absoluteDeficit = Math.abs(week.deficitSummary.totalWeeklyDeficit);
                   const absoluteWeightChange = Math.abs(week.deficitSummary.projectedWeightLossKg);
                   const isDeficitTooltipOpen = openDeficitTooltip === week.weekNumber;
-                  
+
                   return (
                     <TooltipProvider delayDuration={200}>
                       <Tooltip
@@ -618,7 +664,7 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                         }}
                       >
                         <TooltipTrigger asChild>
-                          <div 
+                          <div
                             className="flex items-center justify-center cursor-help py-1"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -630,33 +676,31 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                             <div className="flex items-baseline gap-3">
                               {/* Deficit Value */}
                               <div className="flex items-baseline">
-                                <span 
-                                  className={`text-3xl font-black tabular-nums tracking-tight ${
-                                    isDeficit 
-                                      ? 'bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-500' 
+                                <span
+                                  className={`text-3xl font-black tabular-nums tracking-tight ${isDeficit
+                                      ? 'bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-500'
                                       : 'bg-gradient-to-br from-amber-400 via-orange-500 to-rose-500'
-                                  } bg-clip-text text-transparent drop-shadow-sm`}
+                                    } bg-clip-text text-transparent drop-shadow-sm`}
                                 >
                                   {isDeficit ? '−' : '+'}{absoluteDeficit.toLocaleString()}
                                 </span>
                                 <span className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-wide">kcal</span>
                               </div>
-                              
+
                               {/* Animated Arrow */}
                               <div className={`flex items-center ${isDeficit ? 'text-teal-400' : 'text-orange-400'}`}>
                                 <svg width="20" height="12" viewBox="0 0 20 12" fill="none" className="opacity-60">
-                                  <path d="M0 6H16M16 6L11 1M16 6L11 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                  <path d="M0 6H16M16 6L11 1M16 6L11 11" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
                                 </svg>
                               </div>
-                              
+
                               {/* Weight Change Value */}
                               <div className="flex items-baseline">
-                                <span 
-                                  className={`text-3xl font-black tabular-nums tracking-tight ${
-                                    isDeficit 
-                                      ? 'bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-500' 
+                                <span
+                                  className={`text-3xl font-black tabular-nums tracking-tight ${isDeficit
+                                      ? 'bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-500'
                                       : 'bg-gradient-to-br from-rose-400 via-pink-500 to-purple-500'
-                                  } bg-clip-text text-transparent drop-shadow-sm`}
+                                    } bg-clip-text text-transparent drop-shadow-sm`}
                                 >
                                   {isDeficit ? '−' : '+'}{absoluteWeightChange.toFixed(2)}
                                 </span>

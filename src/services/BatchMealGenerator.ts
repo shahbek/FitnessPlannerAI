@@ -21,6 +21,7 @@ import { WeeklyOutline } from '../models/PlanModels';
 import { USDANutritionService } from './USDANutritionService';
 import { ChainOfThoughtService } from './ChainOfThoughtService';
 import { MacroValues, NutritionErrorType } from '../types/nutrition';
+import { MacroTargets } from './NutritionCalculationService';
 import { calculateMacrosForAmount, extractMacrosFromUSDA, normalizeFoodName } from '../utils/usdaMapper';
 import { HybridMealOptimizer } from './optimizers/HybridMealOptimizer';
 import { isZeroImpactIngredient, stripDescriptorWords, isSensitiveIngredient } from '../constants/ingredients';
@@ -182,6 +183,7 @@ export class BatchMealGenerator {
     userProfile: UserProfile,
     weeklyOutline: WeeklyOutline,
     trainingSplit: any,
+    dailyTargetsOverride?: MacroTargets[],
     options?: {
       onProgress?: (step: string, progress: number) => void;
     }
@@ -210,7 +212,7 @@ export class BatchMealGenerator {
 
     // Calculate and log day-by-day targets
     const dayTargets = trainingSplit.days.map((day: any, index: number) => {
-      const dayMacros = this.calculateDayMacros(weeklyOutline, day.isRestDay);
+      const dayMacros = this.calculateDayMacros(weeklyOutline, day.isRestDay, index, dailyTargetsOverride);
       return {
         dayNumber: index + 1,
         dayName: day.dayName,
@@ -235,7 +237,8 @@ export class BatchMealGenerator {
       userProfile,
       weeklyOutline,
       trainingSplit,
-      nutritionFacts
+      nutritionFacts,
+      dailyTargetsOverride
     );
     console.log(`✅ [BATCH] AI generated ${aiGeneratedMeals.weeklyMeals.length} days of meals`);
 
@@ -515,7 +518,8 @@ export class BatchMealGenerator {
     userProfile: UserProfile,
     weeklyOutline: WeeklyOutline,
     trainingSplit: any,
-    nutritionFacts: NutritionFact[] = []
+    nutritionFacts: NutritionFact[] = [],
+    dailyTargetsOverride?: MacroTargets[]
   ): Promise<BatchMealGeneration> {
     // Check if AI is available
     const isAIAvailable = this.cotService.isAIAvailable && this.cotService.isAIAvailable();
@@ -525,7 +529,7 @@ export class BatchMealGenerator {
     }
 
     // Build prompt for all 7 days
-    const prompt = this.buildBatchMealPrompt(userProfile, weeklyOutline, trainingSplit, nutritionFacts);
+    const prompt = this.buildBatchMealPrompt(userProfile, weeklyOutline, trainingSplit, nutritionFacts, dailyTargetsOverride);
 
     const { result } = await this.cotService.generateWithCoT(
       prompt,
@@ -644,7 +648,8 @@ export class BatchMealGenerator {
     userProfile: UserProfile,
     weeklyOutline: WeeklyOutline,
     trainingSplit: any,
-    nutritionFacts: NutritionFact[] = []
+    nutritionFacts: NutritionFact[] = [],
+    dailyTargetsOverride?: MacroTargets[]
   ): string {
     const dailyTargets = weeklyOutline.dailyTargets;
     const mealFrequency = userProfile.mealFrequency || 4;
@@ -674,7 +679,7 @@ export class BatchMealGenerator {
 
     // Build day information
     const dayInfo = trainingSplit.days.map((day: { dayName: string; isRestDay: boolean }, index: number) => {
-      const dayMacros = this.calculateDayMacros(weeklyOutline, day.isRestDay);
+      const dayMacros = this.calculateDayMacros(weeklyOutline, day.isRestDay, index, dailyTargetsOverride);
       // Calculate meal targets for this day using distribution
       const dayMealDistribution = this.getMealCalorieDistribution(mealFrequency, dayMacros.calories);
       return {
@@ -733,24 +738,7 @@ WEEKLY TARGETS (Daily Averages):
 - Carbs: ${dailyTargets.carbs}g/day
 - Fats: ${dailyTargets.fat}g/day
 
-MEAL CALORIE DISTRIBUTION (Standard Percentages):
-${mealFrequency === 3 ? `
-- Breakfast: 35% (~${mealDistribution.breakfast} cal)
-- Lunch: 40% (~${mealDistribution.lunch} cal)
-- Dinner: 25% (~${mealDistribution.dinner} cal)
-` : mealFrequency === 4 ? `
-- Breakfast: 30% (~${mealDistribution.breakfast} cal)
-- Lunch: 35% (~${mealDistribution.lunch} cal)
-- Dinner: 25% (~${mealDistribution.dinner} cal)
-- Evening Snack: 10% (~${mealDistribution.snacks?.[0] || 0} cal)
-` : `
-- Breakfast: 25% (~${mealDistribution.breakfast} cal)
-- Mid-Morning Snack: 10% (~${mealDistribution.snacks?.[0] || 0} cal)
-- Lunch: 30% (~${mealDistribution.lunch} cal)
-- Mid-Afternoon Snack: 10% (~${mealDistribution.snacks?.[1] || 0} cal)
-- Dinner: 20% (~${mealDistribution.dinner} cal)
-- Evening Snack: 5% (~${mealDistribution.snacks?.[2] || 0} cal)
-`}
+
 
 DAY-BY-DAY TARGETS:
 ${dayInfo.map((day: { dayNumber: number; dayName: string; isTrainingDay: boolean; macros: MacroValues; mealTargets: any }) => `
@@ -783,14 +771,18 @@ CRITICAL REQUIREMENTS (IN ORDER OF IMPORTANCE):
 🍽️ PRIORITY #3: MEAL VARIETY & LOGIC
 - ✅ Within any single day: Breakfast ≠ Lunch ≠ Dinner.
 - ✅ Across the week: ${mealPrepStyle === 'fresh_daily' ? 'Maximize variety' : 'Follow the prep strategy mentioned above'}.
-- ✅ Portions: If a meal/recipe name is repeated, the ingredients and weights MUST be 100% identical.
-4. **MEAL CALORIE TARGETS**: Each meal should target the calorie distribution shown above. For example:
-   ${mealFrequency === 4 ? `
-   - Breakfast meals should target ~${mealDistribution.breakfast} calories
-   - Lunch meals should target ~${mealDistribution.lunch} calories
-   - Dinner meals should target ~${mealDistribution.dinner} calories
-   - Snack meals should target ~${mealDistribution.snacks?.[0] || 0} calories
-   ` : ''}
+- ✅ Portions: If a meal/recipe name is repeated, the ingredients and weights MUST be 100% identical
+
+    4. **MEAL CALORIE TARGETS & SNACK STRATEGY**:
+       - 🚨 **PRIMARY GOAL**: The SUM of all meals for the day MUST equal the Daily Calorie Target (±100 kcal).
+       - **MAIN MEALS (Breakfast, Lunch, Dinner)**: These correspond to the bulk of the calories. DO NOT CAP THEM. If a day requires 3500kcal, your Breakfast/Lunch/Dinner might need to be 1000-1200kcal each. This is correct. Do not shrink them.
+       - **SNACKS AS SUPPLEMENTS**: Treat snacks as "Gap Fillers".
+         - First, maximize the main meals to be substantial and satisfying.
+         - Then, size the Snack(s) to bridge the gap to the final Daily Target.
+         - If the gap is small (150kcal), generate a small snack. If the gap is large (500kcal), generate a substantial snack.
+       - **DO NOT** generate small main meals and rely on massive snacks to make up the difference (unless specified).
+       - **DO NOT** undershoot the total.
+       
 5. **MACRO CALCULATION GUIDANCE - CRITICAL FOR ACCURACY**:
    Use these approximate macro values per 100g to estimate ingredient amounts:
 
@@ -1082,15 +1074,15 @@ Generate all 7 days of meals now.`;
       'rice': { max: 200, typical: '100-150g cooked' },
       'potato': { max: 300, typical: '150-250g' },
       'sweet potato': { max: 300, typical: '150-250g' },
-      'green banana': { 
-        max: 400, 
+      'green banana': {
+        max: 400,
         typical: '200-400g for main dishes like Matoke',
         cultural: {
           'kenyan': { min: 200, max: 400, typical: '200-400g for Matoke (NOT 50g!)' }
         }
       },
-      'plantain': { 
-        max: 400, 
+      'plantain': {
+        max: 400,
         typical: '200-400g for main dishes',
         cultural: {
           'kenyan': { min: 200, max: 400, typical: '200-400g for Matoke (NOT 50g!)' }
@@ -1116,11 +1108,11 @@ Generate all 7 days of meals now.`;
         const mealName = (meal.mealName || '').toLowerCase();
         const isChapati = mealName.includes('chapati');
         const isMatoke = mealName.includes('matoke') || mealName.includes('matooke');
-        
+
         meal.ingredients.forEach((ing) => {
           const name = normalizeFoodName(ing.name || '');
           const amount = ing.amount || 0;
-          
+
           // Check against ingredient limits
           for (const [key, limit] of Object.entries(ingredientLimits)) {
             if (name.includes(key)) {
@@ -1233,7 +1225,7 @@ Generate all 7 days of meals now.`;
         // Rule 1: Detect unhealthy cooking methods (deep frying)
         const hasDeepFrying = /deep\s*fry|deep\s*fried|deep-fry|deep-fried/.test(instructions);
         const hasFrying = /\bfry\b|\bfried\b/.test(instructions);
-        
+
         // Check for excessive oil (indicates deep frying)
         const totalOil = ingredients.reduce((sum, ing) => {
           const ingName = (ing.name || '').toLowerCase();
@@ -1267,8 +1259,8 @@ Generate all 7 days of meals now.`;
         // Rule 3: Check for refined carbs without adequate protein
         const hasRefinedCarbs = ingredients.some(ing => {
           const ingName = (ing.name || '').toLowerCase();
-          return ingName.includes('flour') || ingName.includes('white rice') || 
-                 (ingName.includes('bread') && !ingName.includes('whole grain'));
+          return ingName.includes('flour') || ingName.includes('white rice') ||
+            (ingName.includes('bread') && !ingName.includes('whole grain'));
         });
 
         if (hasRefinedCarbs && estimatedProtein < 20 && estimatedCalories > 500) {
@@ -1331,7 +1323,23 @@ Generate all 7 days of meals now.`;
    *
    * Returns consistent daily macro targets (same for all days).
    */
-  private calculateDayMacros(weeklyOutline: WeeklyOutline, _isRestDay: boolean): MacroValues {
+  private calculateDayMacros(
+    weeklyOutline: WeeklyOutline,
+    _isRestDay: boolean,
+    dayIndex?: number,
+    dailyTargetsOverride?: MacroTargets[]
+  ): MacroValues {
+    // If specific daily targets are provided, use them
+    if (dailyTargetsOverride && dayIndex !== undefined && dailyTargetsOverride[dayIndex]) {
+      const target = dailyTargetsOverride[dayIndex];
+      return {
+        calories: target.calories,
+        protein: target.protein,
+        carbs: target.carbs,
+        fats: target.fat,
+      };
+    }
+
     const base = weeklyOutline.dailyTargets;
 
     return {

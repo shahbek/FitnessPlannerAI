@@ -147,6 +147,16 @@ export interface WeeklyOutline {
     fat: number;
     proteinPerKg: number;
   };
+  dailyTargetsOverride?: Array<{
+    calories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+    proteinPerKg: number;
+    carbPercentage?: number;
+    fatPercentage?: number;
+    reasoning?: string;
+  }>;
   trainingSchedule: {
     resistanceDays: string[];
     cardioDays: string[];

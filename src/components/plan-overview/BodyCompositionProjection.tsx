@@ -2,9 +2,9 @@ import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { TrendingDown, User } from 'lucide-react';
-import { 
-  estimateBodyFatFromBMI, 
-  calculateBMI, 
+import {
+  estimateBodyFatFromBMI,
+  calculateBMI,
   calculateWeeklyDeficitSummary,
   getTDEE
 } from '@/utils/planCalculations';
@@ -78,7 +78,7 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
   const getMaxWeeklyMuscleGain = (): number => {
     const level = experienceLevel.toLowerCase();
     let baseRate: number;
-    
+
     if (level === 'beginner' || level === 'novice') {
       baseRate = userGender === 'male' ? 0.22 : 0.11;
     } else if (level === 'advanced' || level === 'expert') {
@@ -87,13 +87,13 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
       // Intermediate (default)
       baseRate = userGender === 'male' ? 0.12 : 0.06;
     }
-    
+
     // Age adjustment: reduce by 1% per year after 30
     const ageAdjustment = userAge > 30 ? Math.max(0.5, 1 - (userAge - 30) * 0.01) : 1;
-    
+
     // Protein adjustment: need at least 1.6g/kg for optimal muscle synthesis
     const proteinAdjustment = proteinPerKg >= 1.6 ? 1 : (proteinPerKg / 1.6);
-    
+
     return baseRate * ageAdjustment * proteinAdjustment;
   };
 
@@ -104,11 +104,11 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
     }
 
     const maxWeeklyMuscleGain = getMaxWeeklyMuscleGain();
-    
+
     // Calories required to build 1 kg of muscle tissue
     // Research suggests ~2,500-3,500 kcal needed per kg muscle (including water/glycogen)
     const KCAL_PER_KG_MUSCLE = 2800;
-    
+
     const results: Array<{
       weekNumber: number;
       weight: number;
@@ -129,16 +129,35 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
 
     weeklyOutlines.forEach((week: any) => {
       const weekNumber = week.weekNumber;
-      
+
       // Use the SAME calculation as weekly progression card
-      const deficitSummary = weeklySchedule 
-        ? calculateWeeklyDeficitSummary(weekNumber, tdee, weeklySchedule, plan, currentWeight)
-        : null;
+      // Pass empty array for weeklySchedule if missing, as new logic relies on plan
+      const deficitSummary = calculateWeeklyDeficitSummary(
+        weekNumber,
+        tdee,
+        weeklySchedule || [],
+        plan,
+        currentWeight
+      );
 
       // Positive = deficit (fat loss), Negative = surplus (potential muscle gain)
       const weeklyBalance = deficitSummary?.projectedWeightLossKg || 0;
       const isDeficit = weeklyBalance > 0;
-      
+
+      // DEBUG LOG
+      if (weekNumber === 1 || weekNumber === weeklyOutlines.length) {
+        console.group(`📉 BodyComp Week ${weekNumber}`);
+        console.log('Current Weight:', currentWeight.toFixed(1));
+        console.log('TDEE Used:', tdee);
+        console.log('Weekly Balance (LossKg):', weeklyBalance);
+        console.log('Is Deficit?', isDeficit);
+        if (deficitSummary) {
+          console.log('Total Intake:', deficitSummary.dailyDeficits.reduce((a: number, b: any) => a + b.caloriesConsumed, 0));
+          console.log('Total Output:', deficitSummary.dailyDeficits.reduce((a: number, b: any) => a + b.resistanceCalories + b.cardioCalories + 2500, 0)); // rough check
+        }
+        console.groupEnd();
+      }
+
       let fatChange: number;
       let leanMassChange: number;
 
@@ -146,7 +165,7 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
         // DEFICIT: Fat loss with minimal muscle loss
         // 7,700 kcal deficit = 1 kg fat loss
         const weeklyFatLoss = weeklyBalance;
-        
+
         // Lean mass preservation based on protein intake
         let leanMassLossRatio = 0.05;
         if (proteinPerKg >= 2.0) {
@@ -158,40 +177,40 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
         } else {
           leanMassLossRatio = 0.15;
         }
-        
+
         fatChange = -weeklyFatLoss;
         leanMassChange = -weeklyFatLoss * leanMassLossRatio;
-        
+
       } else {
         // SURPLUS: Muscle gain with some fat gain
         const weeklySurplus = Math.abs(weeklyBalance); // in kg (from 7700 rule)
         const weeklySurplusKcal = weeklySurplus * 7700; // convert back to kcal
-        
+
         // Calculate max muscle gain for this week
         // Limited by: genetics, training stimulus, protein synthesis rate
         const maxMuscleGainThisWeek = maxWeeklyMuscleGain;
-        
+
         // Calories that CAN go to muscle (limited by max rate)
         const kcalForMuscle = maxMuscleGainThisWeek * KCAL_PER_KG_MUSCLE;
-        
+
         // Actual muscle gain = min of (surplus available, max possible)
         const actualMuscleGain = Math.min(
           weeklySurplusKcal / KCAL_PER_KG_MUSCLE,
           maxMuscleGainThisWeek
         );
-        
+
         // Remaining surplus after muscle synthesis → stored as fat
         const remainingSurplusKcal = Math.max(0, weeklySurplusKcal - (actualMuscleGain * KCAL_PER_KG_MUSCLE));
         const fatGain = remainingSurplusKcal / 7700;
-        
+
         // With optimal protein (≥1.6g/kg), muscle synthesis is maximized
         // With suboptimal protein, more goes to fat
         const proteinEfficiency = proteinPerKg >= 1.6 ? 1 : (proteinPerKg / 1.6) * 0.7;
-        
+
         leanMassChange = actualMuscleGain * proteinEfficiency;
         fatChange = fatGain + (actualMuscleGain * (1 - proteinEfficiency)); // Unused protein calories → fat
       }
-      
+
       // Update masses
       const newFatMass = Math.max(0, currentFatMass + fatChange);
       const newLeanMass = Math.max(0, currentLeanMass + leanMassChange);
@@ -235,20 +254,20 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
   }
 
   const finalProjection = projections[projections.length - 1];
-  
+
   // Calculate total changes
   const startingFatMass = startingWeight * (startingBodyFat / 100);
   const startingLeanMass = startingWeight - startingFatMass;
-  
+
   const totalWeightChange = finalProjection.weight - startingWeight; // Positive = gain, Negative = loss
   const totalFatChange = finalProjection.fatMass - startingFatMass; // Positive = gain, Negative = loss
   const totalLeanMassChange = finalProjection.leanMass - startingLeanMass; // Positive = gain, Negative = loss
-  
+
   // Determine if this is a bulk or cut scenario
   const isWeightLoss = totalWeightChange < 0;
   const isFatLoss = totalFatChange < 0;
   const isMuscleGain = totalLeanMassChange > 0;
-  
+
   // Calculate percentages for display
   const fatChangePercent = startingFatMass > 0 ? Math.abs(totalFatChange / startingFatMass * 100) : 0;
   const leanMassChangePercent = startingLeanMass > 0 ? Math.abs(totalLeanMassChange / startingLeanMass * 100) : 0;
@@ -275,7 +294,7 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
       const leanMass = payload.find((p: any) => p.dataKey === 'leanMass')?.value || 0;
       const fatMass = payload.find((p: any) => p.dataKey === 'fatMass')?.value || 0;
       const totalWeight = leanMass + fatMass;
-      
+
       return (
         <div className="bg-white/95 backdrop-blur-md border border-white/50 p-4 rounded-xl shadow-[0_8px_30px_rgba(0,0,0,0.12)]">
           <p className="font-bold text-slate-800 mb-3">Week {label}</p>
@@ -338,7 +357,7 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
                 −{leanMassChangePercent.toFixed(1)}% Muscle
               </Badge>
             )}
-            
+
             {/* Fat Badge */}
             {isFatLoss ? (
               <Badge variant="default" className="bg-emerald-600 hover:bg-emerald-700 shadow-md border border-emerald-500/50">
@@ -445,7 +464,7 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
                 <div className="p-1 bg-slate-200 rounded-md"><User className="w-3 h-3" /></div>
                 Composition Analysis
               </h4>
-              
+
               {/* Fat Change */}
               <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200/50">
                 <span className="text-xs text-slate-600">Fat Mass</span>
@@ -453,7 +472,7 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
                   {isFatLoss ? '−' : '+'}{Math.abs(totalFatChange).toFixed(2)} kg ({fatChangePercent.toFixed(1)}%)
                 </span>
               </div>
-              
+
               {/* Lean Mass Change */}
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs text-slate-600">Lean Mass</span>
@@ -461,22 +480,22 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
                   {isMuscleGain ? '+' : '−'}{Math.abs(totalLeanMassChange).toFixed(2)} kg ({leanMassChangePercent.toFixed(1)}%)
                 </span>
               </div>
-              
+
               {/* Analysis Text */}
               <p className="leading-relaxed text-xs text-slate-500">
                 {isWeightLoss ? (
                   <>
-                    With <span className="font-bold text-slate-700">{proteinPerKg.toFixed(1)}g/kg</span> protein + resistance training, 
+                    With <span className="font-bold text-slate-700">{proteinPerKg.toFixed(1)}g/kg</span> protein + resistance training,
                     you {isMuscleGain ? 'gain muscle while losing fat' : `retain ${(100 - leanMassChangePercent).toFixed(0)}% of lean mass`} while cutting.
                   </>
                 ) : totalWeightChange > 0 ? (
                   <>
-                    At <span className="font-bold text-slate-700">{experienceLevel}</span> level with <span className="font-bold text-slate-700">{proteinPerKg.toFixed(1)}g/kg</span> protein, 
+                    At <span className="font-bold text-slate-700">{experienceLevel}</span> level with <span className="font-bold text-slate-700">{proteinPerKg.toFixed(1)}g/kg</span> protein,
                     <span className="font-bold text-indigo-600"> {(Math.abs(totalLeanMassChange) / Math.abs(totalWeightChange) * 100).toFixed(0)}%</span> of weight gain is muscle.
                   </>
                 ) : (
                   <>
-                    At maintenance with <span className="font-bold text-slate-700">{proteinPerKg.toFixed(1)}g/kg</span> protein, 
+                    At maintenance with <span className="font-bold text-slate-700">{proteinPerKg.toFixed(1)}g/kg</span> protein,
                     body composition remains stable.
                   </>
                 )}

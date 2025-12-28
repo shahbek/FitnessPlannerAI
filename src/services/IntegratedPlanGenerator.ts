@@ -37,7 +37,8 @@ import { ShoppingListGenerationService } from './ShoppingListGenerationService';
 import { CardioGenerationService } from './CardioGenerationService';
 import {
   nutritionCalculationService,
-  UserMetrics
+  UserMetrics,
+  MacroTargets
 } from './NutritionCalculationService';
 
 /**
@@ -308,7 +309,7 @@ export class IntegratedPlanGenerator {
         currentStep: 'Reconciling nutrition with exercise burn...',
       }, opts.onStateUpdate);
 
-      await this.recalculateNutritionForExercise(
+      await this.calculateDailyNutritionTargets(
         userProfile,
         weeklyOutlines,
         trainingSplit,
@@ -342,6 +343,7 @@ export class IntegratedPlanGenerator {
             userProfile,
             outline,
             trainingSplit,
+            (outline as any).dailyTargetsOverride,
             {
               onProgress: (step, progress) => {
                 this.updateState(
@@ -1160,7 +1162,11 @@ export class IntegratedPlanGenerator {
    * This ensures that for bulking/maintenance goals, the targets are set 
    * against (TDEE + actual burn) rather than just TDEE.
    */
-  private async recalculateNutritionForExercise(
+  /**
+   * Determine nutrition targets for EACH DAY of the week
+   * Instead of a flat weekly average, this adjusts calories daily based on activity.
+   */
+  private async calculateDailyNutritionTargets(
     userProfile: UserProfile,
     weeklyOutlines: WeeklyOutline[],
     trainingSplit: TrainingSplit,
@@ -1174,11 +1180,11 @@ export class IntegratedPlanGenerator {
     const isGainingOrMaintaining = effectiveGoal === 'muscle_gain' || effectiveGoal === 'maintenance';
 
     if (!isGainingOrMaintaining) {
-      console.log(`ℹ️  [RECONCILIATION] Skipping exercise-adjusted targets for goal: ${goalCategory}`);
+      console.log(`ℹ️ [RECONCILIATION] Skipping daily calorie cycling for goal: ${goalCategory}`);
       return;
     }
 
-    console.log(`🔄 [RECONCILIATION] Adjusting nutrition targets for ${weeklyOutlines.length} weeks...`);
+    console.log(`🔄 [RECONCILIATION] Calculating DAILY nutrition targets for ${weeklyOutlines.length} weeks...`);
 
     const metrics = {
       weightKg: userProfile.weightKg,
@@ -1191,52 +1197,83 @@ export class IntegratedPlanGenerator {
 
     const maintenance = await nutritionCalculationService.calculateMaintenanceCalories(metrics);
     const baseTdee = trainingMetrics.tdee || maintenance.tdee;
+    // Hardcoded estimate for resistance training burn (per session)
+    const RESISTANCE_BURN = 250;
+
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
     for (const outline of weeklyOutlines) {
-      // 1. Calculate weekly resistance burn
-      const resistanceDaysCount = trainingSplit.days.filter(d => !d.isRestDay).length;
-      // Estimate ~250 cal per resistance session (user example)
-      const weeklyResistanceBurn = resistanceDaysCount * 250;
+      // Initialize array for 7 days of targets
+      const dailyTargets: MacroTargets[] = [];
+      const resistanceDays = outline.trainingSchedule?.resistanceDays || [];
 
-      // 2. Calculate weekly cardio burn
-      const cardioSchedule = cardioTemplates.weeklySchedules.find(s => s.weekNumber === outline.weekNumber);
-      const weeklyCardioBurn = cardioSchedule?.totalWeeklyVolume?.totalCalories || 0;
-
-      // 3. Average daily exercise burn
-      const dailyExerciseBurn = (weeklyResistanceBurn + weeklyCardioBurn) / 7;
-
-      // 4. Create adjusted maintenance object (TDEE + Exercise)
-      // This represents the "True Maintenance" for this specific week's volume
-      const adjustedMaintenance = {
-        ...maintenance,
-        tdee: baseTdee + dailyExerciseBurn,
-        tdeeFormula: `${maintenance.tdeeFormula} + ${dailyExerciseBurn.toFixed(0)} avg exercise burn`
-      };
-
-      // 5. Calculate new macro targets using the adjusted baseline
-      const newMacros = await nutritionCalculationService.calculateMacroTargetsFromCategory(
-        metrics,
-        adjustedMaintenance,
-        {
-          goalCategory,
-          timelineWeeks: userProfile.timelineWeeks,
-          bodyFatGoal: userProfile.bodyFatGoal,
-        }
+      const cardioSchedule = cardioTemplates.weeklySchedules.find(s =>
+        s.weekNumber === outline.weekNumber || Number(s.weekNumber) === Number(outline.weekNumber)
       );
 
-      console.log(`✅ [RECONCILIATION] Week ${outline.weekNumber} targets adjusted:`);
-      console.log(`   Base TDEE: ${baseTdee.toFixed(0)} | Exercise: +${dailyExerciseBurn.toFixed(0)} | Adjusted Maintenance: ${adjustedMaintenance.tdee.toFixed(0)}`);
-      console.log(`   Initial Form Target: ${outline.dailyTargets.calories} | Actual Target: ${newMacros.calories}`);
+      console.log(`\n📅 [WEEK ${outline.weekNumber}] Calculating Daily Targets:`);
+      console.log(`   Base TDEE: ${baseTdee} | Resistance Days: ${resistanceDays.length}`);
 
-      // 6. Update outline so subsequent meal generation uses these higher targets
-      outline.dailyTargets = {
-        ...outline.dailyTargets,
-        calories: newMacros.calories,
-        protein: newMacros.protein,
-        carbs: newMacros.carbs,
-        fat: newMacros.fat,
-        proteinPerKg: newMacros.proteinPerKg,
-      };
+      for (let i = 0; i < 7; i++) {
+        const dayName = days[i];
+        const dayNumber = i + 1;
+
+        // 1. Calculate Daily Burn
+        let dailyBurn = 0;
+        let activityLog = [];
+
+        // Add Resistance Burn
+        if (resistanceDays.includes(dayName)) {
+          dailyBurn += RESISTANCE_BURN;
+          activityLog.push(`Resistance (${RESISTANCE_BURN})`);
+        }
+
+        // Add Cardio Burn (specific to this day)
+        if (cardioSchedule?.sessions) {
+          const dayCardio = cardioSchedule.sessions.filter((s: any) =>
+            s.dayName === dayName || s.dayNumber === dayNumber
+          );
+
+          dayCardio.forEach((session: any) => {
+            const burn = session.cardioTemplate?.caloriesBurned || 0;
+            if (burn > 0) {
+              dailyBurn += burn;
+              activityLog.push(`Cardio ${session.cardioTemplate.type} (${Math.round(burn)})`);
+            }
+          });
+        }
+
+        // 2. Create Adjusted Maintenance for this specific day
+        const dayTdee = baseTdee + dailyBurn;
+
+        const dayMaintenance = {
+          ...maintenance,
+          tdee: dayTdee,
+          tdeeFormula: `${maintenance.tdeeFormula} + ${dailyBurn.toFixed(0)} (${activityLog.join(' + ')})`
+        };
+
+        // 3. Calculate Macros for this day
+        const dayMacros = await nutritionCalculationService.calculateMacroTargetsFromCategory(
+          metrics,
+          dayMaintenance,
+          {
+            goalCategory,
+            timelineWeeks: userProfile.timelineWeeks,
+            bodyFatGoal: userProfile.bodyFatGoal,
+          }
+        );
+
+        dailyTargets.push(dayMacros);
+
+        if (dailyBurn > 0) {
+          console.log(`   - ${dayName}: TDEE ${baseTdee} + Burn ${Math.round(dailyBurn)} = ${Math.round(dayTdee)} -> Target: ${dayMacros.calories} cal (${activityLog.join(', ')})`);
+        }
+      }
+
+      // 4. Attach daily targets to the outline
+      // We use a new property 'dailyTargetsOverride' to store the array of 7 distinct targets
+      // The original 'dailyTargets' remains as a semantic reference (likely average or rest day baseline)
+      (outline as any).dailyTargetsOverride = dailyTargets; // Cast to any to add dynamic property
     }
   }
 }

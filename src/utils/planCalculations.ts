@@ -679,64 +679,92 @@ export function calculateWeeklyDeficitSummary(
 ): WeeklyDeficitSummary | null {
   const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
-  // Get the week's schedule data
+  // Get the week's schedule data (meals)
   const scheduleWeek = weeklySchedule?.find((w: any) => w.weekNumber === weekNumber);
-  if (!scheduleWeek || !scheduleWeek.days) {
-    return null;
-  }
 
-  // Get cardio schedule for this week
+  // Get cardio schedule for this week - ISOLATED SCOPE
   const weeklyCardioSchedules = plan?.weeklyCardioSchedules || [];
   const weekCardioSchedule = weeklyCardioSchedules.find((s: any) =>
     s.weekNumber === weekNumber ||
     Number(s.weekNumber) === Number(weekNumber)
   );
 
-  // Get training schedule from weekly outline
+  // Get training schedule from weekly outline - ISOLATED SCOPE
   const weeklyOutline = plan?.weeklyOutlines?.find((w: any) => w.weekNumber === weekNumber);
+
+  if (!weeklyOutline) return null;
+
   const resistanceDays = weeklyOutline?.trainingSchedule?.resistanceDays || [];
   const sessionDuration = 60; // Default session duration in minutes
+
+  // 1. Calculate Total Weekly Output (Burn)
+  // Resistance: Count * Estimate
+  const totalWeeklyResistanceCalories = resistanceDays.length * estimateResistanceCalories(sessionDuration, weightKg, 'moderate');
+
+  // Cardio: Sum of exact session burns
+  let totalWeeklyCardioCalories = 0;
+  if (weekCardioSchedule?.sessions && Array.isArray(weekCardioSchedule.sessions)) {
+    totalWeeklyCardioCalories = weekCardioSchedule.sessions.reduce((total: number, session: any) => {
+      const template = session.cardioTemplate || session;
+      return total + (template.caloriesBurned || 0);
+    }, 0);
+  }
+
+  // Daily Average Exercise Burn
+  const dailyAvgExerciseBurn = (totalWeeklyResistanceCalories + totalWeeklyCardioCalories) / 7;
 
   const dailyDeficits: DayDeficitData[] = [];
 
   days.forEach((day, index) => {
     const dayNumber = index + 1;
-    const scheduleDay = scheduleWeek.days.find((d: any) =>
-      d.day === day || d.dayNumber === dayNumber
+
+    // 2. Calculate Daily Intake
+    // PRIORITY 1: Use persisted DB metadata (weeklyTargetMacros.dailyTargets) if available
+    // PRIORITY 2: Use generated full plan data (dailyTargetsOverride)
+    // PRIORITY 3: Fallback to base dailyTargets
+    let caloriesConsumed = 0;
+
+    const dbWeekMacros = plan?.weeklyTargetMacros?.find((w: any) =>
+      w.week === weekNumber || Number(w.week) === Number(weekNumber)
     );
 
-    // Get calories consumed from meals
-    const caloriesConsumed = scheduleDay?.dailyMacros?.totalCalories || 0;
+    if (dbWeekMacros?.dailyTargets && dbWeekMacros.dailyTargets[index]) {
+      caloriesConsumed = dbWeekMacros.dailyTargets[index].calories;
+    } else if (weeklyOutline.dailyTargetsOverride && weeklyOutline.dailyTargetsOverride[index]) {
+      caloriesConsumed = weeklyOutline.dailyTargetsOverride[index].calories;
+    } else {
+      caloriesConsumed = weeklyOutline.dailyTargets?.calories || 0;
 
-    // Calculate resistance training calories
-    let resistanceCalories = 0;
-    if (resistanceDays.includes(day)) {
-      resistanceCalories = estimateResistanceCalories(sessionDuration, weightKg, 'moderate');
-    }
-
-    // Get cardio calories for this day
-    let cardioCalories = 0;
-    if (weekCardioSchedule?.sessions) {
-      const dayCardioSessions = weekCardioSchedule.sessions.filter((s: any) =>
-        s.dayName === day || s.dayNumber === dayNumber
+      // Fallback to schedule data if completely missing (rare)
+      const scheduleDay = scheduleWeek?.days?.find((d: any) =>
+        d.day === day || d.dayNumber === dayNumber
       );
-
-      cardioCalories = dayCardioSessions.reduce((total: number, session: any) => {
-        const template = session.cardioTemplate || session;
-        return total + (template.caloriesBurned || 0);
-      }, 0);
+      if (caloriesConsumed === 0 && scheduleDay?.dailyMacros?.totalCalories) {
+        caloriesConsumed = scheduleDay.dailyMacros.totalCalories;
+      }
     }
 
-    // Calculate daily deficit
-    const deficit = calculateDailyDeficit(tdee, caloriesConsumed, resistanceCalories, cardioCalories);
+    // 3. Calculate Daily Deficit
+    // Formula: (BaseTDEE + DailyAvgExerciseBurn) - DailyIntake
+    const totalDailyOut = tdee + dailyAvgExerciseBurn;
+    const deficit = totalDailyOut - caloriesConsumed;
+
+    // For display purposes, we split the avg burn back into resistance/cardio buckets roughly
+    // based on the ratio, or just assign to resistance for simplicity in the UI breakdown
+    // but the `deficit` number is the source of truth.
+    // We'll distribute the dailyAvgExerciseBurn proportionally for the UI "Burn" columns if needed,
+    // or just show it as "Exercise". For now, we populate the fields expected by the UI.
+    const resistanceRatio = totalWeeklyResistanceCalories / (totalWeeklyResistanceCalories + totalWeeklyCardioCalories || 1);
+    const dailyRes = dailyAvgExerciseBurn * resistanceRatio;
+    const dailyCardio = dailyAvgExerciseBurn * (1 - resistanceRatio);
 
     dailyDeficits.push({
       day,
       dayNumber,
-      caloriesConsumed,
-      resistanceCalories,
-      cardioCalories,
-      deficit
+      caloriesConsumed: Math.round(caloriesConsumed),
+      resistanceCalories: Math.round(dailyRes),
+      cardioCalories: Math.round(dailyCardio),
+      deficit: Math.round(deficit)
     });
   });
 
