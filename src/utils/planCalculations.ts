@@ -75,10 +75,12 @@ export function calculateExerciseCalories(
 
 /**
  * Estimate resistance training calories based on session details
+ * Using formula: Total calories = duration (min) * (METs * 3.5 * weight) / 200
+ * Fixed METs = 3.5 (general effort workout)
  *
  * @param sessionDuration - Duration in minutes
  * @param weightKg - User's weight in kg
- * @param intensity - Workout intensity (light/moderate/vigorous)
+ * @param intensity - Workout intensity (unused in new formula, kept for API compatibility)
  * @returns Estimated calories burned
  */
 export function estimateResistanceCalories(
@@ -86,7 +88,9 @@ export function estimateResistanceCalories(
   weightKg: number,
   intensity: string = 'moderate'
 ): number {
-  return calculateExerciseCalories(intensity, weightKg, sessionDuration, 'resistance');
+  const mets = 3.5;
+  const calories = sessionDuration * (mets * 3.5 * weightKg) / 200;
+  return Math.round(calories);
 }
 
 /**
@@ -697,7 +701,7 @@ export function calculateWeeklyDeficitSummary(
   const resistanceDays = weeklyOutline?.trainingSchedule?.resistanceDays || [];
   const sessionDuration = 60; // Default session duration in minutes
 
-  // 1. Calculate Total Weekly Output (Burn)
+  // 1. Calculate Total Weekly Output (Burn) - kept for summary stats but not used for daily distribution
   // Resistance: Count * Estimate
   const totalWeeklyResistanceCalories = resistanceDays.length * estimateResistanceCalories(sessionDuration, weightKg, 'moderate');
 
@@ -709,9 +713,6 @@ export function calculateWeeklyDeficitSummary(
       return total + (template.caloriesBurned || 0);
     }, 0);
   }
-
-  // Daily Average Exercise Burn
-  const dailyAvgExerciseBurn = (totalWeeklyResistanceCalories + totalWeeklyCardioCalories) / 7;
 
   const dailyDeficits: DayDeficitData[] = [];
 
@@ -744,19 +745,35 @@ export function calculateWeeklyDeficitSummary(
       }
     }
 
-    // 3. Calculate Daily Deficit
-    // Formula: (BaseTDEE + DailyAvgExerciseBurn) - DailyIntake
-    const totalDailyOut = tdee + dailyAvgExerciseBurn;
-    const deficit = totalDailyOut - caloriesConsumed;
+    // 3. Calculate Daily Output (Specific to Scheduled Activities)
+    let dailyRes = 0;
+    let dailyCardio = 0;
 
-    // For display purposes, we split the avg burn back into resistance/cardio buckets roughly
-    // based on the ratio, or just assign to resistance for simplicity in the UI breakdown
-    // but the `deficit` number is the source of truth.
-    // We'll distribute the dailyAvgExerciseBurn proportionally for the UI "Burn" columns if needed,
-    // or just show it as "Exercise". For now, we populate the fields expected by the UI.
-    const resistanceRatio = totalWeeklyResistanceCalories / (totalWeeklyResistanceCalories + totalWeeklyCardioCalories || 1);
-    const dailyRes = dailyAvgExerciseBurn * resistanceRatio;
-    const dailyCardio = dailyAvgExerciseBurn * (1 - resistanceRatio);
+    // Resistance Burn
+    if (resistanceDays.includes(day)) {
+      dailyRes = estimateResistanceCalories(sessionDuration, weightKg, 'moderate');
+    }
+
+    // Cardio Burn
+    // Check for cardio session on this day
+    if (weekCardioSchedule?.sessions && Array.isArray(weekCardioSchedule.sessions)) {
+      // Find all sessions for this day (could be multiple?)
+      const dailyCardioSessions = weekCardioSchedule.sessions.filter((s: any) =>
+        s.dayName === day ||
+        s.dayNumber === dayNumber ||
+        String(s.dayNumber) === String(dayNumber)
+      );
+
+      dailyCardio = dailyCardioSessions.reduce((sum: number, session: any) => {
+        const template = session.cardioTemplate || session;
+        return sum + (template.caloriesBurned || 0);
+      }, 0);
+    }
+
+    // 4. Calculate Daily Deficit
+    // Formula: (BaseTDEE + DailyRes + DailyCardio) - DailyIntake
+    const totalDailyOut = tdee + dailyRes + dailyCardio;
+    const deficit = totalDailyOut - caloriesConsumed;
 
     dailyDeficits.push({
       day,
