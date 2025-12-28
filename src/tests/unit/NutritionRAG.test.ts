@@ -68,13 +68,13 @@ async function runTests() {
     });
 
     // Test 6: Snack Calorie limit truth
-    test('Retrieves Snack calorie limit truth', () => {
-        const snackFacts = searchNutritionKnowledge('snack');
-        const snackFact = snackFacts.find(f => f.id === 'snack-calorie-limit');
-        if (!snackFact) throw new Error('Snack calorie limit truth not found');
-        if (!snackFact.content.includes('350')) throw new Error('Incorrect content for snack limit');
-        console.log(`   Fact found: ${snackFact.content}`);
-    });
+	    test('Retrieves Snack calorie limit truth', () => {
+	        const snackFacts = searchNutritionKnowledge('snack');
+	        const snackFact = snackFacts.find(f => f.id === 'snack-calorie-limit');
+	        if (!snackFact) throw new Error('Snack calorie limit truth not found');
+	        if (!snackFact.content.toLowerCase().includes('gap')) throw new Error('Incorrect content for snack guidance');
+	        console.log(`   Fact found: ${snackFact.content}`);
+	    });
 
     // Test 5: Priority Ranking
     test('Sorts by priority', () => {

@@ -155,6 +155,7 @@ async function main() {
     userProfile,
     weeklyOutline,
     trainingSplit,
+    undefined,
     {
       onProgress: (step, progress) => {
         console.log(`   🔄 [PROGRESS] ${progress.toFixed(0)}% - ${step}`);
@@ -278,7 +279,6 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-
 
 
 

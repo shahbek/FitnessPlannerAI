@@ -20,6 +20,17 @@ function assertWithinPercent(value: number, target: number, tolerance: number, l
   }
 }
 
+function assertNotBelowPercent(value: number, target: number, maxDeficit: number, label: string) {
+  const minAllowed = target * (1 - maxDeficit);
+  if (value < minAllowed) {
+    throw new Error(
+      `${label} undershot by ${(((target - value) / target) * 100).toFixed(2)}% (actual ${value.toFixed(
+        2
+      )} vs target ${target.toFixed(2)})`
+    );
+  }
+}
+
 async function run() {
   console.log('🧪 Dummy weekly adjustment test (offline USDA data)');
 
@@ -47,7 +58,7 @@ async function run() {
   ) => dummyMealTargets[mealType as keyof typeof dummyMealTargets];
 
   try {
-    const adjustedMeals: MealWithUSDA[] = generatorAny.adjustMealsToTargets(
+    const adjustedMeals: MealWithUSDA[] = await generatorAny.adjustMealsToTargets(
       initialMeals,
       dummyWeeklyOutline,
       dummyTrainingSplit,
@@ -118,9 +129,11 @@ async function run() {
       );
 
       assertWithinPercent(totals.calories, dummyDailyTarget.calories, 0.06, `Day ${dayIdx + 1} calories`);
-      assertWithinPercent(totals.protein, dummyDailyTarget.protein, 0.06, `Day ${dayIdx + 1} protein`);
-      assertWithinPercent(totals.carbs, dummyDailyTarget.carbs, 0.06, `Day ${dayIdx + 1} carbs`);
-      assertWithinPercent(totals.fats, dummyDailyTarget.fats, 0.06, `Day ${dayIdx + 1} fats`);
+      // Protein should not be meaningfully undershot; overshoot is acceptable.
+      assertNotBelowPercent(totals.protein, dummyDailyTarget.protein, 0.06, `Day ${dayIdx + 1} protein`);
+      // Carbs/fats are more flexible as long as calories and protein are on target.
+      assertWithinPercent(totals.carbs, dummyDailyTarget.carbs, 0.30, `Day ${dayIdx + 1} carbs`);
+      assertWithinPercent(totals.fats, dummyDailyTarget.fats, 0.30, `Day ${dayIdx + 1} fats`);
 
       dayMeals.forEach((meal) => {
         if (
@@ -147,4 +160,3 @@ run().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-

@@ -16,7 +16,7 @@
  */
 
 import { z } from 'zod';
-import { UserProfile } from '../models/UserProfile';
+import { UserProfile, getEffectiveGoalType } from '../models/UserProfile';
 import { WeeklyOutline } from '../models/PlanModels';
 import { USDANutritionService } from './USDANutritionService';
 import { ChainOfThoughtService } from './ChainOfThoughtService';
@@ -176,6 +176,27 @@ export class BatchMealGenerator {
     return this.lastAdjustmentSummary;
   }
 
+  private isProteinSupplementMeal(meal: MealWithUSDA): boolean {
+    if (meal.mealName === 'Protein Shake (Target Boost)') return true;
+    const logs = meal.adjustmentLog || [];
+    return logs.some((l) => {
+      const line = l.toLowerCase();
+      return line.includes('protein supplement') || line.includes('precision fallback');
+    });
+  }
+
+  private async ensureOptimizerInitialized(): Promise<void> {
+    if (this.optimizerInitialized) return;
+    try {
+      await this.hybridOptimizer.initialize();
+      this.optimizerInitialized = true;
+      console.log('✅ [BATCH] Hybrid optimizer initialized (on-demand)');
+    } catch (err) {
+      console.warn('⚠️ [BATCH] Hybrid optimizer initialization failed, will use fallback:', err);
+      this.optimizerInitialized = false;
+    }
+  }
+
   /**
    * Generate all meals for a week using optimal batch approach
    */
@@ -275,7 +296,8 @@ export class BatchMealGenerator {
       mealsWithUSDA,
       weeklyOutline,
       trainingSplit,
-      usdaData
+      usdaData,
+      dailyTargetsOverride
     );
     console.log(`✅ [BATCH] Adjusted meals to match targets`);
 
@@ -288,14 +310,37 @@ export class BatchMealGenerator {
     // Step 6: PROTEIN SUPPLEMENTATION - Ensure protein targets are ALWAYS met
     // This is a CRITICAL fallback when LP optimizer can't hit protein targets
     options?.onProgress?.('Ensuring protein targets...', 90);
-    dayMeals = await this.ensureProteinTargets(dayMeals, weeklyOutline, trainingSplit, usdaData);
+    dayMeals = await this.ensureProteinTargets(
+      userProfile,
+      dayMeals,
+      weeklyOutline,
+      trainingSplit,
+      usdaData,
+      dailyTargetsOverride
+    );
     console.log(`✅ [BATCH] Ensured protein targets are met for all days`);
+
+    // Step 6.5: Re-adjust to calorie targets after supplementation (supplements locked)
+    // Protein supplementation can add calories; this pass brings totals back to the correct day targets.
+    options?.onProgress?.('Finalizing calories after supplements...', 93);
+    const postSupplementAdjustedMeals = await this.adjustMealsToTargets(
+      dayMeals.flat(),
+      weeklyOutline,
+      trainingSplit,
+      usdaData,
+      dailyTargetsOverride
+    );
+    dayMeals = [];
+    for (let day = 1; day <= 7; day++) {
+      dayMeals.push(postSupplementAdjustedMeals.filter((meal: MealWithUSDA) => meal.dayNumber === day));
+    }
 
     // COMPREHENSIVE VALIDATION - Check all targets are met
     const validation = this.validateAndReportAccuracy(
       dayMeals,
       weeklyOutline,
-      trainingSplit
+      trainingSplit,
+      dailyTargetsOverride
     );
 
     console.log('\n' + '='.repeat(80));
@@ -305,17 +350,30 @@ export class BatchMealGenerator {
     console.log('='.repeat(80) + '\n');
 
     // HARD VALIDATION: Protein targets MUST be met
-    // If protein is more than threshold below target on ANY day, throw an error
-    // Using centralized validation constants
-    const PROTEIN_TOLERANCE_PERCENTAGE = HARD_FAILURE_THRESHOLDS.PROTEIN_DEFICIT_PERCENTAGE;
+    // - Cuts (fat loss): NEVER undershoot protein
+    // - Other goals: allow small deficit (threshold) before hard-failing
+    const effectiveGoal = getEffectiveGoalType(userProfile.goalCategory || 'maintenance');
+    const strictProtein = effectiveGoal === 'fat_loss' || userProfile.goal === 'fat_loss';
+    const PROTEIN_TOLERANCE_PERCENTAGE = strictProtein ? 0 : HARD_FAILURE_THRESHOLDS.PROTEIN_DEFICIT_PERCENTAGE;
     const proteinErrors: string[] = [];
 
+    const PROTEIN_EPSILON_GRAMS = 0.5; // avoid false-fails from rounding/USDA float math
+
     validation.dailyBreakdown.forEach((day: any) => {
-      const proteinAccuracy = parseFloat(day.accuracy.protein) / 100;
-      if (proteinAccuracy < (1 - PROTEIN_TOLERANCE_PERCENTAGE)) {
-        const deficit = day.target.protein - day.actual.protein;
+      const actualProtein = Number(day?.actual?.protein ?? 0);
+      const targetProtein = Number(day?.target?.protein ?? 0);
+      if (targetProtein <= 0) return;
+
+      const deficit = targetProtein - actualProtein;
+      const deficitPercentage = deficit / targetProtein;
+
+      const isFailure = strictProtein
+        ? deficit > PROTEIN_EPSILON_GRAMS
+        : deficitPercentage > PROTEIN_TOLERANCE_PERCENTAGE;
+
+      if (isFailure) {
         proteinErrors.push(
-          `Day ${day.dayNumber} (${day.dayName}): Protein ${day.actual.protein.toFixed(1)}g vs target ${day.target.protein}g (${deficit.toFixed(1)}g deficit, ${day.accuracy.protein} accuracy)`
+          `Day ${day.dayNumber} (${day.dayName}): Protein ${actualProtein.toFixed(1)}g vs target ${targetProtein.toFixed(1)}g (${deficit.toFixed(1)}g deficit, ${((actualProtein / targetProtein) * 100).toFixed(1)}% accuracy)`
         );
       }
     });
@@ -335,15 +393,24 @@ export class BatchMealGenerator {
     }
 
     // Also check weekly protein totals
-    const weeklyProteinAccuracy = parseFloat(validation.weeklyTotals.accuracy.protein) / 100;
-    if (weeklyProteinAccuracy < (1 - PROTEIN_TOLERANCE_PERCENTAGE)) {
-      const weeklyDeficit = validation.weeklyTotals.target.protein - validation.weeklyTotals.actual.protein;
+    const weeklyActualProtein = Number(validation?.weeklyTotals?.actual?.protein ?? 0);
+    const weeklyTargetProtein = Number(validation?.weeklyTotals?.target?.protein ?? 0);
+    if (weeklyTargetProtein > 0) {
+      const weeklyDeficit = weeklyTargetProtein - weeklyActualProtein;
+      const weeklyDeficitPercentage = weeklyDeficit / weeklyTargetProtein;
+
+      const isWeeklyFailure = strictProtein
+        ? weeklyDeficit > PROTEIN_EPSILON_GRAMS * 7
+        : weeklyDeficitPercentage > PROTEIN_TOLERANCE_PERCENTAGE;
+
+      if (isWeeklyFailure) {
       throw new Error(
-        `WEEKLY PROTEIN VALIDATION FAILED: Total weekly protein ${validation.weeklyTotals.actual.protein.toFixed(1)}g ` +
-        `vs target ${validation.weeklyTotals.target.protein.toFixed(1)}g (${weeklyDeficit.toFixed(1)}g deficit).\n` +
-        `Weekly accuracy: ${validation.weeklyTotals.accuracy.protein}\n` +
+        `WEEKLY PROTEIN VALIDATION FAILED: Total weekly protein ${weeklyActualProtein.toFixed(1)}g ` +
+        `vs target ${weeklyTargetProtein.toFixed(1)}g (${weeklyDeficit.toFixed(1)}g deficit).\n` +
+        `Weekly accuracy: ${((weeklyActualProtein / weeklyTargetProtein) * 100).toFixed(1)}%\n` +
         `Protein targets are critical for muscle retention and cannot be compromised.`
       );
+    }
     }
 
     console.log('✅ PROTEIN VALIDATION PASSED: All days meet protein targets');
@@ -359,7 +426,8 @@ export class BatchMealGenerator {
   private validateAndReportAccuracy(
     dayMeals: MealWithUSDA[][],
     weeklyOutline: WeeklyOutline,
-    trainingSplit: any
+    trainingSplit: any,
+    dailyTargetsOverride?: MacroTargets[]
   ): any {
     const report: any = {
       summary: {
@@ -389,7 +457,12 @@ export class BatchMealGenerator {
     dayMeals.forEach((meals, dayIndex) => {
       const dayNumber = dayIndex + 1;
       const day = trainingSplit.days[dayIndex];
-      const dayTargets = this.calculateDayMacros(weeklyOutline, day?.isRestDay || false);
+      const dayTargets = this.calculateDayMacros(
+        weeklyOutline,
+        day?.isRestDay || false,
+        dayIndex,
+        dailyTargetsOverride
+      );
 
       // Calculate actual totals for the day
       const actualTotals = meals.reduce(
@@ -624,16 +697,16 @@ export class BatchMealGenerator {
         breakfast: Math.round(dailyCalories * 0.30), // 30%
         lunch: Math.round(dailyCalories * 0.35),     // 35%
         dinner: Math.round(dailyCalories * 0.25),    // 25%
-        snacks: [Math.min(350, Math.round(dailyCalories * 0.10))],  // 10% (evening snack, max 350)
+        snacks: [Math.round(dailyCalories * 0.10)],  // 10% (evening snack)
       },
       5: {
         breakfast: Math.round(dailyCalories * 0.25), // 25%
         lunch: Math.round(dailyCalories * 0.30),     // 30%
         dinner: Math.round(dailyCalories * 0.20),    // 20%
         snacks: [
-          Math.min(350, Math.round(dailyCalories * 0.10)), // 10% (mid-morning, max 350)
-          Math.min(350, Math.round(dailyCalories * 0.10)), // 10% (mid-afternoon, max 350)
-          Math.min(350, Math.round(dailyCalories * 0.05)), // 5% (evening, max 350)
+          Math.round(dailyCalories * 0.10), // 10% (mid-morning)
+          Math.round(dailyCalories * 0.10), // 10% (mid-afternoon)
+          Math.round(dailyCalories * 0.05), // 5% (evening)
         ],
       },
     };
@@ -711,7 +784,7 @@ MEAL TYPE GUIDELINES:
 - Breakfast: Should include breakfast foods (eggs, oatmeal, yogurt, toast, smoothies, etc.)
 - Lunch: Should include lunch foods (salads, sandwiches, wraps, bowls, etc.)
 - Dinner: Should include dinner foods (protein + sides, stir-fries, pasta dishes, etc.)
-- Snack: Should be snack-appropriate (nuts, fruit, protein bars, etc.). CRITICAL: Every snack MUST be UNDER 350 calories.
+- Snack: Should be snack-appropriate (nuts, fruit, protein bars, smoothies, etc.). Snacks are flexible gap-fillers and may be small or substantial depending on the remaining daily calorie/macro gap after main meals.
 
 INGREDIENT NAMING RULES (MUST FOLLOW):
 - List individual, base ingredients only. Do NOT use composite/generic names.
@@ -1688,29 +1761,13 @@ Generate all 7 days of meals now.`;
     mealTargets: MacroValues,
     usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>
   ): Promise<MealWithUSDA> {
+    if (this.isProteinSupplementMeal(meal)) return meal;
+
     // Prepare ingredients for optimization
     const optimizableIngredients = HybridMealOptimizer.prepareIngredients(
       meal.ingredients,
       usdaData
     );
-
-    // CRITICAL: Scale snack if it exceeds targets before optimization
-    if (meal.mealType === 'snack') {
-      const totalCalories = meal.totalMacros.calories;
-      const targetSnackCalories = mealTargets.calories;
-
-      if (totalCalories > targetSnackCalories + 20) { // Allow slight buffer
-        const scaleFactor = targetSnackCalories / totalCalories;
-        console.log(`⚖️  [BATCH] Scaling snack "${meal.mealName}" (per-meal) down by ${((1 - scaleFactor) * 100).toFixed(1)}% to hit ${targetSnackCalories} cal target.`);
-
-        optimizableIngredients.forEach(opt => {
-          opt.originalAmount *= scaleFactor;
-          opt.isLocked = true;
-          opt.minAmount = opt.originalAmount;
-          opt.maxAmount = opt.originalAmount;
-        });
-      }
-    }
 
     // Set up optimization targets with tolerances
     const targets = {
@@ -2348,8 +2405,10 @@ Generate all 7 days of meals now.`;
     meals: MealWithUSDA[],
     weeklyOutline: WeeklyOutline,
     trainingSplit: any,
-    usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>
+    usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>,
+    dailyTargetsOverride?: MacroTargets[]
   ): Promise<MealWithUSDA[]> {
+    await this.ensureOptimizerInitialized();
     const adjustedMeals: MealWithUSDA[] = [];
     const mealFrequency = this.currentMealFrequency;
     const daySummaries: AdjustmentDaySummary[] = [];
@@ -2367,7 +2426,12 @@ Generate all 7 days of meals now.`;
     for (let dayNum = 1; dayNum <= 7; dayNum++) {
       const dayMeals = mealsByDay[dayNum] || [];
       const day = trainingSplit.days[dayNum - 1];
-      const dayTargets = this.calculateDayMacros(weeklyOutline, day?.isRestDay || false);
+      const dayTargets = this.calculateDayMacros(
+        weeklyOutline,
+        day?.isRestDay || false,
+        dayNum - 1,
+        dailyTargetsOverride
+      );
 
       console.log(`📊 [BATCH] Day ${dayNum} (${day?.dayName}) Precise Adjustment:`, {
         isRestDay: day?.isRestDay || false,
@@ -2384,6 +2448,7 @@ Generate all 7 days of meals now.`;
           console.warn('⚠️  [BATCH] Day-level LP failed, falling back to per-meal:', err);
           adjustedDayMeals = await Promise.all(
             dayMeals.map(async meal => {
+              if (this.isProteinSupplementMeal(meal)) return meal;
               const mealTargets = this.calculateMealMacroTargets(
                 meal.mealType,
                 mealFrequency,
@@ -2396,6 +2461,7 @@ Generate all 7 days of meals now.`;
       } else {
         adjustedDayMeals = await Promise.all(
           dayMeals.map(async meal => {
+            if (this.isProteinSupplementMeal(meal)) return meal;
             const mealTargets = this.calculateMealMacroTargets(
               meal.mealType,
               mealFrequency,
@@ -2526,9 +2592,10 @@ Generate all 7 days of meals now.`;
       }
     }
 
-    // CRITICAL: Scale and lock snack ingredients + enforce sensitive ingredient locking
+    // Lock protein supplementation meals (their macros may not be backed by USDA entries)
+    // and enforce sensitive ingredient locking.
     dayMeals.forEach((meal, mealIdx) => {
-      const isSnack = meal.mealType.toLowerCase().includes('snack');
+      const lockMeal = this.isProteinSupplementMeal(meal);
 
       meal.ingredients.forEach((ing, ingIdx) => {
         // Find this ingredient in the flat 'optimizable' array
@@ -2537,29 +2604,14 @@ Generate all 7 days of meals now.`;
 
         const opt = optimizable[globalIdx];
 
-        // 1. Handle Snack Scaling
-        if (isSnack) {
-          const totalCalories = meal.totalMacros.calories;
-          const targetSnackCalories = 350;
-
-          // If the snack generated by AI (and verified by USDA) is > target, scale it down
-          const snackScaleFactor = totalCalories > targetSnackCalories ? targetSnackCalories / totalCalories : 1;
-
-          if (snackScaleFactor < 1) {
-            if (ingIdx === 0) { // Log only once per snack
-              console.log(`⚖️  [BATCH] Scaling snack "${meal.mealName}" down by ${((1 - snackScaleFactor) * 100).toFixed(1)}% to hit ~${targetSnackCalories} cal limit.`);
-            }
-            opt.originalAmount *= snackScaleFactor;
-          }
-
-          // Snacks are ALWAYS locked to prevent the LP from shifting calories into them from main meals
+        if (lockMeal) {
           opt.isLocked = true;
           opt.minAmount = opt.originalAmount;
           opt.maxAmount = opt.originalAmount;
         }
 
-        // 2. Handle Sensitive Ingredient Locking (Sugar, Oils, Butter)
-        // This ensures that even if they weren't in a snack, they are locked at their (possibly sugar-scaled) amounts
+        // Handle Sensitive Ingredient Locking (Sugar, Oils, Butter)
+        // This ensures that sensitive ingredients remain fixed for health/sugar compliance.
         if (isSensitiveIngredient(ing.name)) {
           opt.isLocked = true;
           opt.minAmount = opt.originalAmount;
@@ -2662,12 +2714,16 @@ Generate all 7 days of meals now.`;
    * to hit exact protein targets. Zero tolerance for failures.
    */
   private async ensureProteinTargets(
+    userProfile: UserProfile,
     dayMeals: MealWithUSDA[][],
     weeklyOutline: WeeklyOutline,
     trainingSplit: any,
-    usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>
+    usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>,
+    dailyTargetsOverride?: MacroTargets[]
   ): Promise<MealWithUSDA[][]> {
-    const PROTEIN_TOLERANCE = GENERATION_TOLERANCES.PROTEIN_PERCENTAGE; // 10%
+    const effectiveGoal = getEffectiveGoalType(userProfile.goalCategory || 'maintenance');
+    const strictProtein = effectiveGoal === 'fat_loss' || userProfile.goal === 'fat_loss';
+    const PROTEIN_TOLERANCE = strictProtein ? 0 : GENERATION_TOLERANCES.PROTEIN_PERCENTAGE; // % (0% for cuts)
     const usedMealNames: string[] = []; // Track used supplement meals for variety
 
     const supplementedDayMeals: MealWithUSDA[][] = [];
@@ -2676,7 +2732,12 @@ Generate all 7 days of meals now.`;
       const dayNum = dayIdx + 1;
       let meals = [...dayMeals[dayIdx]];
       const day = trainingSplit.days[dayIdx];
-      const dayTargets = this.calculateDayMacros(weeklyOutline, day?.isRestDay || false);
+      const dayTargets = this.calculateDayMacros(
+        weeklyOutline,
+        day?.isRestDay || false,
+        dayIdx,
+        dailyTargetsOverride
+      );
 
       // Helper to calculate totals
       const calculateTotals = (mealList: MealWithUSDA[]) => mealList.reduce(
@@ -2697,7 +2758,12 @@ Generate all 7 days of meals now.`;
       const MAX_SUPPLEMENTS = 3;
 
       // LOOP: Add supplement meals until protein target is met
-      while (proteinAccuracy < (1 - PROTEIN_TOLERANCE) && proteinDeficit > 2 && supplementsAdded < MAX_SUPPLEMENTS) {
+      const needsMoreProtein = (): boolean => {
+        if (strictProtein) return proteinDeficit > 0.5;
+        return proteinAccuracy < (1 - PROTEIN_TOLERANCE) && proteinDeficit > 2;
+      };
+
+      while (needsMoreProtein() && supplementsAdded < MAX_SUPPLEMENTS) {
         console.log(`⚠️ [PROTEIN] Day ${dayNum}: ${currentTotals.protein.toFixed(1)}g vs target ${dayTargets.protein}g (${(proteinAccuracy * 100).toFixed(1)}%)`);
         console.log(`   Need to add ${proteinDeficit.toFixed(1)}g protein`);
 
@@ -2736,7 +2802,7 @@ Generate all 7 days of meals now.`;
       }
 
       // FINAL FALLBACK: Precision shake if still short
-      if (proteinAccuracy < (1 - PROTEIN_TOLERANCE) && proteinDeficit > 2) {
+      if (needsMoreProtein()) {
         console.log(`🚨 [FINAL FALLBACK] Day ${dayNum}: Still ${proteinDeficit.toFixed(1)}g short`);
         const fallback = this.createPrecisionProteinShake(proteinDeficit, dayNum, day?.dayName || `Day ${dayNum}`);
         meals.push(fallback);

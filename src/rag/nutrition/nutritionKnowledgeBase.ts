@@ -35,7 +35,7 @@ export const NUTRITION_KNOWLEDGE_BASE: NutritionFact[] = [
     {
         id: 'snack-calorie-limit',
         category: 'specific_foods',
-        content: 'Snacks should be kept to a maximum of 350 calories to avoid excessive energy intake between main meals.',
+        content: 'Snacks should be treated as flexible gap-fillers to help the full day hit the target calories and macros. Snacks may be small or substantial depending on the remaining gap after main meals.',
         priority: 10
     },
     {
