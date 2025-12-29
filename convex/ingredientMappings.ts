@@ -1,5 +1,3 @@
-"use node";
-
 import { action, internalMutation, internalQuery } from "./_generated/server";
 import { internal } from "./_generated/api";
 import { v } from "convex/values";
@@ -135,4 +133,3 @@ export const upsertMappings = action({
     return { ok: true, updated: args.mappings.length };
   },
 });
-
