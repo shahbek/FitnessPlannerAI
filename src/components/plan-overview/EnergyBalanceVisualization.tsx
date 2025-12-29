@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Flame, Utensils, Info, Dumbbell, Heart } from 'lucide-react';
 import { calculateWeeklyExerciseCalories, calculateEnergyBalance, getTDEE } from '@/utils/planCalculations';
+import { getAverageDailyTargets } from '@/utils/planTargets';
 import {
   BarChart,
   Bar,
@@ -41,7 +42,7 @@ export function EnergyBalanceVisualization({ plan, userProfile, selectedWeek = 1
   const energyData = useMemo(() => {
     if (!weekData || !tdee) return null;
 
-    const dailyMealCalories = weekData.dailyTargets?.calories || 0;
+    const dailyMealCalories = Math.round(getAverageDailyTargets(weekData as any).calories || 0);
     // Pass plan to use detailed cardio calorie data if available
     // Make sure we're using the same data source as CardioOverview
     const exerciseCalories = calculateWeeklyExerciseCalories(weekData, weight, plan);

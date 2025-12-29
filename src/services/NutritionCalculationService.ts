@@ -52,6 +52,11 @@ export interface GoalCategoryConfig {
   bodyFatGoal?: BodyFatGoal;
   proteinMultiplier?: number;
   fatMultiplier?: number;
+  /**
+   * Override calculated target calories while keeping macro rules (protein/fat ranges)
+   * from the goal category. Intended for deterministic weekly progression targets.
+   */
+  caloriesOverride?: number;
 }
 
 export interface MaintenanceCalories {
@@ -746,7 +751,7 @@ Expected fat loss: ${expectedWeeklyFatLoss.toFixed(2)} kg/week (${((expectedWeek
   ): Promise<MacroTargets> {
     await this.ensureKnowledgeBase();
 
-    const { goalCategory, bodyFatGoal, timelineWeeks } = config;
+    const { goalCategory, bodyFatGoal, timelineWeeks, caloriesOverride } = config;
     const adjustment = GOAL_CALORIE_ADJUSTMENTS[goalCategory];
 
     // Handle body_fat_goal specially - calculate dynamic deficit
@@ -761,11 +766,14 @@ Expected fat loss: ${expectedWeeklyFatLoss.toFixed(2)} kg/week (${((expectedWeek
       );
     }
 
-    // For other goals, use the predefined adjustment ranges
-    const { targetCalories, adjustmentCalories } = this.calculateCategoryTargetCalories(
-      maintenanceCalories.tdee,
-      goalCategory
-    );
+    // For other goals, use the predefined adjustment ranges unless explicitly overridden
+    const { targetCalories, adjustmentCalories } =
+      typeof caloriesOverride === 'number' && caloriesOverride > 0
+        ? {
+          targetCalories: caloriesOverride,
+          adjustmentCalories: caloriesOverride - maintenanceCalories.tdee,
+        }
+        : this.calculateCategoryTargetCalories(maintenanceCalories.tdee, goalCategory);
 
     // Determine protein and fat targets
     const proteinPerKg = config.proteinMultiplier || 

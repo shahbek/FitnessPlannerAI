@@ -40,6 +40,8 @@ import {
   UserMetrics,
   MacroTargets
 } from './NutritionCalculationService';
+import { getAverageDailyTargets } from '../utils/planTargets';
+import { validateGoalForUser } from '../rag/goals/goalStrategyKnowledgeBase';
 
 /**
  * Generation State
@@ -200,6 +202,20 @@ export class IntegratedPlanGenerator {
     };
 
     try {
+      // Goal strategy validation (goal RAG constraints)
+      if (userProfile.goalCategory) {
+        const goalValidation = validateGoalForUser(
+          userProfile.goalCategory,
+          userProfile.bodyFat,
+          userProfile.bodyFatGoal?.targetBf,
+          userProfile.workoutLevel,
+          userProfile.timelineWeeks,
+          userProfile.sex
+        );
+        goalValidation.warnings.forEach((w) => this.addWarning(w));
+        goalValidation.recommendations.forEach((r) => this.addWarning(r));
+      }
+
       // Update state
       this.updateState({
         phase: 'initialization',
@@ -474,17 +490,133 @@ export class IntegratedPlanGenerator {
       specialNotes: '',
     } as WeeklyOutline];
 
-    // Generate workouts for each week using WEEKLY BATCH GENERATION
-    for (const outline of weeksToProcess) {
-      console.log(`🏋️  Generating workouts for Week ${outline.weekNumber} using SINGLE AI CALL...`);
+    // Fast path: generate one AI workout template per phase, then clone + progress deterministically per week.
+    const normalizePhase = (phase: string | undefined): 'foundation' | 'progression' | 'peak' => {
+      const p = (phase || '').toLowerCase().replace(/\s*phase\s*/gi, '').trim();
+      if (p === 'foundation' || p === 'progression' || p === 'peak') return p;
+      return 'progression';
+    };
 
-      // Get previous week's sessions for variation
+    const phaseOrder: Array<'foundation' | 'progression' | 'peak'> = ['foundation', 'progression', 'peak'];
+    const weeksByPhase = new Map<'foundation' | 'progression' | 'peak', WeeklyOutline[]>();
+    phaseOrder.forEach((p) => weeksByPhase.set(p, []));
+    weeksToProcess.forEach((w) => weeksByPhase.get(normalizePhase(w.phase))!.push(w));
+    phaseOrder.forEach((p) =>
+      weeksByPhase.set(p, (weeksByPhase.get(p) || []).sort((a, b) => a.weekNumber - b.weekNumber))
+    );
+
+    const shouldUsePhaseCaching = weeksToProcess.length >= 6;
+    const phaseTemplates = new Map<'foundation' | 'progression' | 'peak', SessionTemplate[]>();
+
+    if (shouldUsePhaseCaching) {
+      console.log('⚡️ Using phase-cached workout generation (3 AI calls total)');
+      for (const phase of phaseOrder) {
+        const phaseWeeks = weeksByPhase.get(phase) || [];
+        if (phaseWeeks.length === 0) continue;
+
+        const representative = phaseWeeks[0];
+        console.log(`🏋️  Generating ${phase.toUpperCase()} workout template from Week ${representative.weekNumber} (single AI call)...`);
+        try {
+          const baseSessions = await this.weeklyWorkoutGenerator.generateWeeklyWorkouts(
+            trainingSplit,
+            userProfile,
+            representative,
+            {
+              enableReasoning: options.useCoT,
+              onReasoningUpdate: (reasoning) => {
+                this.updateState(
+                  {
+                    reasoning: [...(this.currentState.reasoning || []), reasoning],
+                  },
+                  options.onStateUpdate
+                );
+              },
+            }
+          );
+          phaseTemplates.set(phase, baseSessions);
+          console.log(`✅ Cached ${phase.toUpperCase()} template (${baseSessions.length} sessions)`);
+        } catch (error) {
+          console.warn(`⚠️ Failed to generate ${phase} phase template; will fall back to per-week generation for this phase.`, error);
+        }
+      }
+    }
+
+    const cloneForWeek = (
+      base: SessionTemplate[],
+      weekNumber: number,
+      phase: 'foundation' | 'progression' | 'peak',
+      indexWithinPhase: number,
+      phaseWeeksCount: number
+    ): SessionTemplate[] => {
+      const progress = phaseWeeksCount > 1 ? indexWithinPhase / (phaseWeeksCount - 1) : 0;
+
+      const adjustReps = (reps: string): string => {
+        // Keep single numbers untouched ("5"), but tighten ranges deterministically by phase.
+        const match = reps.match(/^(\d+)\s*-\s*(\d+)$/);
+        if (!match) return reps;
+        const min = Number(match[1]);
+        const max = Number(match[2]);
+
+        const clamp = (v: number) => Math.max(1, Math.round(v));
+        if (phase === 'foundation') {
+          // Slightly higher reps early → slightly lower late
+          const shift = Math.round(progress * 1);
+          return `${clamp(min - shift)}-${clamp(max - shift)}`;
+        }
+        if (phase === 'progression') {
+          const shift = 1 + Math.round(progress * 1);
+          return `${clamp(min - shift)}-${clamp(max - shift)}`;
+        }
+        // peak
+        const shift = 2 + Math.round(progress * 1);
+        return `${clamp(min - shift)}-${clamp(max - shift)}`;
+      };
+
+      const adjustSets = (sets: number, order: number): number => {
+        // Increase volume slightly through the phase, mostly on accessories.
+        const isAccessory = order >= 4;
+        const bump = isAccessory ? Math.round(progress * 1) : Math.round(progress * 0);
+        return Math.max(1, Math.min(sets + bump, 6));
+      };
+
+	      return base.map((s) => {
+	        const replacedId = s.templateId.replace(/-w\d+-/g, `-w${weekNumber}-`);
+	        const nextId = replacedId === s.templateId ? `${s.templateId}-w${weekNumber}` : replacedId;
+	        const cloned: SessionTemplate = {
+	          ...s,
+	          templateId: nextId,
+	          structure: s.structure.map((ex, idx) => ({
+	            ...ex,
+	            reps: adjustReps(ex.reps),
+	            sets: adjustSets(ex.sets, idx + 1),
+	          })),
+	        };
+	        return cloned;
+	      });
+	    };
+
+    for (const outline of weeksToProcess) {
+      const phase = normalizePhase(outline.phase);
+      const phaseWeeks = weeksByPhase.get(phase) || [];
+      const indexWithinPhase = Math.max(
+        0,
+        phaseWeeks.findIndex((w) => Number(w.weekNumber) === Number(outline.weekNumber))
+      );
+
+      const cached = phaseTemplates.get(phase);
+      if (shouldUsePhaseCaching && cached && cached.length > 0) {
+        const weekSessions = cloneForWeek(cached, outline.weekNumber, phase, indexWithinPhase, phaseWeeks.length);
+        sessionsByWeek.push(weekSessions);
+        allSessions.push(...weekSessions);
+        continue;
+      }
+
+      // Fallback: per-week AI call (original behavior)
+      console.log(`🏋️  Generating workouts for Week ${outline.weekNumber} using SINGLE AI CALL...`);
       const previousWeekSessions = allSessions.length > 0
         ? allSessions.slice(-trainingSplit.days.filter(d => !d.isRestDay).length)
         : undefined;
-
       try {
-        // SINGLE AI CALL for entire week's workouts
         const weekSessions = await this.weeklyWorkoutGenerator.generateWeeklyWorkouts(
           trainingSplit,
           userProfile,
@@ -499,14 +631,6 @@ export class IntegratedPlanGenerator {
             previousWeekSessions,
           }
         );
-
-        console.log(`✅ Generated ${weekSessions.length} workout sessions for Week ${outline.weekNumber}`);
-
-        // Log session names for verification
-        weekSessions.forEach((session, idx) => {
-          console.log(`   - Day ${idx + 1}: ${session.name} (${session.structure.length} exercises)`);
-        });
-
         sessionsByWeek.push(weekSessions);
         allSessions.push(...weekSessions);
       } catch (error) {
@@ -684,7 +808,8 @@ export class IntegratedPlanGenerator {
                 console.log(`      🗓️  Generating schedule for Week ${outline.weekNumber}...`);
                 console.log(`         Cardio schedule in outline: ${outline.cardioSchedule?.sessions || 0} sessions, ${outline.cardioSchedule?.duration || 0}min, ${outline.cardioSchedule?.type || 'N/A'}`);
 
-                const schedule = await this.cardioGenerationService.generateWeeklyCardioSchedule(
+                // Deterministic scheduling: removes per-week AI calls and failure mode
+                const schedule = this.cardioGenerationService.generateWeeklyCardioScheduleDeterministic(
                   userProfile,
                   outline,
                   templates,
@@ -990,7 +1115,42 @@ export class IntegratedPlanGenerator {
       shoppingListWithWeeks = shoppingList;
     }
 
+    // Compute deterministic plan metrics for UI/analytics consistency
+    const bmiResult = await this.calculator.calculateBMI(userProfile);
+    const bmrResult = await this.calculator.calculateBMR(userProfile);
+    const tdeeResult = await this.calculator.calculateTDEE(userProfile, bmrResult.value);
+    const fatLossResult = await this.calculator.calculateFatLossRate(userProfile);
+    const trainingVolumeResult = await this.calculator.calculateTrainingVolume(
+      userProfile,
+      userProfile.goal || 'fitness'
+    );
+    const waterResult = await this.calculator.calculateWaterRequirement(userProfile);
+
+    const referenceTargets = getAverageDailyTargets(referenceOutline as any);
+    const dailyEnergyDelta = Math.round((tdeeResult.value - referenceTargets.calories) * 10) / 10;
+    const weeklyEnergyDelta = Math.round(dailyEnergyDelta * 7 * 10) / 10;
+
+    const proteinCalories = referenceTargets.protein * 4;
+    const carbsCalories = referenceTargets.carbs * 4;
+    const fatCalories = referenceTargets.fat * 9;
+    const macroCalTotal = proteinCalories + carbsCalories + fatCalories;
+    const carbPct = macroCalTotal > 0 ? Math.round((carbsCalories / macroCalTotal) * 100) : 0;
+    const fatPct = macroCalTotal > 0 ? Math.round((fatCalories / macroCalTotal) * 100) : 0;
+
     return {
+      // Provide UI-consumable userProfile for shared helpers (getTDEE, extractPlanMetrics, etc.)
+      userProfile: {
+        age: userProfile.age,
+        gender: userProfile.sex,
+        height: userProfile.heightCm,
+        weight: userProfile.weightKg,
+        workoutDaysPerWeek: userProfile.trainingDaysPerWeek,
+        experienceLevel: userProfile.workoutLevel,
+        bodyFat: userProfile.bodyFat,
+        activityLevel: userProfile.activityLevel,
+        primaryGoal: userProfile.goal,
+        goalCategory: userProfile.goalCategory,
+      },
       // Required fields
       feasibility: {
         isFeasible: true,
@@ -1010,15 +1170,24 @@ export class IntegratedPlanGenerator {
         },
         nutritionApproach: {
           caloricStrategy: {
-            deficitMagnitude: 'moderate',
-            dailyDeficitCalories: 0,
-            weeklyDeficitCalories: 0,
+            deficitMagnitude:
+              dailyEnergyDelta > 0
+                ? `${Math.round((dailyEnergyDelta / Math.max(tdeeResult.value, 1)) * 100)}% deficit`
+                : dailyEnergyDelta < 0
+                  ? `${Math.round((Math.abs(dailyEnergyDelta) / Math.max(tdeeResult.value, 1)) * 100)}% surplus`
+                  : 'maintenance',
+            dailyDeficitCalories: Math.max(dailyEnergyDelta, 0),
+            weeklyDeficitCalories: Math.max(weeklyEnergyDelta, 0),
+            dailyEnergyDeltaCalories: dailyEnergyDelta,
+            weeklyEnergyDeltaCalories: weeklyEnergyDelta,
           },
           macroTargets: {
-            proteinTotalGrams: referenceOutline?.dailyTargets?.protein || 150,
-            proteinPerKg: referenceOutline?.dailyTargets?.proteinPerKg || 2.0,
-            carbPercentage: 40,
-            fatPercentage: 30,
+            proteinTotalGrams: referenceTargets.protein || 150,
+            proteinPerKg:
+              referenceTargets.proteinPerKg ||
+              (userProfile.weightKg > 0 ? referenceTargets.protein / userProfile.weightKg : 0),
+            carbPercentage: carbPct,
+            fatPercentage: fatPct,
           },
           mealFrequency: userProfile.mealFrequency || 4,
           timing: {
@@ -1037,17 +1206,18 @@ export class IntegratedPlanGenerator {
       dailyMealCombinations,
       shoppingList: shoppingListWithWeeks as ShoppingList,
       metrics: {
-        bmr: { value: 0, formula: '', source: '' },
-        tdee: { value: 0, formula: '', source: '' },
+        bmr: { value: bmrResult.value, formula: bmrResult.formula, source: bmrResult.source },
+        tdee: { value: tdeeResult.value, formula: tdeeResult.formula, source: tdeeResult.source },
+        bmi: { value: bmiResult.value, formula: bmiResult.formula, source: bmiResult.source },
         macros: {
-          calories: referenceOutline?.dailyTargets?.calories || 2000,
-          protein: referenceOutline?.dailyTargets?.protein || 150,
-          carbs: referenceOutline?.dailyTargets?.carbs || 200,
-          fat: referenceOutline?.dailyTargets?.fat || 67,
+          calories: Math.round(referenceTargets.calories || 0),
+          protein: Math.round(referenceTargets.protein || 0),
+          carbs: Math.round(referenceTargets.carbs || 0),
+          fat: Math.round(referenceTargets.fat || 0),
         },
-        fatLoss: { value: 0, formula: '', source: '' },
-        trainingVolume: { value: 0, formula: '', source: '' },
-        water: { value: 0, formula: '', source: '' },
+        fatLoss: { value: fatLossResult.value, formula: fatLossResult.formula, source: fatLossResult.source },
+        trainingVolume: { value: trainingVolumeResult.value, formula: trainingVolumeResult.formula, source: trainingVolumeResult.source },
+        water: { value: waterResult.value, formula: waterResult.formula, source: waterResult.source },
       },
       evidenceCitations: [],
       generatedAt: new Date().toISOString(),
@@ -1214,6 +1384,11 @@ export class IntegratedPlanGenerator {
       console.log(`\n📅 [WEEK ${outline.weekNumber}] Calculating Daily Targets:`);
       console.log(`   Base TDEE: ${baseTdee} | Resistance Days: ${resistanceDays.length}`);
 
+      // Preserve weekly progression by deriving the goal-specific adjustment from this week's target calories
+      const weekBaseCalories = Number(outline?.dailyTargets?.calories ?? baseTdee);
+      const weekAdjustmentPercent =
+        baseTdee > 0 ? (weekBaseCalories - baseTdee) / baseTdee : 0;
+
       for (let i = 0; i < 7; i++) {
         const dayName = days[i];
         const dayNumber = i + 1;
@@ -1252,7 +1427,10 @@ export class IntegratedPlanGenerator {
           tdeeFormula: `${maintenance.tdeeFormula} + ${dailyBurn.toFixed(0)} (${activityLog.join(' + ')})`
         };
 
-        // 3. Calculate Macros for this day
+        // 3. Calculate target calories for this day, preserving weekly progression
+        const dayTargetCalories = Math.round(dayTdee * (1 + weekAdjustmentPercent));
+
+        // 4. Calculate Macros for this day (fixed calories, deterministic macro rules)
         const dayMacros = await nutritionCalculationService.calculateMacroTargetsFromCategory(
           metrics,
           dayMaintenance,
@@ -1260,6 +1438,7 @@ export class IntegratedPlanGenerator {
             goalCategory,
             timelineWeeks: userProfile.timelineWeeks,
             bodyFatGoal: userProfile.bodyFatGoal,
+            caloriesOverride: dayTargetCalories,
           }
         );
 
@@ -1274,6 +1453,29 @@ export class IntegratedPlanGenerator {
       // We use a new property 'dailyTargetsOverride' to store the array of 7 distinct targets
       // The original 'dailyTargets' remains as a semantic reference (likely average or rest day baseline)
       (outline as any).dailyTargetsOverride = dailyTargets; // Cast to any to add dynamic property
+
+      // Keep weekly outline dailyTargets in sync with the override (use average of the 7 days)
+      const avg = dailyTargets.reduce(
+        (sum, d) => ({
+          calories: sum.calories + d.calories,
+          protein: sum.protein + d.protein,
+          carbs: sum.carbs + d.carbs,
+          fat: sum.fat + d.fat,
+        }),
+        { calories: 0, protein: 0, carbs: 0, fat: 0 }
+      );
+      const divisor = dailyTargets.length || 1;
+      outline.dailyTargets = {
+        ...outline.dailyTargets,
+        calories: Math.round(avg.calories / divisor),
+        protein: Math.round(avg.protein / divisor),
+        carbs: Math.round(avg.carbs / divisor),
+        fat: Math.round(avg.fat / divisor),
+        proteinPerKg:
+          userProfile.weightKg > 0
+            ? Math.round(((avg.protein / divisor) / userProfile.weightKg) * 100) / 100
+            : outline.dailyTargets.proteinPerKg,
+      };
     }
   }
 }

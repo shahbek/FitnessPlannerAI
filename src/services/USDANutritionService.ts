@@ -64,6 +64,10 @@ export class USDANutritionService {
   private client: IConvexClient;
   private cache: Map<string, NutritionCacheEntry>;
   private cacheStats: CacheStats;
+  private preferredMappings = new Map<
+    string,
+    { fdcId: number; description: string; dataType?: string; confidence?: number; source?: string }
+  >();
 
   constructor(client: IConvexClient) {
     if (!client) {
@@ -77,6 +81,48 @@ export class USDANutritionService {
       size: 0,
       maxSize: CONFIG.MAX_CACHE_SIZE,
     };
+  }
+
+  async preloadIngredientMappings(names: string[]): Promise<void> {
+    const normalizedNames = Array.from(
+      new Set((names || []).map((n) => normalizeFoodName(n)).filter(Boolean))
+    );
+    if (normalizedNames.length === 0) return;
+
+    try {
+      const results = await this.client.action((api as any).ingredientMappings.getMappings, {
+        names: normalizedNames,
+      });
+
+      if (Array.isArray(results)) {
+        results.forEach((m: any) => {
+          const key = normalizeFoodName(m?.name || '');
+          const fdcId = Number(m?.fdcId ?? 0);
+          const description = String(m?.description || '');
+          if (!key || !fdcId || !description) return;
+          this.preferredMappings.set(key, {
+            fdcId,
+            description,
+            dataType: m?.dataType,
+            confidence: m?.confidence,
+            source: m?.source,
+          });
+        });
+      }
+    } catch (err) {
+      console.warn('⚠️ [USDA] Failed to preload ingredient mappings:', err);
+    }
+  }
+
+  async upsertIngredientMappings(
+    mappings: Array<{ name: string; fdcId: number; description: string; dataType?: string; confidence?: number; source: string }>
+  ): Promise<void> {
+    if (!mappings || mappings.length === 0) return;
+    try {
+      await this.client.action((api as any).ingredientMappings.upsertMappings, { mappings });
+    } catch (err) {
+      console.warn('⚠️ [USDA] Failed to persist ingredient mappings:', err);
+    }
   }
 
   /**
@@ -116,7 +162,9 @@ export class USDANutritionService {
 
             if (foods && foods.length > 0) {
               // Filter out obviously bad data (e.g. 0 calorie items that shouldn't be 0)
-              const validFoods = foods.filter(f => this.isResultPlausible(f, attempt.query));
+              const validFoods = foods
+                .filter(f => this.isResultPlausible(f, attempt.query))
+                .sort((a, b) => this.scoreCandidate(b, attempt.query) - this.scoreCandidate(a, attempt.query));
 
               if (validFoods.length > 0) {
                 console.log(`🔎 [USDA] Found valid "${query}" via ${attempt.reason} -> "${attempt.query}" [${phaseTypes.join(', ')}]`);
@@ -135,7 +183,7 @@ export class USDANutritionService {
       // If we found *something* but filtered it out, returns those as last resort rather than nothing
       if (allFoundFoods.length > 0) {
         console.warn(`⚠️ [USDA] Only found potentially low-quality results for "${query}", using best available.`);
-        return allFoundFoods;
+        return allFoundFoods.sort((a, b) => this.scoreCandidate(b, normalizedQuery) - this.scoreCandidate(a, normalizedQuery));
       }
 
       if (lastError) throw lastError;
@@ -154,12 +202,141 @@ export class USDANutritionService {
     }
   }
 
+  private computeConfidence(topScore: number, secondScore: number | null, dataType?: string): number {
+    const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+    const base = clamp01((topScore - 10) / 70);
+    const margin = secondScore === null ? 1 : clamp01((topScore - secondScore) / 25);
+    const dt = (dataType || '').toLowerCase();
+    const dataBonus = dt.includes('foundation') ? 0.12 : dt.includes('sr') ? 0.1 : dt.includes('survey') ? 0.05 : 0;
+    return clamp01(0.25 + base * 0.45 + margin * 0.3 + dataBonus);
+  }
+
+  async resolveFoodDetailsWithConfidence(query: string): Promise<{
+    foodDetails: USDAFoodItem;
+    macrosPer100g: MacroValues;
+    confidence: number;
+    isAmbiguous: boolean;
+    usedMapping: boolean;
+    candidates: Array<{ fdcId: number; description: string; dataType?: string; score: number }>;
+  }> {
+    const normalizedQuery = normalizeFoodName(query);
+    const preferred = this.preferredMappings.get(normalizedQuery);
+    if (preferred) {
+      const details = await this.getFoodDetails(preferred.fdcId);
+      const macros = extractMacrosFromUSDA(details.nutrients || [], {
+        foodName: details.description,
+        fdcId: details.fdcId,
+        debug: false,
+      });
+      return {
+        foodDetails: details,
+        macrosPer100g: macros,
+        confidence: 1,
+        isAmbiguous: false,
+        usedMapping: true,
+        candidates: [
+          {
+            fdcId: details.fdcId,
+            description: details.description,
+            dataType: details.dataType,
+            score: 999,
+          },
+        ],
+      };
+    }
+
+    const foods = await this.searchFood(normalizedQuery);
+    if (!foods || foods.length === 0) {
+      throw this.createError(NutritionErrorType.FOOD_NOT_FOUND, `No foods found matching "${query}"`, query);
+    }
+
+    const scored = foods.slice(0, 8).map((f) => ({
+      food: f,
+      score: this.scoreCandidate(f, normalizedQuery),
+    }));
+    scored.sort((a, b) => b.score - a.score);
+
+    const top = scored[0];
+    const second = scored.length > 1 ? scored[1] : null;
+    const confidence = this.computeConfidence(top.score, second ? second.score : null, top.food.dataType);
+    const isAmbiguous = !!second && top.score - second.score < 12;
+
+    // Disambiguation: inspect top candidates and prefer plausible nutrition data.
+    // This avoids selecting the "wrong variant" (e.g. sprays/substitutes/whites) when token scoring is close.
+    let best: { details: USDAFoodItem; macros: MacroValues; score: number } | null = null;
+    const candidatesToInspect = scored.slice(0, 3);
+
+    for (const c of candidatesToInspect) {
+      try {
+        const details = await this.getFoodDetails(c.food.fdcId);
+        const macrosPer100g = extractMacrosFromUSDA(details.nutrients || [], {
+          foodName: details.description,
+          fdcId: details.fdcId,
+          debug: false,
+        });
+
+        if (!this.verifyNutritionData(macrosPer100g, normalizedQuery)) {
+          continue;
+        }
+        if (!validateMacroValues(macrosPer100g).isValid) {
+          continue;
+        }
+
+        if (!best || c.score > best.score) {
+          best = { details, macros: macrosPer100g, score: c.score };
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    // Fallback: accept top ranked candidate even if plausibility checks couldn't validate.
+    // Still returns USDA-backed data (not AI macros).
+    if (!best) {
+      const details = await this.getFoodDetails(top.food.fdcId);
+      const macros = extractMacrosFromUSDA(details.nutrients || [], {
+        foodName: details.description,
+        fdcId: details.fdcId,
+        debug: false,
+      });
+      best = { details, macros, score: top.score };
+    }
+
+    return {
+      foodDetails: best!.details,
+      macrosPer100g: best!.macros,
+      confidence,
+      isAmbiguous,
+      usedMapping: false,
+      candidates: scored.slice(0, 5).map((c) => ({
+        fdcId: c.food.fdcId,
+        description: c.food.description,
+        dataType: c.food.dataType,
+        score: c.score,
+      })),
+    };
+  }
+
   /**
    * Quick heuristic to discard obviously bad search results before detailed lookup
    */
   private isResultPlausible(food: USDAFoodItem, query: string): boolean {
     const name = food.description.toLowerCase();
     const queryLower = query.toLowerCase();
+
+    // Hard filters for common "wrong class" results.
+    if (!queryLower.includes('spray') && name.includes('spray')) return false;
+    if (!queryLower.includes('substitute') && name.includes('substitute')) return false;
+    if (!queryLower.includes('imitation') && name.includes('imitation')) return false;
+
+    // Eggs are highly ambiguous in USDA results ("whole" vs "white" vs "substitute").
+    // If the user didn't ask for egg whites, avoid matching whites/substitutes.
+    if (queryLower.includes('egg') && !queryLower.includes('white')) {
+      if (name.includes('egg white') || name.includes('egg whites')) return false;
+    }
+    if (queryLower.includes('egg') && !queryLower.includes('substitute')) {
+      if (name.includes('substitute')) return false;
+    }
 
     // If we're looking for "chicken" and get "chicken flavored seasoning", skip it
     if (queryLower.includes('chicken') && !queryLower.includes('seasoning') && name.includes('seasoning')) return false;
@@ -176,6 +353,53 @@ export class USDANutritionService {
     }
 
     return true;
+  }
+
+  private tokenizeForMatch(text: string): string[] {
+    return text
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ' ')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+  }
+
+  private scoreCandidate(food: USDAFoodItem, query: string): number {
+    const queryTokens = new Set(this.tokenizeForMatch(query));
+    const descTokens = new Set(this.tokenizeForMatch(food.description || ''));
+
+    const dataType = (food.dataType || '').toLowerCase();
+    const dataTypeScore =
+      dataType.includes('foundation') ? 40 :
+        dataType.includes('sr') ? 35 :
+          dataType.includes('survey') ? 20 :
+            dataType.includes('branded') ? 10 :
+              0;
+
+    let tokenScore = 0;
+    for (const t of queryTokens) {
+      if (descTokens.has(t)) tokenScore += 6;
+      else tokenScore -= 2;
+    }
+
+    // Strong penalties for "wrong class" tokens unless explicitly requested.
+    const strongAvoid = ['spray', 'substitute', 'imitation', 'flavored', 'seasoning', 'mix'];
+    for (const t of strongAvoid) {
+      if (!queryTokens.has(t) && descTokens.has(t)) tokenScore -= 25;
+    }
+
+    // Mild penalties for processed forms unless requested.
+    const mildAvoid = ['dried', 'dehydrated', 'powder', 'canned', 'frozen', 'prepared'];
+    for (const t of mildAvoid) {
+      if (!queryTokens.has(t) && descTokens.has(t)) tokenScore -= 8;
+    }
+
+    // Bonus for near-exact phrase containment (helps "egg, whole, raw, fresh").
+    const q = query.toLowerCase();
+    const d = (food.description || '').toLowerCase();
+    const phraseBonus = d.includes(q) ? 15 : 0;
+
+    return dataTypeScore + tokenScore + phraseBonus;
   }
 
   private buildSearchAttempts(normalizedQuery: string): SearchAttempt[] {

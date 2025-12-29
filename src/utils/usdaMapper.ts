@@ -232,10 +232,7 @@ export function normalizeFoodName(name: string): string {
     .toLowerCase()
     .trim()
     .replace(/\s+/g, ' ')
-    .replace(/^raw\s+/i, '')
-    .replace(/\s+raw$/i, '')
-    .replace(/^cooked\s+/i, '')
-    .replace(/\s+cooked$/i, '');
+    ;
 }
 
 /**
@@ -307,4 +304,3 @@ export function sumMacros(macros: MacroValues[]): MacroValues {
     }
   );
 }
-

@@ -345,6 +345,105 @@ export class CardioGenerationService {
   }
 
   /**
+   * Deterministic weekly cardio schedule (no AI call)
+   *
+   * Motivation:
+   * - Greatly reduces plan generation time for multi-week programs
+   * - Removes a common failure mode (AI schedule generation)
+   * - Keeps caloriesBurned deterministic for energy balance
+   */
+  generateWeeklyCardioScheduleDeterministic(
+    userProfile: UserProfile,
+    weeklyOutline: WeeklyOutline,
+    cardioTemplates: CardioTemplate[],
+    resistanceDays: string[]
+  ): WeeklyCardioSchedule {
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const requestedSessions = Math.max(weeklyOutline.cardioSchedule?.sessions || 0, 0);
+    const sessions = Math.max(requestedSessions, 1);
+
+    const requestedType = (weeklyOutline.cardioSchedule?.type || '').toLowerCase();
+    const requestedIntensity = (weeklyOutline.cardioSchedule?.intensity || '').toLowerCase();
+
+    const pickTemplates = (): CardioTemplate[] => {
+      if (!cardioTemplates.length) return [];
+      const filtered = cardioTemplates.filter((t) => {
+        const typeOk = requestedType ? String(t.type).toLowerCase().includes(requestedType) : true;
+        const intensityOk = requestedIntensity
+          ? String(t.intensity).toLowerCase() === requestedIntensity
+          : true;
+        return typeOk && intensityOk;
+      });
+      return filtered.length ? filtered : cardioTemplates;
+    };
+
+    const candidateTemplates = pickTemplates();
+    if (!candidateTemplates.length) {
+      throw new Error('No cardio templates provided for deterministic scheduling');
+    }
+
+    // Prefer explicit cardioDays from outline if provided
+    const explicitCardioDays = weeklyOutline.trainingSchedule?.cardioDays || [];
+
+    const isResistanceDay = (dayName: string) => resistanceDays.includes(dayName);
+    const isExplicit = (dayName: string) => explicitCardioDays.includes(dayName);
+
+    const preferredDays = explicitCardioDays.length
+      ? explicitCardioDays
+      : days.filter((d) => !isResistanceDay(d));
+
+    // If not enough non-resistance days, allow post-workout cardio on resistance days too
+    const fallbackDays = days.filter((d) => !preferredDays.includes(d));
+    const dayPool = [...preferredDays, ...fallbackDays];
+
+    const assignments: CardioSessionAssignment[] = [];
+    let templateIndex = 0;
+
+    for (let i = 0; i < sessions; i++) {
+      const dayName = dayPool[i % dayPool.length];
+      const dayNumber = days.indexOf(dayName) + 1;
+      const template = candidateTemplates[templateIndex % candidateTemplates.length];
+      templateIndex++;
+
+      const timing: CardioSessionAssignment['timing'] =
+        isResistanceDay(dayName) ? 'post_workout' : 'morning';
+
+      assignments.push({
+        dayName,
+        dayNumber,
+        templateId: template.templateId,
+        timing,
+        notes: isExplicit(dayName) ? 'Scheduled per weekly outline' : undefined,
+        cardioTemplate: template,
+      });
+    }
+
+    const totalMinutes = assignments.reduce(
+      (sum, s) => sum + (s.cardioTemplate?.structure?.totalDurationMinutes || s.cardioTemplate?.durationMinutes || 0),
+      0
+    );
+    const totalCalories = assignments.reduce((sum, s) => sum + (s.cardioTemplate?.caloriesBurned || 0), 0);
+
+    return {
+      weekNumber: weeklyOutline.weekNumber,
+      phase: weeklyOutline.phase,
+      sessions: assignments,
+      totalWeeklyVolume: {
+        sessions: assignments.length,
+        totalMinutes: Math.round(totalMinutes),
+        totalCalories: Math.round(totalCalories),
+      },
+      progressionNotes:
+        weeklyOutline.phase === 'peak'
+          ? 'Maintain consistency; consider slightly higher intensity if recovery allows.'
+          : weeklyOutline.phase === 'progression'
+            ? 'Progress volume or intensity gradually week to week.'
+            : 'Introduce cardio gradually and prioritize good technique.',
+      recoveryStrategy: 'Avoid stacking high-intensity cardio on consecutive days; prioritize sleep and hydration.',
+    };
+  }
+
+  /**
    * Build prompt for cardio template generation
    */
   private buildCardioTemplatesPrompt(
@@ -628,4 +727,3 @@ Return structured weekly cardio schedule.`;
   }
 
 }
-

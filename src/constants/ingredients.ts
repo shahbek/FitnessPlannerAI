@@ -5,6 +5,11 @@ import { normalizeFoodName } from '../utils/usdaMapper';
  * We strip these so lookups can fall back to the core ingredient term.
  */
 export const INGREDIENT_DESCRIPTOR_WORDS = new Set([
+  // "raw"/"cooked" are identity modifiers for many foods (rice/pasta/meat),
+  // but we still treat them as strip-able descriptors for fallback search attempts.
+  // Primary search should keep them; fallbacks may remove them.
+  'raw',
+  'cooked',
   'fresh',
   'organic',
   'boneless',

@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/tooltip';
 import { DailyTimeline } from './DailyTimeline';
 import { calculateWeeklyDeficitSummary, getTDEE, WeeklyDeficitSummary } from '@/utils/planCalculations';
+import { getAverageDailyTargets } from '@/utils/planTargets';
 
 interface WeeklyProgressionTimelineProps {
   plan: any;
@@ -391,7 +392,7 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
   }, [plan]);
 
   const transformWeekData = (week: any, weeklySchedule?: any[]): WeekData => {
-    const dailyTargets = week.dailyTargets || {};
+    const dailyTargets = getAverageDailyTargets(week);
     const schedule = buildWeekSchedule(week, weeklySchedule);
 
     const selectedDay = selectedDays[week.weekNumber];
@@ -759,11 +760,13 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                   <div className="absolute bottom-0 right-[10%] w-[40%] h-[50%] bg-gradient-to-tl from-black/20 to-transparent rounded-full blur-md pointer-events-none"></div>
 
                   <div className="relative flex items-center justify-center gap-5 text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className="text-base drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">🍎</span>
-                      <span className="font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">{week.targets.calories}</span>
-                      <span className="text-xs font-bold text-orange-50 uppercase tracking-wider drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">kcal</span>
-                    </div>
+	                    <div className="flex items-center gap-2">
+	                      <span className="text-base drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">🍎</span>
+	                      <span className="font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
+	                        {Math.round(Number(week.targets.calories || 0)).toLocaleString()}
+	                      </span>
+	                      <span className="text-xs font-bold text-orange-50 uppercase tracking-wider drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">kcal</span>
+	                    </div>
                     <div className="w-px h-5 bg-gradient-to-b from-transparent via-orange-200/80 to-transparent shadow-[0_0_4px_rgba(255,255,255,0.5)]"></div>
                     <div className="flex items-center gap-2">
                       <span className="text-base drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">🥩</span>

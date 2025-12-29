@@ -28,6 +28,7 @@ import { isZeroImpactIngredient, stripDescriptorWords, isSensitiveIngredient } f
 import { HARD_FAILURE_THRESHOLDS, GENERATION_TOLERANCES } from '../constants/validation';
 import { selectAndAdjustSupplementMeal, adjustSupplementMealToTarget } from './SupplementMealGenerator';
 import { searchNutritionKnowledge, NutritionFact } from '../rag/nutrition/nutritionKnowledgeBase';
+import { env } from '../config/env';
 
 /**
  * Meal Schema for Batch Generation
@@ -140,11 +141,18 @@ export class BatchMealGenerator {
   private cotService: ChainOfThoughtService;
   private currentMealFrequency: number = 4; // Store meal frequency for adjustment calculations
   private lastAdjustmentSummary: AdjustmentDaySummary[] = [];
+  private lastIngredientResolutionReport: any = null;
   private hybridOptimizer: HybridMealOptimizer;
   private optimizerInitialized: boolean = false;
 
   // AI-generated supplement meals for protein backup
   private supplementMeals: import('./SupplementMealGenerator').SupplementMeal[] = [];
+  private supplementMealsCacheKey: string | null = null;
+  private aiTemplateCache = new Map<string, BatchMealGeneration>();
+  private usdaDataCache = new Map<
+    string,
+    Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>
+  >();
   private apiConfig: { apiKey: string; endpoint: string; model: string } | null = null;
 
   constructor(
@@ -174,6 +182,10 @@ export class BatchMealGenerator {
 
   public getLastAdjustmentSummary(): AdjustmentDaySummary[] {
     return this.lastAdjustmentSummary;
+  }
+
+  public getLastIngredientResolutionReport(): any {
+    return this.lastIngredientResolutionReport;
   }
 
   private isProteinSupplementMeal(meal: MealWithUSDA): boolean {
@@ -207,6 +219,7 @@ export class BatchMealGenerator {
     dailyTargetsOverride?: MacroTargets[],
     options?: {
       onProgress?: (step: string, progress: number) => void;
+      reuseAiTemplate?: boolean;
     }
   ): Promise<MealWithUSDA[][]> {
     console.log('🚀 [BATCH] Starting optimal batch meal generation...');
@@ -249,18 +262,42 @@ export class BatchMealGenerator {
 
     // Step 0: Generate high-protein supplement meals for backup
     options?.onProgress?.('Generating protein supplement meals...', 5);
-    await this.generateSupplementMealsForPlan(userProfile);
-    console.log(`✅ [BATCH] Generated ${this.supplementMeals.length} protein supplement meals for backup`);
+    const supplementKey = this.buildSupplementMealsCacheKey(userProfile);
+    if (!this.supplementMealsCacheKey || this.supplementMealsCacheKey !== supplementKey || this.supplementMeals.length === 0) {
+      await this.generateSupplementMealsForPlan(userProfile);
+      this.supplementMealsCacheKey = supplementKey;
+      console.log(`✅ [BATCH] Generated ${this.supplementMeals.length} protein supplement meals for backup`);
+    } else {
+      console.log(`⚡️ [BATCH] Reusing cached protein supplement meals (${this.supplementMeals.length})`);
+    }
 
     // Step 1: Generate all meals with single AI call
     options?.onProgress?.('Generating all meals with AI...', 10);
-    const aiGeneratedMeals = await this.generateWithAI(
-      userProfile,
-      weeklyOutline,
-      trainingSplit,
-      nutritionFacts,
-      dailyTargetsOverride
-    );
+    const shouldReuseAiTemplate =
+      options?.reuseAiTemplate ??
+      // Default: reuse templates for long plans unless user explicitly wants "fresh daily"
+      (userProfile.mealPrepPreference !== 'fresh_daily' && (userProfile.timelineWeeks || 0) >= 8);
+
+    const cacheKey = this.buildAiTemplateCacheKey(userProfile, weeklyOutline);
+
+    let aiGeneratedMeals: BatchMealGeneration;
+    if (shouldReuseAiTemplate && this.aiTemplateCache.has(cacheKey)) {
+      const cached = this.aiTemplateCache.get(cacheKey)!;
+      aiGeneratedMeals = this.deepCloneAiTemplate(cached);
+      console.log(`⚡️ [BATCH] Reusing cached AI meal template for key: ${cacheKey}`);
+    } else {
+      aiGeneratedMeals = await this.generateWithAI(
+        userProfile,
+        weeklyOutline,
+        trainingSplit,
+        nutritionFacts,
+        dailyTargetsOverride
+      );
+      if (shouldReuseAiTemplate) {
+        this.aiTemplateCache.set(cacheKey, this.deepCloneAiTemplate(aiGeneratedMeals));
+        console.log(`💾 [BATCH] Cached AI meal template for key: ${cacheKey}`);
+      }
+    }
     console.log(`✅ [BATCH] AI generated ${aiGeneratedMeals.weeklyMeals.length} days of meals`);
 
     // Validate meal variety (check for duplicate meal names within same day)
@@ -282,7 +319,27 @@ export class BatchMealGenerator {
 
     // Step 3: Batch USDA lookup (parallel)
     options?.onProgress?.('Looking up USDA nutrition data...', 40);
-    const usdaData = await this.batchUSDALookup(uniqueIngredients);
+    let usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>;
+    const cachedUsda = shouldReuseAiTemplate ? this.usdaDataCache.get(cacheKey) : undefined;
+    if (cachedUsda) {
+      const missing = uniqueIngredients.filter((name) => !cachedUsda[name]);
+      if (missing.length === 0) {
+        usdaData = cachedUsda;
+        console.log(`⚡️ [BATCH] Reusing cached USDA lookup results for key: ${cacheKey}`);
+      } else {
+        const lookedUp = await this.batchUSDALookup(missing);
+        usdaData = { ...cachedUsda, ...lookedUp };
+        this.usdaDataCache.set(cacheKey, usdaData);
+        console.log(
+          `♻️ [BATCH] Extended cached USDA lookup for key: ${cacheKey} (+${missing.length} ingredients)`
+        );
+      }
+    } else {
+      usdaData = await this.batchUSDALookup(uniqueIngredients);
+      if (shouldReuseAiTemplate) {
+        this.usdaDataCache.set(cacheKey, usdaData);
+      }
+    }
     console.log(`✅ [BATCH] Retrieved USDA data for ${Object.keys(usdaData).length} ingredients`);
 
     // Step 4: Recalculate all meal macros with USDA data
@@ -334,6 +391,19 @@ export class BatchMealGenerator {
     for (let day = 1; day <= 7; day++) {
       dayMeals.push(postSupplementAdjustedMeals.filter((meal: MealWithUSDA) => meal.dayNumber === day));
     }
+
+    // Step 6.75: GUARANTEE protein targets after any calorie-only adjustments
+    // Even with supplement meals locked, per-meal adjustments can occasionally reduce protein in other meals.
+    // Protein is the only hard-fail invariant, so we re-run supplementation as the final step before validation.
+    options?.onProgress?.('Guaranteeing final protein targets...', 95);
+    dayMeals = await this.ensureProteinTargets(
+      userProfile,
+      dayMeals,
+      weeklyOutline,
+      trainingSplit,
+      usdaData,
+      dailyTargetsOverride
+    );
 
     // COMPREHENSIVE VALIDATION - Check all targets are met
     const validation = this.validateAndReportAccuracy(
@@ -399,24 +469,54 @@ export class BatchMealGenerator {
       const weeklyDeficit = weeklyTargetProtein - weeklyActualProtein;
       const weeklyDeficitPercentage = weeklyDeficit / weeklyTargetProtein;
 
-      const isWeeklyFailure = strictProtein
-        ? weeklyDeficit > PROTEIN_EPSILON_GRAMS * 7
-        : weeklyDeficitPercentage > PROTEIN_TOLERANCE_PERCENTAGE;
+	      const isWeeklyFailure = strictProtein
+	        ? weeklyDeficit > PROTEIN_EPSILON_GRAMS * 7
+	        : weeklyDeficitPercentage > PROTEIN_TOLERANCE_PERCENTAGE;
 
-      if (isWeeklyFailure) {
-      throw new Error(
-        `WEEKLY PROTEIN VALIDATION FAILED: Total weekly protein ${weeklyActualProtein.toFixed(1)}g ` +
-        `vs target ${weeklyTargetProtein.toFixed(1)}g (${weeklyDeficit.toFixed(1)}g deficit).\n` +
-        `Weekly accuracy: ${((weeklyActualProtein / weeklyTargetProtein) * 100).toFixed(1)}%\n` +
-        `Protein targets are critical for muscle retention and cannot be compromised.`
-      );
-    }
-    }
+	      if (isWeeklyFailure) {
+	        throw new Error(
+	          `WEEKLY PROTEIN VALIDATION FAILED: Total weekly protein ${weeklyActualProtein.toFixed(1)}g ` +
+	            `vs target ${weeklyTargetProtein.toFixed(1)}g (${weeklyDeficit.toFixed(1)}g deficit).\n` +
+	            `Weekly accuracy: ${((weeklyActualProtein / weeklyTargetProtein) * 100).toFixed(1)}%\n` +
+	            `Protein targets are critical for muscle retention and cannot be compromised.`
+	        );
+	      }
+	    }
 
     console.log('✅ PROTEIN VALIDATION PASSED: All days meet protein targets');
 
     options?.onProgress?.('Batch meal generation complete!', 100);
     return dayMeals;
+  }
+
+  private buildAiTemplateCacheKey(userProfile: UserProfile, weeklyOutline: WeeklyOutline): string {
+    const goal = userProfile.goalCategory || userProfile.goal || 'unknown_goal';
+    const mealFrequency = userProfile.mealFrequency || 4;
+    const phase = (weeklyOutline.phase || 'unknown_phase').toLowerCase();
+    const prefs = (userProfile.preferences || '').toLowerCase().trim();
+    const dietType = (userProfile.dietType || '').toLowerCase();
+    const cuisine = (userProfile.cuisinePreferences || []).join(',').toLowerCase();
+    const prep = (userProfile.mealPrepPreference || '').toLowerCase();
+    return [goal, phase, `meals:${mealFrequency}`, `diet:${dietType}`, `cuisine:${cuisine}`, `prep:${prep}`, `prefs:${prefs}`]
+      .join('|');
+  }
+
+  private buildSupplementMealsCacheKey(userProfile: UserProfile): string {
+    const goal = userProfile.goalCategory || userProfile.goal || 'unknown_goal';
+    const prefs = (userProfile.preferences || '').toLowerCase().trim();
+    const dietType = (userProfile.dietType || '').toLowerCase();
+    const allergies = (userProfile.allergies || []).join(',').toLowerCase();
+    const cuisine = (userProfile.cuisinePreferences || []).join(',').toLowerCase();
+    return [goal, `diet:${dietType}`, `allergies:${allergies}`, `cuisine:${cuisine}`, `prefs:${prefs}`].join('|');
+  }
+
+  private deepCloneAiTemplate(template: BatchMealGeneration): BatchMealGeneration {
+    try {
+      // Node 17+/modern browsers
+      return structuredClone(template);
+    } catch {
+      return JSON.parse(JSON.stringify(template)) as BatchMealGeneration;
+    }
   }
 
   /**
@@ -1439,177 +1539,201 @@ Generate all 7 days of meals now.`;
       });
     });
 
+    // Include supplement ingredients so any fallback meals can be USDA-grounded too
+    // This keeps "protein safety net" macros aligned with the same USDA truth.
+    if (this.supplementMeals.length > 0) {
+      this.supplementMeals.forEach((m) => {
+        (m.ingredients || []).forEach((ing: any) => {
+          const normalized = normalizeFoodName(ing.name);
+          ingredientSet.add(normalized);
+        });
+      });
+    } else {
+      // Ensure the precision fallback ingredient can be USDA-looked up if needed
+      ingredientSet.add(normalizeFoodName('Whey Protein Powder'));
+    }
+
     return Array.from(ingredientSet);
   }
 
   /**
    * Step 3: Batch USDA lookup (parallel)
    */
-  private async batchUSDALookup(
-    uniqueIngredients: string[]
-  ): Promise<Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>> {
-    const usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }> = {};
+	  private async batchUSDALookup(
+	    uniqueIngredients: string[]
+	  ): Promise<Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>> {
+	    const usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }> = {};
+	    const report = {
+	      totalUniqueIngredients: uniqueIngredients.length,
+	      zeroImpactSkipped: [] as string[],
+	      noUsdaFound: [] as string[],
+	      usedMappings: 0,
+	      ambiguous: [] as Array<{ ingredient: string; chosen: string; confidence: number; candidates: any[] }>,
+	      lowConfidence: [] as Array<{ ingredient: string; chosen: string; confidence: number; candidates: any[] }>,
+	      persistedMappings: 0,
+	    };
 
-    // Refine ambiguous queries to canonical USDA-friendly forms
-    const refineQuery = (name: string): string => {
-      const stripped = stripDescriptorWords(name) || name;
-      const map: Record<string, string> = {
-        'scallions': 'green onions',
-        'spring onion': 'green onions',
-        'spring onions': 'green onions',
-        'bell pepper': 'sweet pepper',
-        'bell peppers': 'sweet peppers',
-        'sweet peppers': 'sweet pepper',
-      };
-      const normalized = normalizeFoodName(stripped);
-      return map[normalized] || normalized;
-    };
+	    // Refine ambiguous queries to canonical USDA-friendly forms
+	    const refineQuery = (name: string): string => {
+	      // IMPORTANT: Do NOT strip nutrition-critical descriptors here.
+	      // We want USDA search to see the richest possible query first.
+	      // USDANutritionService already tries descriptor-stripped fallbacks internally.
+	      const normalized = normalizeFoodName(name);
+	      const map: Record<string, string> = {
+	        'scallions': 'green onions',
+	        'spring onion': 'green onions',
+	        'spring onions': 'green onions',
+	        'bell pepper': 'sweet pepper',
+	        'bell peppers': 'sweet peppers',
+	        'sweet peppers': 'sweet pepper',
+	      };
+	      return map[normalized] || normalized;
+	    };
 
     // When searching ambiguous seasonings, filter out obvious prepared dishes (e.g., "pepper steak")
     const DISH_WORDS = ['steak', 'burger', 'sandwich', 'pizza', 'pasta', 'sauce', 'soup', 'pie', 'cake'];
 
-    // Lookup all ingredients in parallel
-    const lookupPromises = uniqueIngredients.map(async (ingredient) => {
-      try {
-        // Skip USDA lookup for condiments/seasonings that should not impact macros
-        if (isZeroImpactIngredient(ingredient)) {
-          console.log(`⚙️  [BATCH] Skipping USDA for zero-impact ingredient: ${ingredient}`);
-          return {
-            ingredient,
-            data: {
-              nutrition: { calories: 0, protein: 0, carbs: 0, fats: 0 },
-              fdcId: 0,
-              rawFoodDetails: { skipped: 'zero-impact' }
-            }
-          };
-        }
+	    // Preload user/system mappings once per batch so resolution can be deterministic across plans.
+	    // Must use the same query keys we will actually resolve with (after refinement).
+	    const mappingKeys = Array.from(new Set(uniqueIngredients.map((i) => refineQuery(i))));
+	    await this.usdaService.preloadIngredientMappings(mappingKeys);
 
-        const query = refineQuery(ingredient);
-        let foods = await this.usdaService.searchFood(query);
-        // If searching for ambiguous seasonings, drop obvious prepared dishes
-        if (query === 'black pepper' || query === 'table salt' || ingredient === 'pepper' || ingredient === 'salt') {
-          const before = foods.length;
-          foods = foods.filter(f => !DISH_WORDS.some(w => (f.description || '').toLowerCase().includes(w)));
-          if (foods.length < before) {
-            console.log(`⚙️  [BATCH] Filtered out ${before - foods.length} dish-like USDA results for query "${query}"`);
-          }
-        }
-        if (foods.length === 0) {
-          console.warn(`⚠️  [BATCH] No USDA data found for: ${ingredient}`);
-          return { ingredient, data: null };
-        }
+	    const mappingsToPersist: Array<{
+	      name: string;
+	      fdcId: number;
+	      description: string;
+	      dataType?: string;
+	      confidence?: number;
+	      source: string;
+	    }> = [];
 
-        // Try each candidate until we get a valid FDC detail response
-        let foodDetails: any = null;
-        for (const candidate of foods) {
-          try {
-            foodDetails = await this.usdaService.getFoodDetails(candidate.fdcId);
-            break;
-          } catch (error: any) {
-            if (error?.type === NutritionErrorType.FOOD_NOT_FOUND) {
-              console.warn(`⚠️  [BATCH] USDA returned 404 for FDC ${candidate.fdcId}, trying next candidate for "${ingredient}"`);
-              continue;
-            }
-            throw error;
-          }
-        }
+	    // Lookup all ingredients in parallel
+	    const lookupPromises = uniqueIngredients.map(async (ingredient) => {
+	      try {
+	        // Skip USDA lookup for condiments/seasonings that should not impact macros
+	        if (isZeroImpactIngredient(ingredient)) {
+	          console.log(`⚙️  [BATCH] Skipping USDA for zero-impact ingredient: ${ingredient}`);
+	          report.zeroImpactSkipped.push(ingredient);
+	          return {
+	            ingredient,
+	            data: {
+	              nutrition: { calories: 0, protein: 0, carbs: 0, fats: 0 },
+	              fdcId: 0,
+	              rawFoodDetails: { skipped: 'zero-impact' }
+	            }
+	          };
+	        }
 
-        if (!foodDetails) {
-          console.warn(`⚠️  [BATCH] Exhausted USDA candidates for ${ingredient}`);
-          return { ingredient, data: null };
-        }
+	        const query = refineQuery(ingredient);
+	        const resolved = await this.usdaService.resolveFoodDetailsWithConfidence(query);
 
-        // Log raw USDA data for comparison
-        console.log(`\n🔬 [BATCH] RAW USDA DATA for "${ingredient}":`);
-        console.log(`  FDC ID: ${foodDetails.fdcId}`);
-        console.log(`  Description: ${foodDetails.description || 'N/A'}`);
-        console.log(`  Data Type: ${foodDetails.dataType || 'N/A'}`);
-        console.log(`  Total Nutrients: ${foodDetails.nutrients?.length || 0}`);
+	        if (resolved.usedMapping) {
+	          report.usedMappings += 1;
+	        } else {
+	          if (resolved.isAmbiguous) {
+	            report.ambiguous.push({
+	              ingredient,
+	              chosen: resolved.foodDetails.description,
+	              confidence: resolved.confidence,
+	              candidates: resolved.candidates,
+	            });
+	          } else if (resolved.confidence < 0.75) {
+	            report.lowConfidence.push({
+	              ingredient,
+	              chosen: resolved.foodDetails.description,
+	              confidence: resolved.confidence,
+	              candidates: resolved.candidates,
+	            });
+	          }
+	        }
 
-        // Log key nutrient IDs and values (raw from USDA)
-        const keyNutrientIds = {
-          CALORIES: 1008,
-          PROTEIN: 1003,
-          CARBS: 1005,
-          FAT: 1004,
-          FIBER: 1079,
-          SUGAR: 2000,
-        };
+	        // Persist only high-confidence, non-ambiguous selections (so "learned" mappings don't lock in a bad guess).
+	        if (!resolved.usedMapping && !resolved.isAmbiguous && resolved.confidence >= 0.85) {
+	          mappingsToPersist.push({
+	            name: query,
+	            fdcId: resolved.foodDetails.fdcId,
+	            description: resolved.foodDetails.description,
+	            dataType: resolved.foodDetails.dataType,
+	            confidence: resolved.confidence,
+	            source: 'auto_high_confidence',
+	          });
+	        }
 
-        console.log(`  Raw Nutrient Values (from USDA API):`);
-        Object.entries(keyNutrientIds).forEach(([name, id]) => {
-          const nutrient = foodDetails.nutrients?.find((n: any) => n.nutrientId === id);
-          if (nutrient) {
-            const value = (nutrient as any).value ?? (nutrient as any).amount ?? 0;
-            const unit = nutrient.unitName || (nutrient as any).unit || 'N/A';
-            console.log(`    ${name} (ID ${id}): ${value} ${unit}`);
-          } else {
-            console.log(`    ${name} (ID ${id}): NOT FOUND`);
-          }
-        });
+	        const shouldLogDetails = env.DEBUG || resolved.isAmbiguous || resolved.confidence < 0.75;
+	        if (shouldLogDetails) {
+	          console.log(`\n🔬 [BATCH] USDA RESOLUTION for "${ingredient}" (query="${query}")`);
+	          console.log(`  Chosen: ${resolved.foodDetails.description} (FDC ${resolved.foodDetails.fdcId}, ${resolved.foodDetails.dataType || 'N/A'})`);
+	          console.log(`  Confidence: ${(resolved.confidence * 100).toFixed(0)}%${resolved.isAmbiguous ? ' (AMBIGUOUS)' : ''}${resolved.usedMapping ? ' (MAPPED)' : ''}`);
+	          if (resolved.candidates?.length) {
+	            console.log(`  Top candidates:`);
+	            resolved.candidates.slice(0, 3).forEach((c: any, idx: number) => {
+	              console.log(`    ${idx + 1}. ${c.description} (FDC ${c.fdcId}, ${c.dataType || 'N/A'}, score=${c.score})`);
+	            });
+	          }
+	          console.log(`  Extracted Macros (per 100g):`, resolved.macrosPer100g);
+	        }
 
-        // Log full nutrients array (first 10 for brevity)
-        if (foodDetails.nutrients && foodDetails.nutrients.length > 0) {
-          console.log(`  Sample Nutrients (first 10):`);
-          foodDetails.nutrients.slice(0, 10).forEach((n: any, i: number) => {
-            const value = (n as any).value ?? (n as any).amount ?? 0;
-            const unit = n.unitName || (n as any).unit || '';
-            console.log(`    [${i}] ID: ${n.nutrientId}, Name: ${n.nutrientName || 'N/A'}, Value: ${value} ${unit}`);
-          });
-        }
+	        return {
+	          ingredient,
+	          data: {
+	            nutrition: resolved.macrosPer100g,
+	            fdcId: resolved.foodDetails.fdcId,
+	            rawFoodDetails: resolved.foodDetails, // Store raw data for reference
+	          },
+	        };
+	      } catch (error) {
+	        console.error(`❌ [BATCH] Failed to lookup ${ingredient}:`, error);
+	        report.noUsdaFound.push(ingredient);
+	        return { ingredient, data: null };
+	      }
+	    });
 
-        const nutrition = extractMacrosFromUSDA(foodDetails.nutrients || [], {
-          foodName: foodDetails.description || ingredient,
-          fdcId: foodDetails.fdcId,
-          debug: true, // Enable detailed extraction logging
-        });
+	    const results = await Promise.all(lookupPromises);
 
-        console.log(`  Extracted Macros (per 100g):`, {
-          calories: nutrition.calories,
-          protein: nutrition.protein + 'g',
-          carbs: nutrition.carbs + 'g',
-          fats: nutrition.fats + 'g',
-        });
+	    // Build map
+	    results.forEach(({ ingredient, data }) => {
+	      if (data) {
+	        usdaData[ingredient] = data;
+	      }
+	    });
 
-        return {
-          ingredient,
-          data: {
-            nutrition,
-            fdcId: foodDetails.fdcId,
-            rawFoodDetails: foodDetails, // Store raw data for reference
-          },
-        };
-      } catch (error) {
-        console.error(`❌ [BATCH] Failed to lookup ${ingredient}:`, error);
-        return { ingredient, data: null };
-      }
-    });
+	    // Persist learned mappings once per batch (best-effort, non-blocking for meal generation).
+	    if (mappingsToPersist.length > 0) {
+	      const unique = new Map<string, any>();
+	      mappingsToPersist.forEach((m) => unique.set(normalizeFoodName(m.name), m));
+	      const deduped = Array.from(unique.values());
+	      await this.usdaService.upsertIngredientMappings(deduped);
+	      report.persistedMappings = deduped.length;
+	    }
 
-    const results = await Promise.all(lookupPromises);
+	    this.lastIngredientResolutionReport = report;
 
-    // Build map
-    results.forEach(({ ingredient, data }) => {
-      if (data) {
-        usdaData[ingredient] = data;
-      }
-    });
+	    // Log detailed ingredient nutrition data
+	    console.log(`\n📊 [BATCH] USDA Nutrition Data (per 100g):`);
+	    Object.entries(usdaData).forEach(([ingredient, data]) => {
+	      console.log(`  ${ingredient}:`, {
+	        fdcId: data.fdcId,
+	        per100g: {
+	          calories: data.nutrition.calories,
+	          protein: data.nutrition.protein + 'g',
+	          carbs: data.nutrition.carbs + 'g',
+	          fats: data.nutrition.fats + 'g',
+	        },
+	      });
+	    });
 
-    // Log detailed ingredient nutrition data
-    console.log(`\n📊 [BATCH] USDA Nutrition Data (per 100g):`);
-    Object.entries(usdaData).forEach(([ingredient, data]) => {
-      console.log(`  ${ingredient}:`, {
-        fdcId: data.fdcId,
-        per100g: {
-          calories: data.nutrition.calories,
-          protein: data.nutrition.protein + 'g',
-          carbs: data.nutrition.carbs + 'g',
-          fats: data.nutrition.fats + 'g',
-        },
-      });
-    });
+	    console.log(`\n🧾 [BATCH] USDA Resolution Summary:`, {
+	      totalUniqueIngredients: report.totalUniqueIngredients,
+	      zeroImpactSkipped: report.zeroImpactSkipped.length,
+	      noUsdaFound: report.noUsdaFound.length,
+	      usedMappings: report.usedMappings,
+	      ambiguous: report.ambiguous.length,
+	      lowConfidence: report.lowConfidence.length,
+	      persistedMappings: report.persistedMappings,
+	    });
 
-    return usdaData;
-  }
+	    return usdaData;
+	  }
 
   /**
    * Step 4: Recalculate all meal macros using USDA data
@@ -2441,7 +2565,8 @@ Generate all 7 days of meals now.`;
 
       // Prefer day-level optimization if hybrid optimizer is initialized; fallback to per-meal
       let adjustedDayMeals: MealWithUSDA[];
-      if (this.optimizerInitialized) {
+      const hasLockedSupplements = dayMeals.some((m) => this.isProteinSupplementMeal(m));
+      if (this.optimizerInitialized && !hasLockedSupplements) {
         try {
           adjustedDayMeals = await this.adjustDayWithLP(dayMeals, dayTargets, usdaData);
         } catch (err) {
@@ -2459,6 +2584,9 @@ Generate all 7 days of meals now.`;
           );
         }
       } else {
+        if (hasLockedSupplements && this.optimizerInitialized) {
+          console.log('⚙️  [BATCH] Skipping day-level LP because protein supplement meals must remain locked');
+        }
         adjustedDayMeals = await Promise.all(
           dayMeals.map(async meal => {
             if (this.isProteinSupplementMeal(meal)) return meal;
@@ -2779,7 +2907,12 @@ Generate all 7 days of meals now.`;
           usedMealNames.push(adjusted.originalMeal.name);
 
           // Convert to MealWithUSDA format
-          const supplementMeal = this.convertSupplementToMeal(adjusted, dayNum, day?.dayName || `Day ${dayNum}`);
+          const supplementMeal = this.convertSupplementToMeal(
+            adjusted,
+            dayNum,
+            day?.dayName || `Day ${dayNum}`,
+            usdaData
+          );
           meals.push(supplementMeal);
           supplementsAdded++;
 
@@ -2788,7 +2921,12 @@ Generate all 7 days of meals now.`;
         } else {
           // Fallback: create precision shake
           console.log(`   ⚠️ No supplement meals available, using precision fallback`);
-          const fallback = this.createPrecisionProteinShake(proteinDeficit, dayNum, day?.dayName || `Day ${dayNum}`);
+          const fallback = this.createPrecisionProteinShake(
+            proteinDeficit,
+            dayNum,
+            day?.dayName || `Day ${dayNum}`,
+            usdaData
+          );
           meals.push(fallback);
           supplementsAdded++;
 
@@ -2804,7 +2942,12 @@ Generate all 7 days of meals now.`;
       // FINAL FALLBACK: Precision shake if still short
       if (needsMoreProtein()) {
         console.log(`🚨 [FINAL FALLBACK] Day ${dayNum}: Still ${proteinDeficit.toFixed(1)}g short`);
-        const fallback = this.createPrecisionProteinShake(proteinDeficit, dayNum, day?.dayName || `Day ${dayNum}`);
+        const fallback = this.createPrecisionProteinShake(
+          proteinDeficit,
+          dayNum,
+          day?.dayName || `Day ${dayNum}`,
+          usdaData
+        );
         meals.push(fallback);
         currentTotals = calculateTotals(meals);
         console.log(`   ✅ GUARANTEED: ${currentTotals.protein.toFixed(1)}g protein (${(currentTotals.protein / dayTargets.protein * 100).toFixed(1)}%)`);
@@ -2826,24 +2969,44 @@ Generate all 7 days of meals now.`;
   private convertSupplementToMeal(
     adjusted: import('./SupplementMealGenerator').AdjustedSupplementMeal,
     dayNum: number,
-    dayName: string
+    dayName: string,
+    usdaData?: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>
   ): MealWithUSDA {
+    const toUsdaKey = (name: string) => normalizeFoodName(name);
+    const ingredients = adjusted.adjustedIngredients.map((ing) => {
+      const key = toUsdaKey(ing.name);
+      const entry = usdaData?.[key];
+      const nutrition = entry ? calculateMacrosForAmount(entry.nutrition, ing.adjustedAmount, 'g') : ing.macros;
+      return {
+        name: ing.name,
+        amount: ing.adjustedAmount,
+        nutrition,
+        fdcId: entry?.fdcId ?? 0,
+      };
+    });
+
+    const totalMacros = ingredients.reduce(
+      (sum, ing) => ({
+        calories: sum.calories + (ing.nutrition.calories || 0),
+        protein: sum.protein + (ing.nutrition.protein || 0),
+        carbs: sum.carbs + (ing.nutrition.carbs || 0),
+        fats: sum.fats + (ing.nutrition.fats || 0),
+      }),
+      { calories: 0, protein: 0, carbs: 0, fats: 0 } as MacroValues
+    );
+
     return {
       mealName: adjusted.originalMeal.name,
       mealType: 'snack',
       instructions: adjusted.originalMeal.instructions,
-      ingredients: adjusted.adjustedIngredients.map(ing => ({
-        name: ing.name,
-        amount: ing.adjustedAmount,
-        nutrition: ing.macros,
-        fdcId: 0, // Will be looked up if needed
-      })),
-      totalMacros: adjusted.adjustedMacros,
+      ingredients,
+      totalMacros,
       dayNumber: dayNum,
       dayName: dayName,
       adjustmentLog: [
         `Protein supplement meal (scale: ${adjusted.scaleFactor.toFixed(2)}x)`,
-        `Provides: ${adjusted.adjustedMacros.protein.toFixed(1)}g protein, ${adjusted.adjustedMacros.calories} kcal`,
+        `Provides: ${totalMacros.protein.toFixed(1)}g protein, ${totalMacros.calories} kcal`,
+        ...(usdaData ? ['USDA-based macros applied when available'] : []),
       ],
     };
   }
@@ -2855,22 +3018,28 @@ Generate all 7 days of meals now.`;
   private createPrecisionProteinShake(
     proteinNeeded: number,
     dayNum: number,
-    dayName: string
+    dayName: string,
+    usdaData?: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>
   ): MealWithUSDA {
-    const WHEY_PROTEIN_PER_GRAM = 0.80;
-    const WHEY_CALORIES_PER_GRAM = 3.6;
-    const WHEY_CARBS_PER_GRAM = 0.05;
-    const WHEY_FAT_PER_GRAM = 0.02;
+    const wheyKey = normalizeFoodName('Whey Protein Powder');
+    const wheyUsda = usdaData?.[wheyKey];
+
+    const WHEY_PROTEIN_PER_GRAM = wheyUsda ? wheyUsda.nutrition.protein / 100 : 0.80;
+    const WHEY_CALORIES_PER_GRAM = wheyUsda ? wheyUsda.nutrition.calories / 100 : 3.6;
+    const WHEY_CARBS_PER_GRAM = wheyUsda ? wheyUsda.nutrition.carbs / 100 : 0.05;
+    const WHEY_FAT_PER_GRAM = wheyUsda ? wheyUsda.nutrition.fats / 100 : 0.02;
 
     const proteinWithBuffer = proteinNeeded * 1.05;
     const wheyAmount = Math.ceil(proteinWithBuffer / WHEY_PROTEIN_PER_GRAM);
 
-    const macros: MacroValues = {
-      protein: Math.round(wheyAmount * WHEY_PROTEIN_PER_GRAM * 10) / 10,
-      carbs: Math.round(wheyAmount * WHEY_CARBS_PER_GRAM * 10) / 10,
-      fats: Math.round(wheyAmount * WHEY_FAT_PER_GRAM * 10) / 10,
-      calories: Math.round(wheyAmount * WHEY_CALORIES_PER_GRAM),
-    };
+    const macros: MacroValues = wheyUsda
+      ? calculateMacrosForAmount(wheyUsda.nutrition, wheyAmount, 'g')
+      : {
+        protein: Math.round(wheyAmount * WHEY_PROTEIN_PER_GRAM * 10) / 10,
+        carbs: Math.round(wheyAmount * WHEY_CARBS_PER_GRAM * 10) / 10,
+        fats: Math.round(wheyAmount * WHEY_FAT_PER_GRAM * 10) / 10,
+        calories: Math.round(wheyAmount * WHEY_CALORIES_PER_GRAM),
+      };
 
     return {
       mealName: 'Protein Shake (Target Boost)',
@@ -2886,7 +3055,7 @@ Generate all 7 days of meals now.`;
           name: 'Whey Protein Powder',
           amount: wheyAmount,
           nutrition: macros,
-          fdcId: 172120,
+          fdcId: wheyUsda?.fdcId ?? 172120,
         },
         {
           name: 'Water',
@@ -2901,6 +3070,7 @@ Generate all 7 days of meals now.`;
       adjustmentLog: [
         `Precision fallback to guarantee protein target`,
         `Required: ${proteinNeeded.toFixed(1)}g, Provides: ${macros.protein}g protein`,
+        ...(wheyUsda ? ['USDA-based whey macros used'] : ['Fallback whey macros used']),
       ],
     };
   }

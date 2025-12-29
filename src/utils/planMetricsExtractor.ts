@@ -7,6 +7,8 @@
 
 import { calculateBMI, getBMIClassification } from './planCalculations';
 import type { UserMetrics } from '@/services/NutritionCalculationService';
+import { getAverageDailyTargets } from './planTargets';
+import { getEffectiveGoalType, type GoalCategory } from '@/models/UserProfile';
 
 export interface ExtractedPlanMetrics {
   // User Profile
@@ -64,12 +66,16 @@ export function extractPlanMetrics(
     gender?: string;
     height?: number;
     weight?: number;
+    sex?: 'male' | 'female';
+    heightCm?: number;
+    weightKg?: number;
     primaryGoal?: string;
     experienceLevel?: string;
     workoutDaysPerWeek?: number;
     sessionDuration?: number;
     equipmentAccess?: string[];
     dietaryRestrictions?: string[];
+    goalCategory?: GoalCategory;
   }
 ): ExtractedPlanMetrics {
   const metrics = plan?.metrics || {};
@@ -80,9 +86,11 @@ export function extractPlanMetrics(
   // Extract user profile (prioritize plan's embedded profile)
   const planUserProfile = plan?.userProfile || userProfile || {};
   const age = planUserProfile?.age;
-  const gender = planUserProfile?.gender;
-  const height = planUserProfile?.height;
-  const weight = planUserProfile?.weight;
+  const gender =
+    planUserProfile?.gender ||
+    (planUserProfile?.sex ? (planUserProfile.sex === 'male' ? 'male' : 'female') : undefined);
+  const height = planUserProfile?.height ?? planUserProfile?.heightCm;
+  const weight = planUserProfile?.weight ?? planUserProfile?.weightKg;
   const primaryGoal = planUserProfile?.primaryGoal || framework?.nutritionApproach?.goal;
   const experienceLevel = planUserProfile?.experienceLevel;
   const workoutDaysPerWeek = planUserProfile?.workoutDaysPerWeek || framework?.trainingApproach?.frequencyPerWeek;
@@ -117,30 +125,57 @@ export function extractPlanMetrics(
   const bmiClassification = bmi > 0 ? getBMIClassification(bmi) : 'Unknown';
 
   // Extract macros
-  const targetCalories = metrics?.macros?.calories || weeklyOutlines[0]?.dailyTargets?.calories || 0;
-  const protein = metrics?.macros?.protein || weeklyOutlines[0]?.dailyTargets?.protein || 0;
-  const carbs = metrics?.macros?.carbs || weeklyOutlines[0]?.dailyTargets?.carbs || 0;
-  const fat = metrics?.macros?.fat || weeklyOutlines[0]?.dailyTargets?.fat || 0;
+  const week0Targets = getAverageDailyTargets(weeklyOutlines[0]);
+  const targetCalories = metrics?.macros?.calories || week0Targets.calories || 0;
+  const protein = metrics?.macros?.protein || week0Targets.protein || 0;
+  const carbs = metrics?.macros?.carbs || week0Targets.carbs || 0;
+  const fat = metrics?.macros?.fat || week0Targets.fat || 0;
   const proteinPerKg = framework?.nutritionApproach?.macroTargets?.proteinPerKg || 
                        (weight > 0 ? protein / weight : 0);
 
   // Calculate energy balance
-  const dailyDeficit = framework?.nutritionApproach?.caloricStrategy?.dailyDeficitCalories > 0
-    ? framework.nutritionApproach.caloricStrategy.dailyDeficitCalories
-    : (tdee > 0 && targetCalories > 0 ? tdee - targetCalories : 0);
-  
-  const weeklyDeficit = framework?.nutritionApproach?.caloricStrategy?.weeklyDeficitCalories > 0
-    ? framework.nutritionApproach.caloricStrategy.weeklyDeficitCalories
-    : (dailyDeficit * 7);
+  const caloricStrategy = framework?.nutritionApproach?.caloricStrategy || {};
 
-  const expectedWeeklyWeightLoss = weeklyDeficit > 0 ? weeklyDeficit / 7700 : 0;
+  const goalCategory: GoalCategory | undefined =
+    planUserProfile?.goalCategory || userProfile?.goalCategory;
+  const effectiveGoalType = goalCategory
+    ? getEffectiveGoalType(goalCategory)
+    : (String(primaryGoal || '').includes('bulk') || String(primaryGoal || '').includes('muscle')
+        ? 'muscle_gain'
+        : String(primaryGoal || '').includes('fat') || String(primaryGoal || '').includes('cut')
+          ? 'fat_loss'
+          : 'maintenance');
+
+  let dailyDeficit =
+    typeof caloricStrategy.dailyEnergyDeltaCalories === 'number'
+      ? caloricStrategy.dailyEnergyDeltaCalories
+      : (typeof caloricStrategy.dailyDeficitCalories === 'number' &&
+          caloricStrategy.dailyDeficitCalories > 0 &&
+          effectiveGoalType === 'fat_loss')
+        ? caloricStrategy.dailyDeficitCalories
+        : (tdee > 0 && targetCalories > 0 ? tdee - targetCalories : 0);
+
+  let weeklyDeficit =
+    typeof caloricStrategy.weeklyEnergyDeltaCalories === 'number'
+      ? caloricStrategy.weeklyEnergyDeltaCalories
+      : (typeof caloricStrategy.weeklyDeficitCalories === 'number' &&
+          caloricStrategy.weeklyDeficitCalories > 0 &&
+          effectiveGoalType === 'fat_loss')
+        ? caloricStrategy.weeklyDeficitCalories
+        : (dailyDeficit * 7);
+
+  // Normalize extremely small floating point noise to 0 for display
+  if (Math.abs(dailyDeficit) < 0.5) dailyDeficit = 0;
+  if (Math.abs(weeklyDeficit) < 1) weeklyDeficit = 0;
+
+  const expectedWeeklyWeightLoss = weeklyDeficit / 7700;
 
   // Calculate body fat loss percentage
   const hasResistanceTraining = (framework?.trainingApproach?.frequencyPerWeek || 
                                 weeklyOutlines[0]?.trainingSchedule?.resistanceDays?.length || 0) > 0;
   const fatLossPercentage = (proteinPerKg >= 2.0 && hasResistanceTraining) ? 0.75 : 
                             (proteinPerKg >= 1.5) ? 0.65 : 0.55;
-  const expectedWeeklyBodyFatLoss = expectedWeeklyWeightLoss * fatLossPercentage;
+  const expectedWeeklyBodyFatLoss = expectedWeeklyWeightLoss > 0 ? expectedWeeklyWeightLoss * fatLossPercentage : 0;
 
   // Training metrics
   const trainingFrequency = framework?.trainingApproach?.frequencyPerWeek || 
@@ -210,4 +245,3 @@ export function extractPlanMetrics(
     missingFields,
   };
 }
-

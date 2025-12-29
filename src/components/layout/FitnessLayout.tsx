@@ -1390,14 +1390,28 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
                               return framework?.nutritionApproach ? (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                   <div className="space-y-3">
+                                    {(() => {
+                                      const strategy = framework.nutritionApproach.caloricStrategy as any;
+                                      const dailyDelta =
+                                        typeof strategy.dailyEnergyDeltaCalories === 'number'
+                                          ? strategy.dailyEnergyDeltaCalories
+                                          : Number(strategy.dailyDeficitCalories || 0);
+                                      const isDeficit = dailyDelta >= 0;
+                                      return (
+                                        <>
                                     <div className="flex justify-between">
                                       <span className="text-muted-foreground">Strategy:</span>
                                       <span className="font-medium">{framework.nutritionApproach.caloricStrategy.deficitMagnitude}</span>
                                     </div>
                                     <div className="flex justify-between">
-                                      <span className="text-muted-foreground">Daily Deficit:</span>
-                                      <span className="font-medium font-mono">{framework.nutritionApproach.caloricStrategy.dailyDeficitCalories} cal</span>
+                                      <span className="text-muted-foreground">{isDeficit ? 'Daily Deficit:' : 'Daily Surplus:'}</span>
+                                      <span className="font-medium font-mono">
+                                        {isDeficit ? '−' : '+'}{Math.abs(Math.round(dailyDelta))} cal
+                                      </span>
                                     </div>
+                                        </>
+                                      );
+                                    })()}
                                     <div className="flex justify-between">
                                       <span className="text-muted-foreground">Protein:</span>
                                       <span className="font-medium font-mono">{framework.nutritionApproach.macroTargets.proteinTotalGrams}g</span>

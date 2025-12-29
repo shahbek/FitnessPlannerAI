@@ -587,6 +587,9 @@ export function getTDEE(
     height?: number;
     age?: number;
     gender?: string;
+    sex?: 'male' | 'female';
+    weightKg?: number;
+    heightCm?: number;
     experienceLevel?: string;
     activityLevel?: string;
     workoutDaysPerWeek?: number;
@@ -601,15 +604,21 @@ export function getTDEE(
   // Get user data from plan.userProfile or userProfile parameter
   const profile = plan?.userProfile || userProfile;
 
-  if (!profile?.weight || !profile?.height || !profile?.age || !profile?.gender) {
+  const weight = profile?.weight ?? profile?.weightKg;
+  const height = profile?.height ?? profile?.heightCm;
+  const gender =
+    profile?.gender ??
+    (profile?.sex ? (profile.sex === 'male' ? 'male' : 'female') : undefined);
+
+  if (!weight || !height || !profile?.age || !gender) {
     return null;
   }
 
   const result = calculateTDEE({
-    weightKg: profile.weight,
-    heightCm: profile.height,
+    weightKg: weight,
+    heightCm: height,
     age: profile.age,
-    gender: profile.gender.toLowerCase() === 'male' || profile.gender.toLowerCase() === 'm' ? 'male' : 'female',
+    gender: gender.toLowerCase() === 'male' || gender.toLowerCase() === 'm' ? 'male' : 'female',
     experienceLevel: profile.experienceLevel,
     activityLevel: profile.activityLevel,
     trainingDaysPerWeek: profile.workoutDaysPerWeek || 3,

@@ -171,12 +171,23 @@ export function PlanMetricsDashboard({ plan, userProfile }: PlanMetricsDashboard
         id="energy"
         icon={Flame}
         title="Energy Balance"
-        primaryMetric={dailyDeficit > 0 ? `-${dailyDeficit}` : dailyDeficit === 0 && tdee > 0 ? '0' : '—'}
-        primaryLabel="kcal/day deficit"
+        primaryMetric={
+          dailyDeficit > 0
+            ? `-${dailyDeficit}`
+            : dailyDeficit < 0
+              ? `+${Math.abs(dailyDeficit)}`
+              : dailyDeficit === 0 && tdee > 0
+                ? '0'
+                : '—'
+        }
+        primaryLabel={`kcal/day ${dailyDeficit >= 0 ? 'deficit' : 'surplus'}`}
         secondaryMetrics={[
           { label: 'TDEE', value: `${tdee} kcal` },
           { label: 'Target', value: `${targetCalories} kcal` },
-          { label: 'Weekly Deficit', value: `${weeklyDeficit} kcal` },
+          {
+            label: dailyDeficit >= 0 ? 'Weekly Deficit' : 'Weekly Surplus',
+            value: `${Math.abs(weeklyDeficit)} kcal`,
+          },
           { label: 'BMR', value: `${bmr} kcal` },
         ]}
         details={[
@@ -275,20 +286,29 @@ export function PlanMetricsDashboard({ plan, userProfile }: PlanMetricsDashboard
         id="results"
         icon={TrendingDown}
         title="Expected Results"
-        primaryMetric={expectedWeeklyWeightLoss > 0 ? expectedWeeklyWeightLoss.toFixed(2) : '0.00'}
-        primaryLabel="kg/week weight loss"
+        primaryMetric={expectedWeeklyWeightLoss !== 0 ? Math.abs(expectedWeeklyWeightLoss).toFixed(2) : '0.00'}
+        primaryLabel={`kg/week ${expectedWeeklyWeightLoss >= 0 ? 'weight loss' : 'weight gain'}`}
         secondaryMetrics={[
-          { label: 'Weight Loss/Week', value: expectedWeeklyWeightLoss > 0 ? `${expectedWeeklyWeightLoss.toFixed(2)} kg` : '0.00 kg' },
+          {
+            label: expectedWeeklyWeightLoss >= 0 ? 'Weight Loss/Week' : 'Weight Gain/Week',
+            value: expectedWeeklyWeightLoss !== 0 ? `${Math.abs(expectedWeeklyWeightLoss).toFixed(2)} kg` : '0.00 kg',
+          },
           { label: 'Body Fat Loss/Week', value: expectedWeeklyBodyFatLossKg > 0 ? `${expectedWeeklyBodyFatLossKg.toFixed(2)} kg` : '0.00 kg' },
-          { label: 'Total Weight Loss', value: expectedTotalWeightLoss > 0 ? `${expectedTotalWeightLoss.toFixed(1)} kg` : '0.0 kg' },
+          {
+            label: expectedWeeklyWeightLoss >= 0 ? 'Total Weight Loss' : 'Total Weight Gain',
+            value: expectedTotalWeightLoss !== 0 ? `${Math.abs(expectedTotalWeightLoss).toFixed(1)} kg` : '0.0 kg',
+          },
           { label: 'Confidence', value: `${Math.round(confidenceScore * 100)}%` },
         ]}
         details={[
           {
             label: 'Weight Loss Calculation',
-            value: weeklyDeficit > 0
-              ? `${weeklyDeficit} kcal/week ÷ 7700 kcal/kg = ${expectedWeeklyWeightLoss.toFixed(2)} kg/week`
-              : 'Insufficient data to calculate (TDEE or target calories missing)',
+            value:
+              weeklyDeficit > 0
+                ? `${weeklyDeficit} kcal/week ÷ 7700 kcal/kg = ${expectedWeeklyWeightLoss.toFixed(2)} kg/week`
+                : weeklyDeficit < 0
+                  ? `${Math.abs(weeklyDeficit)} kcal/week ÷ 7700 kcal/kg = +${Math.abs(expectedWeeklyWeightLoss).toFixed(2)} kg/week (energy-balance estimate)`
+                  : 'Insufficient data to calculate (TDEE or target calories missing)',
             formula: 'Weekly Deficit ÷ 7700 kcal per kg body fat',
             source: 'Energy balance and fat metabolism',
           },
@@ -302,9 +322,12 @@ export function PlanMetricsDashboard({ plan, userProfile }: PlanMetricsDashboard
           },
           {
             label: 'Total Expected Loss',
-            value: expectedTotalWeightLoss > 0
-              ? `Over ${totalWeeks} weeks: ${expectedTotalWeightLoss.toFixed(1)} kg total weight loss`
-              : `Over ${totalWeeks} weeks: 0.0 kg (insufficient data)`,
+            value:
+              expectedTotalWeightLoss > 0
+                ? `Over ${totalWeeks} weeks: ${expectedTotalWeightLoss.toFixed(1)} kg total weight loss`
+                : expectedTotalWeightLoss < 0
+                  ? `Over ${totalWeeks} weeks: +${Math.abs(expectedTotalWeightLoss).toFixed(1)} kg total weight gain (energy-balance estimate)`
+                  : `Over ${totalWeeks} weeks: 0.0 kg (insufficient data)`,
             formula: 'Weekly loss × total weeks',
           },
           {

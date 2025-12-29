@@ -72,6 +72,12 @@ export interface TrainingFramework {
       deficitMagnitude: string;
       dailyDeficitCalories: number;
       weeklyDeficitCalories: number;
+      /**
+       * Signed energy delta relative to maintenance.
+       * Positive = deficit, negative = surplus.
+       */
+      dailyEnergyDeltaCalories?: number;
+      weeklyEnergyDeltaCalories?: number;
     };
     macroTargets: {
       proteinTotalGrams: number;
@@ -218,6 +224,8 @@ export interface ValidationResults {
 }
 
 export interface CompletePlan {
+  // Optional, but used by shared UI helpers (e.g., getTDEE, extractPlanMetrics)
+  userProfile?: any;
   feasibility: FeasibilityAssessment;
   weeklyOutlines: WeeklyOutline[];
   phaseAwareFramework: TrainingFramework;

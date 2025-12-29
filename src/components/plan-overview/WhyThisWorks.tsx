@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { CheckCircle2, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { getAverageDailyTargets } from '@/utils/planTargets';
 
 interface WhyThisWorksProps {
   plan: any;
@@ -28,7 +29,8 @@ export function WhyThisWorks({ plan, userProfile }: WhyThisWorksProps) {
 
   // 1. Energy Management
   const tdee = metrics?.tdee?.value || 0;
-  const targetCalories = metrics?.macros?.calories || weeklyOutlines[0]?.dailyTargets?.calories || 0;
+  const week0Targets = getAverageDailyTargets(weeklyOutlines[0]);
+  const targetCalories = metrics?.macros?.calories || week0Targets.calories || 0;
   const deficit = tdee - targetCalories;
   const weeklyDeficit = deficit * 7;
   const expectedWeeklyLoss = weeklyDeficit / 7700;
@@ -43,6 +45,19 @@ export function WhyThisWorks({ plan, userProfile }: WhyThisWorksProps) {
         `Target: ${targetCalories} kcal/day`,
         `Deficit: ${deficit} kcal/day (${((deficit / tdee) * 100).toFixed(0)}% below maintenance)`,
         `Expected loss: ${expectedWeeklyLoss.toFixed(2)} kg/week`,
+      ],
+      validated: validation?.macroConsistency?.isValid ?? true,
+    });
+  } else if (deficit < 0) {
+    reasons.push({
+      category: 'Energy Management',
+      principle: 'Controlled Caloric Surplus',
+      evidence: 'A controlled surplus supports training performance and muscle protein synthesis while limiting excess fat gain when paired with progressive resistance training.',
+      dataPoints: [
+        `TDEE: ${tdee} kcal/day`,
+        `Target: ${targetCalories} kcal/day`,
+        `Surplus: ${Math.abs(deficit)} kcal/day (${((Math.abs(deficit) / tdee) * 100).toFixed(0)}% above maintenance)`,
+        `Expected change: +${Math.abs(expectedWeeklyLoss).toFixed(2)} kg/week (energy-balance estimate)`,
       ],
       validated: validation?.macroConsistency?.isValid ?? true,
     });

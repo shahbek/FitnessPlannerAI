@@ -350,4 +350,20 @@ export default defineSchema({
       searchField: "name",
       filterFields: ["source", "foodCategory"]
     }),
+
+  // Ingredient → USDA selection mappings (canonicalize ambiguous queries)
+  ingredientMappings: defineTable({
+    name: v.string(), // normalized query key (matches src/utils/usdaMapper.normalizeFoodName output)
+    fdcId: v.number(),
+    description: v.string(),
+    dataType: v.optional(v.string()),
+    confidence: v.optional(v.number()), // 0-1 (auto)
+    source: v.string(), // 'auto_high_confidence' | 'user_confirmed' | ...
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    useCount: v.optional(v.number()),
+  })
+    .index("by_name", ["name"])
+    .index("by_fdc_id", ["fdcId"]),
 });

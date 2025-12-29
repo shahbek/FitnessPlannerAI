@@ -13,11 +13,12 @@ import {
   type UserProfile as PromptUserProfile,
 } from '@/utils/promptBuilder';
 import { UserProfile, GoalCategory, getEffectiveGoalType, getGoalCategoryLabel } from '@/models/UserProfile';
-import { GOAL_CALORIE_ADJUSTMENTS } from '@/services/NutritionCalculationService';
+import { GOAL_CALORIE_ADJUSTMENTS, nutritionCalculationService } from '@/services/NutritionCalculationService';
 import { validateMealCompliance } from '@/utils/mealValidator';
 import { NutritionalResearchService } from './NutritionalResearchService';
 import { MealGenerationService } from './MealGenerationService';
 import { ShoppingListGenerationService } from './ShoppingListGenerationService';
+import { getCalorieAdjustment, getGoalFacts, validateGoalForUser } from '@/rag/goals/goalStrategyKnowledgeBase';
 
 // NOTE: For direct access to centralized nutrition calculations, see:
 // @/services/NutritionCalculationService - Single source of truth for BMR, TDEE, macros, and cycling
@@ -142,7 +143,10 @@ const StrategicFrameworkSchema = z.object({
     caloricStrategy: z.object({
       deficitMagnitude: z.string(),
       dailyDeficitCalories: z.number(),
-      weeklyDeficitCalories: z.number()
+      weeklyDeficitCalories: z.number(),
+      // Signed delta fields (positive = deficit, negative = surplus)
+      dailyEnergyDeltaCalories: z.number().optional(),
+      weeklyEnergyDeltaCalories: z.number().optional(),
     }),
     macroTargets: z.object({
       proteinTotalGrams: z.number(),
@@ -796,6 +800,22 @@ Provide evidence-based assessment with specific calculations.
          userProfile.goal?.includes('fat') || userProfile.goal?.includes('cut') ? 'fat_loss' : 'maintenance');
     
     const goalLabel = goalCategory ? getGoalCategoryLabel(goalCategory) : (userProfile.goal || 'fitness');
+    if (goalCategory) {
+      const validation = validateGoalForUser(
+        goalCategory as any,
+        userProfile.bodyFat,
+        userProfile.bodyFatGoal?.targetBf,
+        userProfile.workoutLevel,
+        userProfile.timelineWeeks,
+        userProfile.sex
+      );
+      if (validation.warnings.length > 0) {
+        console.warn(`⚠️ Goal validation warnings for ${goalLabel}:`, validation.warnings);
+      }
+      if (validation.recommendations.length > 0) {
+        console.warn(`💡 Goal recommendations for ${goalLabel}:`, validation.recommendations);
+      }
+    }
 
     // Search for relevant research on progression and periodization (using effective goal type)
     const nutritionKnowledge = await this.searchKnowledgeBase(
@@ -815,6 +835,18 @@ Provide evidence-based assessment with specific calculations.
     
     const totalWeeks = userProfile.timelineWeeks;
     const tdee = metrics.tdee.value;
+
+    // Deterministic maintenance baseline for numeric targets (single source of truth)
+    const userMetrics = {
+      weightKg: userProfile.weightKg,
+      heightCm: userProfile.heightCm,
+      age: userProfile.age,
+      sex: userProfile.sex,
+      bodyFat: userProfile.bodyFat,
+      activityLevel: userProfile.activityLevel,
+      trainingDaysPerWeek: userProfile.trainingDaysPerWeek,
+    };
+    const maintenance = await nutritionCalculationService.calculateMaintenanceCalories(userMetrics as any);
     
     // Calculate calorie targets based on goal type
     let startingCalories: number;
@@ -822,24 +854,35 @@ Provide evidence-based assessment with specific calculations.
     let calorieStrategy: string;
     let weeklyChange: number;
     
-    if (adjustment) {
-      // Use goal category adjustments
-      const adjustmentType = adjustment.type;
-      const minAdjust = adjustment.range.MIN;
-      const maxAdjust = adjustment.range.MAX;
-      
+    if (goalCategory === 'body_fat_goal' && userProfile.bodyFatGoal) {
+      const baseMacros = await nutritionCalculationService.calculateMacroTargetsFromCategory(
+        userMetrics as any,
+        maintenance,
+        {
+          goalCategory,
+          timelineWeeks: totalWeeks,
+          bodyFatGoal: userProfile.bodyFatGoal,
+        }
+      );
+      startingCalories = Math.round(baseMacros.calories);
+      endingCalories = Math.round(baseMacros.calories);
+      calorieStrategy = 'dynamic (body fat goal)';
+    } else if (adjustment) {
+      // Use goal strategy KB (RAG constraints) when available; fall back to code constants
+      const kbAdj = goalCategory ? getCalorieAdjustment(goalCategory) : null;
+      const adjustmentType = kbAdj?.type || adjustment.type;
+      const minAdjust = kbAdj?.range?.min ?? adjustment.range.MIN;
+      const maxAdjust = kbAdj?.range?.max ?? adjustment.range.MAX;
+
       if (adjustmentType === 'surplus') {
-        // Bulk goals: start with smaller surplus, progress to larger
         startingCalories = Math.round(tdee * (1 + minAdjust));
         endingCalories = Math.round(tdee * (1 + maxAdjust));
         calorieStrategy = `surplus (${Math.round(minAdjust * 100)}-${Math.round(maxAdjust * 100)}%)`;
       } else if (adjustmentType === 'deficit') {
-        // Cut goals: start with smaller deficit, progress to larger
         startingCalories = Math.round(tdee * (1 - minAdjust));
         endingCalories = Math.round(tdee * (1 - maxAdjust));
         calorieStrategy = `deficit (${Math.round(minAdjust * 100)}-${Math.round(maxAdjust * 100)}%)`;
       } else {
-        // Maintenance/recomp: stay at or near TDEE
         startingCalories = tdee;
         endingCalories = tdee;
         calorieStrategy = 'maintenance';
@@ -906,6 +949,11 @@ GOAL: ${goalLabel} (Maintenance/Recomposition)
 - Expected outcome: Improved body composition at stable weight`;
     }
 
+    const goalStrategyFacts = goalCategory ? getGoalFacts(goalCategory).slice(0, 3) : [];
+    const goalStrategyContext = goalStrategyFacts.length
+      ? `\nGOAL STRATEGY CONTEXT (RAG):\n${goalStrategyFacts.map(f => `- ${f.content}`).join('\n')}\n`
+      : '';
+
     const prompt = `
 Create detailed weekly outlines for ALL ${totalWeeks} weeks of this ${goalLabel} journey:
 
@@ -924,6 +972,7 @@ SCIENTIFIC CALCULATIONS:
 
 RESEARCH CONTEXT:
 ${this.formatFacts([...nutritionKnowledge, ...trainingKnowledge])}
+${goalStrategyContext}
 
 🚨 CRITICAL REQUIREMENTS - MUST FOLLOW EXACTLY:
 
@@ -1046,63 +1095,57 @@ GENERATE outlines for ALL ${totalWeeks} weeks, numbered 1 through ${totalWeeks}.
     console.log(`   Cardio: ${result.weeklyOutlines.map(w => `Week ${w.weekNumber}=${w.cardioSchedule?.sessions || 0} sessions`).join(', ')}`);
     
     // =========================================================================
-    // CRITICAL: CALORIE VALIDATION AND AUTO-CORRECTION
-    // The AI sometimes ignores our calorie targets. We ENFORCE them here.
+    // CRITICAL: NUMERIC TARGETS ARE DETERMINISTIC
+    // The LLM is not the source of truth for calorie/macro numbers.
+    // We overwrite dailyTargets using NutritionCalculationService (single source).
     // =========================================================================
-    const CALORIE_TOLERANCE = 0.05; // 5% tolerance
-    const correctedOutlines = result.weeklyOutlines.map((week: any, idx: number) => {
-      // Calculate expected calories for this week
-      const expectedCalories = startingCalories + (weeklyChange * idx);
-      const actualCalories = week.dailyTargets?.calories || 0;
-      
-      // Check if the AI's calories are within tolerance
-      const deviation = Math.abs(actualCalories - expectedCalories) / expectedCalories;
-      
-      if (deviation > CALORIE_TOLERANCE) {
-        console.warn(`⚠️ Week ${week.weekNumber}: AI generated ${actualCalories} kcal, expected ${expectedCalories} kcal (${(deviation * 100).toFixed(1)}% off)`);
-        console.log(`   AUTO-CORRECTING to ${expectedCalories} kcal`);
-        
-        // Recalculate macros proportionally
-        const ratio = expectedCalories / (actualCalories || expectedCalories);
-        const correctedProtein = Math.round((week.dailyTargets?.protein || 0) * (ratio > 1 ? 1 : ratio)); // Don't increase protein beyond AI's calculation
-        const correctedCarbs = Math.round((week.dailyTargets?.carbs || 0) * ratio);
-        const correctedFat = Math.round((week.dailyTargets?.fat || 0) * ratio);
-        
-        // For deficit goals, ensure protein stays high (at least 2g/kg)
-        const minProtein = Math.round(userProfile.weightKg * 2.0);
-        const finalProtein = Math.max(correctedProtein, minProtein);
-        
-        // Recalculate carbs to fit calorie budget
-        const proteinCals = finalProtein * 4;
-        const fatCals = correctedFat * 9;
-        const remainingCals = expectedCalories - proteinCals - fatCals;
-        const finalCarbs = Math.round(Math.max(0, remainingCals / 4));
-        
-        return {
-          ...week,
-          dailyTargets: {
-            ...week.dailyTargets,
-            calories: expectedCalories,
-            protein: finalProtein,
-            carbs: finalCarbs,
-            fat: correctedFat,
-            proteinPerKg: parseFloat((finalProtein / userProfile.weightKg).toFixed(2)),
-          },
-          _corrected: true,
-          _originalCalories: actualCalories,
-        };
+    const resolvedGoalCategory: GoalCategory =
+      goalCategory && GOAL_CALORIE_ADJUSTMENTS[goalCategory] ? goalCategory : 'maintenance';
+
+    const correctedOutlines: any[] = [];
+    for (const week of result.weeklyOutlines) {
+      const weekNumber = Number(week.weekNumber || 1);
+      const expectedCalories = startingCalories + (weeklyChange * (weekNumber - 1));
+      const actualCalories = Number(week.dailyTargets?.calories || 0);
+
+      if (expectedCalories > 0 && actualCalories > 0) {
+        const deviation = Math.abs(actualCalories - expectedCalories) / expectedCalories;
+        if (deviation > 0.05) {
+          console.warn(
+            `⚠️ Week ${weekNumber}: AI suggested ${actualCalories} kcal, expected ${expectedCalories} kcal (${(deviation * 100).toFixed(1)}% off). Overwriting deterministically.`
+          );
+        }
       }
-      
-      return week;
-    });
-    
-    // Log summary of corrections
-    const correctedCount = correctedOutlines.filter((w: any) => w._corrected).length;
-    if (correctedCount > 0) {
-      console.log(`🔧 Auto-corrected ${correctedCount}/${correctedOutlines.length} weeks to match goal-based calorie targets`);
-      console.log(`   Goal: ${goalLabel} | Expected range: ${startingCalories} → ${endingCalories} kcal`);
+
+      const deterministicMacros = await nutritionCalculationService.calculateMacroTargetsFromCategory(
+        userMetrics as any,
+        maintenance,
+        {
+          goalCategory: resolvedGoalCategory,
+          timelineWeeks: totalWeeks,
+          bodyFatGoal: userProfile.bodyFatGoal,
+          caloriesOverride: expectedCalories,
+        }
+      );
+
+      correctedOutlines.push({
+        ...week,
+        dailyTargets: {
+          calories: Math.round(deterministicMacros.calories),
+          protein: Math.round(deterministicMacros.protein),
+          carbs: Math.round(deterministicMacros.carbs),
+          fat: Math.round(deterministicMacros.fat),
+          proteinPerKg: Math.round((deterministicMacros.proteinPerKg || 0) * 100) / 100,
+        },
+        _corrected: true,
+        _originalCalories: actualCalories,
+      });
     }
-    
+
+    console.log(
+      `🔒 Deterministically set dailyTargets for ${correctedOutlines.length} weeks: ${startingCalories} → ${endingCalories} kcal`
+    );
+
     return correctedOutlines;
   }
 
@@ -1181,11 +1224,27 @@ REQUIREMENTS:
 Return structured JSON with planName and phase-specific strategies.
 `;
 
-    return this.generateWithFallback(
+    const framework = await this.generateWithFallback(
       StrategicFrameworkSchema,
       prompt,
       'strategic framework'
     );
+
+    // Deterministic energy delta fields (do not trust LLM numeric math)
+    const dailyEnergyDelta = Math.round((metrics.tdee.value - metrics.macros.calories) * 10) / 10;
+    const weeklyEnergyDelta = Math.round(dailyEnergyDelta * 7 * 10) / 10;
+    if (framework?.nutritionApproach?.caloricStrategy) {
+      framework.nutritionApproach.caloricStrategy.dailyEnergyDeltaCalories = dailyEnergyDelta;
+      framework.nutritionApproach.caloricStrategy.weeklyEnergyDeltaCalories = weeklyEnergyDelta;
+      framework.nutritionApproach.caloricStrategy.dailyDeficitCalories = Math.max(dailyEnergyDelta, 0);
+      framework.nutritionApproach.caloricStrategy.weeklyDeficitCalories = Math.max(weeklyEnergyDelta, 0);
+      if (dailyEnergyDelta < 0) {
+        const pct = Math.round((Math.abs(dailyEnergyDelta) / Math.max(metrics.tdee.value, 1)) * 100);
+        framework.nutritionApproach.caloricStrategy.deficitMagnitude = `${pct}% surplus`;
+      }
+    }
+
+    return framework;
   }
 
   // -------------------------------------------------------------------------

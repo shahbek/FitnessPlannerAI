@@ -75,9 +75,10 @@ export function FoodSearchSheet({
   const [isAnalyzingFood, setIsAnalyzingFood] = useState(false);
   const [analysisError, setAnalysisError] = useState<string>('');
 
-  const searchUSDA = useAction(api.usda.searchFoods);
-  const extractNutrition = useAction(api.groqOcr.extractNutrition);
-  const analyzeFoodPhoto = useAction(api.groqFoodAnalysis.analyzeFoodPhoto);
+	  const searchUSDA = useAction(api.usda.searchFoods);
+	  const extractNutrition = useAction(api.groqOcr.extractNutrition);
+	  const analyzeFoodPhoto = useAction(api.groqFoodAnalysis.analyzeFoodPhoto);
+	  const upsertIngredientMappings = useAction((api as any).ingredientMappings.upsertMappings);
 
   // Debounce search
   useEffect(() => {
@@ -165,13 +166,33 @@ export function FoodSearchSheet({
     // Don't switch view immediately, let user keep searching
   };
 
-  const handleSelectFood = (food: USDAFoodItem) => {
+	  const handleSelectFood = (food: USDAFoodItem) => {
+	    // Persist a user-confirmed mapping so future plan generations pick the same USDA item for this query.
+	    // Best-effort and non-blocking.
+	    if (query.trim() && food.fdcId && !food.fdcId.startsWith('common-')) {
+	      const fdcIdNum = Number(food.fdcId);
+	      if (Number.isFinite(fdcIdNum) && fdcIdNum > 0) {
+	        void upsertIngredientMappings({
+	          mappings: [
+	            {
+	              name: query,
+	              fdcId: fdcIdNum,
+	              description: food.description,
+	              dataType: (food as any).dataType,
+	              source: 'user_confirmed',
+	              confidence: 1,
+	            },
+	          ],
+	        }).catch((err: any) =>
+	          console.warn('⚠️ Failed to persist ingredient mapping:', err)
+	        );
+	      }
+	    }
 
-
-    const multiplier = servingMultiplier[food.fdcId] || 1;
-    const servingStr = food.servingSize
-      ? `${Math.round(food.servingSize * multiplier)}${food.servingSizeUnit || 'g'}`
-      : undefined;
+	    const multiplier = servingMultiplier[food.fdcId] || 1;
+	    const servingStr = food.servingSize
+	      ? `${Math.round(food.servingSize * multiplier)}${food.servingSizeUnit || 'g'}`
+	      : undefined;
 
     onSelectFood({
       name: food.description,
@@ -1637,4 +1658,3 @@ export function FoodSearchSheet({
     </Sheet >
   );
 }
-
