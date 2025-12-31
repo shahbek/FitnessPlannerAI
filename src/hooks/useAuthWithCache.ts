@@ -58,7 +58,16 @@ export function useAuthWithCache() {
         }
     }, [freshUser, cachedUser, isSessionPending, sessionData]);
 
-    // 5. Determine Effective User (The "Anti-Flicker" Logic)
+    // 5. Track if we've completed the initial check
+    const [hasInitialCheckDone, setHasInitialCheckDone] = useState(false);
+
+    useEffect(() => {
+        if (!isSessionPending && (sessionData !== undefined)) {
+            setHasInitialCheckDone(true);
+        }
+    }, [isSessionPending, sessionData]);
+
+    // 6. Determine Effective User (The "Anti-Flicker" Logic)
     // We want to return a user if we have ONE, even if Convex is momentarily null.
 
     let effectiveUser = cachedUser;
@@ -80,18 +89,26 @@ export function useAuthWithCache() {
                 effectiveUser = null;
                 isLoading = false;
             } else {
-                // Race condition: Better Auth says "maybe" (pending or has data),
-                // but Convex auth token hasn't propagated yet.
-                // ACTION: Keep showing cached user (or loading if no cache).
-                // Do NOT return null (which triggers Landing Page).
-                console.log('⏳ Auth Race Condition: Convex=null, but Session exists/pending. Holding state.');
-                effectiveUser = cachedUser; // If null, this stays null, but we set isLoading=true below
-
-                // If we don't have a cached user, we must show loading, NOT landing page
-                if (!cachedUser) {
-                    isLoading = true;
+                // If we have already done the initial check and determined we are logged out,
+                // ignore subsequent "pending" states (e.g. window focus revalidation)
+                // UNLESS we actually have data now.
+                if (hasInitialCheckDone && !sessionData && !cachedUser) {
+                    effectiveUser = null;
+                    isLoading = false;
                 } else {
-                    isLoading = false; // Show cached dashboard while waiting
+                    // Race condition: Better Auth says "maybe" (pending or has data),
+                    // but Convex auth token hasn't propagated yet.
+                    // ACTION: Keep showing cached user (or loading if no cache).
+                    // Do NOT return null (which triggers Landing Page).
+                    console.log('⏳ Auth Race Condition: Convex=null, but Session exists/pending. Holding state.');
+                    effectiveUser = cachedUser; // If null, this stays null, but we set isLoading=true below
+
+                    // If we don't have a cached user, we must show loading, NOT landing page
+                    if (!cachedUser) {
+                        isLoading = true;
+                    } else {
+                        isLoading = false; // Show cached dashboard while waiting
+                    }
                 }
             }
         }
@@ -101,7 +118,13 @@ export function useAuthWithCache() {
             effectiveUser = cachedUser;
             isLoading = false; // Show cached dashboard
         } else {
-            isLoading = true; // Show spinner
+            // If we've already checked initially and know we're logged out, don't show loading
+            // This covers the case where Convex is loading but Auth Client knows we're anon
+            if (hasInitialCheckDone && !sessionData) {
+                isLoading = false;
+            } else {
+                isLoading = true; // Show spinner
+            }
         }
     }
 

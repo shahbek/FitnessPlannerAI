@@ -390,7 +390,7 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
 
     // Check if balance is low (less than 100 tokens)
     const isLowBalance = tokenBalance < 100;
-    
+
     // Calculate plans remaining (100 tokens per plan)
     const plansRemaining = Math.floor(tokenBalance / 100);
 
@@ -506,41 +506,43 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
           {/* History Tab */}
           <TabsContent value="history" className="space-y-4">
             {tokenUsage && tokenUsage.length > 0 ? (
-              <div className="space-y-1">
+              <div className="rounded-xl border bg-card overflow-hidden">
                 {/* Header */}
-                <div className="flex items-center gap-4 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  <span className="w-32 shrink-0">Date</span>
+                <div className="flex items-center gap-4 px-4 py-3 bg-muted/40 text-sm font-medium text-muted-foreground border-b">
+                  <span className="w-40 shrink-0">Date</span>
                   <span className="flex-1">Description</span>
-                  <span>Tokens</span>
+                  <span className="w-24 text-right">Tokens</span>
                 </div>
-                {tokenUsage.map((usage) => {
-                  const isPurchase = usage.operationType === "token_purchase" || usage.tokensUsed > 0;
-                  const tokensDisplay = Math.abs(usage.tokensUsed);
-                  const date = new Date(usage.createdAt);
+                <div className="divide-y">
+                  {tokenUsage.map((usage) => {
+                    const isPurchase = usage.operationType === "token_purchase" || usage.tokensUsed > 0;
+                    const tokensDisplay = Math.abs(usage.tokensUsed);
+                    const date = new Date(usage.createdAt);
 
-                  return (
-                    <div 
-                      key={usage._id}
-                      className="flex items-center gap-4 py-2.5 text-sm"
-                    >
-                      <span className="text-muted-foreground tabular-nums w-32 shrink-0">
-                        {date.toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                        })}, {date.toLocaleTimeString('en-US', {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                      <span className="flex-1">
-                        {formatOperationType(usage.operationType)}
-                      </span>
-                      <span className={`font-medium tabular-nums ${isPurchase ? 'text-green-600' : ''}`}>
-                        {isPurchase ? '+' : '−'}{tokensDisplay.toLocaleString()}
-                      </span>
-                    </div>
-                  );
-                })}
+                    return (
+                      <div
+                        key={usage._id}
+                        className="flex items-center gap-4 px-4 py-3 text-sm hover:bg-muted/50 transition-colors"
+                      >
+                        <span className="text-muted-foreground w-40 shrink-0 tabular-nums">
+                          {date.toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                          })}, {date.toLocaleTimeString('en-US', {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                          })}
+                        </span>
+                        <span className="flex-1 font-medium">
+                          {formatOperationType(usage.operationType)}
+                        </span>
+                        <span className={`w-24 text-right font-medium tabular-nums ${isPurchase ? 'text-green-600' : ''}`}>
+                          {isPurchase ? '+' : '−'}{tokensDisplay.toLocaleString()}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             ) : (
               <div className="text-center py-12 text-muted-foreground">

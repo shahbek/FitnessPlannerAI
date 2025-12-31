@@ -134,19 +134,32 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
         return merged;
       });
 
-      // Auto-select logic
+      // Auto-select logic - ALWAYS ensure a plan is selected if available
+      // This prevents the "No active plan" / "Dashboard Overview" screen
       if (!selectedWorkoutId && savedWorkoutPlans.length > 0) {
         // Try to find active plan
         const activePlan = savedWorkoutPlans.find((p: any) => p.data?.isActive);
         if (activePlan) {
           setSelectedWorkoutId(activePlan.id);
         } else {
-          // Default to most recent
+          // Default to most recent (index 0)
           setSelectedWorkoutId(savedWorkoutPlans[0].id);
         }
       }
     }
-  }, [savedWorkoutPlans]);
+  }, [savedWorkoutPlans, selectedWorkoutId]); // Added selectedWorkoutId dependency to re-check if selection is cleared
+
+  // Additional safety effect: If we have plans but no selection (e.g. cleared manually), select one immediately
+  useEffect(() => {
+    if (!selectedWorkoutId && workoutHistory.length > 0) {
+      const activePlan = workoutHistory.find(p => p.data?.isActive);
+      if (activePlan) {
+        setSelectedWorkoutId(activePlan.id);
+      } else {
+        setSelectedWorkoutId(workoutHistory[0].id);
+      }
+    }
+  }, [selectedWorkoutId, workoutHistory]);
 
 
   const handleNewWorkout = () => {
@@ -165,9 +178,7 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
     } else {
       setCurrentView(view);
     }
-    if (view !== 'home') {
-      setSelectedWorkoutId(undefined);
-    }
+    // Don't clear selectedWorkoutId when going to settings, just hide it via view state
   };
 
   // Generate breadcrumb JSX based on current view
@@ -180,16 +191,8 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
           <Breadcrumb>
             <BreadcrumbList>
               <BreadcrumbItem>
-                <BreadcrumbLink
-                  asChild
-                  onClick={() => {
-                    setSelectedWorkoutId(undefined);
-                    setCurrentView('home');
-                  }}
-                  className="cursor-pointer"
-                >
-                  <span>Your Plans</span>
-                </BreadcrumbLink>
+                {/* Made "Your Plans" non-clickable or essentially a reset to default plan */}
+                <span className="font-medium">Your Plans</span>
               </BreadcrumbItem>
               <BreadcrumbSeparator />
               <BreadcrumbItem>
@@ -1189,75 +1192,7 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
                     </div>
                   )}
 
-                  {/* Dashboard Overview - When plans exist but none selected */}
-                  {!selectedWorkoutId && !ragPlan && workoutHistory.length > 0 && !ragLoading && (
-                    <div className="mb-8">
-                      <div className="flex items-center justify-between mb-6">
-                        <div>
-                          <h2 className="text-2xl font-bold mb-2 font-editorial">Your Fitness Plans</h2>
-                          <p className="text-muted-foreground">Select a plan to view details or create a new one</p>
-                        </div>
-                        <Button onClick={handleNewWorkout} className="gap-2">
-                          <Plus className="h-4 w-4" />
-                          New Plan
-                        </Button>
-                      </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                        <Card className="p-6 border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 transition-colors cursor-pointer" onClick={handleNewWorkout}>
-                          <div className="flex flex-col items-center text-center gap-3">
-                            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-                              <Plus className="h-6 w-6 text-primary" />
-                            </div>
-                            <div>
-                              <h3 className="font-semibold mb-1">Create New Plan</h3>
-                              <p className="text-sm text-muted-foreground">Generate a personalized fitness program</p>
-                            </div>
-                          </div>
-                        </Card>
-
-                        <Card className="p-6 bg-muted/50">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-muted-foreground">Total Plans</span>
-                            <Dumbbell className="h-5 w-5 text-primary" />
-                          </div>
-                          <div className="text-3xl font-bold">{workoutHistory.length}</div>
-                        </Card>
-
-                        <Card className="p-6 bg-muted/50">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-sm font-medium text-muted-foreground">Active Plans</span>
-                            <Target className="h-5 w-5 text-primary" />
-                          </div>
-                          <div className="text-3xl font-bold">
-                            {workoutHistory.filter(w => w.data?.isActive).length}
-                          </div>
-                        </Card>
-                      </div>
-
-                      <Card className="p-6">
-                        <h3 className="font-semibold mb-4">Quick Actions</h3>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                          <Button variant="outline" className="h-auto py-3 flex flex-col gap-2" onClick={handleNewWorkout}>
-                            <Plus className="h-5 w-5" />
-                            <span className="text-xs">New Plan</span>
-                          </Button>
-                          <Button variant="outline" className="h-auto py-3 flex flex-col gap-2" disabled>
-                            <Calendar className="h-5 w-5" />
-                            <span className="text-xs">Schedule</span>
-                          </Button>
-                          <Button variant="outline" className="h-auto py-3 flex flex-col gap-2" disabled>
-                            <Target className="h-5 w-5" />
-                            <span className="text-xs">Progress</span>
-                          </Button>
-                          <Button variant="outline" className="h-auto py-3 flex flex-col gap-2" disabled>
-                            <Heart className="h-5 w-5" />
-                            <span className="text-xs">Nutrition</span>
-                          </Button>
-                        </div>
-                      </Card>
-                    </div>
-                  )}
 
                   {/* Plan Overview */}
                   {currentPlan && !selectedWorkoutId && (
@@ -1399,16 +1334,16 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
                                       const isDeficit = dailyDelta >= 0;
                                       return (
                                         <>
-                                    <div className="flex justify-between">
-                                      <span className="text-muted-foreground">Strategy:</span>
-                                      <span className="font-medium">{framework.nutritionApproach.caloricStrategy.deficitMagnitude}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-muted-foreground">{isDeficit ? 'Daily Deficit:' : 'Daily Surplus:'}</span>
-                                      <span className="font-medium font-mono">
-                                        {isDeficit ? '−' : '+'}{Math.abs(Math.round(dailyDelta))} cal
-                                      </span>
-                                    </div>
+                                          <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Strategy:</span>
+                                            <span className="font-medium">{framework.nutritionApproach.caloricStrategy.deficitMagnitude}</span>
+                                          </div>
+                                          <div className="flex justify-between">
+                                            <span className="text-muted-foreground">{isDeficit ? 'Daily Deficit:' : 'Daily Surplus:'}</span>
+                                            <span className="font-medium font-mono">
+                                              {isDeficit ? '−' : '+'}{Math.abs(Math.round(dailyDelta))} cal
+                                            </span>
+                                          </div>
                                         </>
                                       );
                                     })()}
