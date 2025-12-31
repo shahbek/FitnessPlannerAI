@@ -2,7 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dumbbell, Utensils, Clock, Target, ChevronDown, Activity, Heart, Zap } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 interface DailySchedule {
   day: string;
@@ -53,6 +53,19 @@ interface DailySchedule {
     carbs: number;
     fat: number;
   };
+  targetMacros?: {
+    totalCalories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
+  macroDelta?: {
+    totalCalories: number;
+    protein: number;
+    carbs: number;
+    fat: number;
+  };
+  macroWithinTolerance?: boolean;
   restDay?: boolean;
 }
 
@@ -137,24 +150,13 @@ export function WeeklyScheduleTable({ data, plan }: WeeklyScheduleTableProps) {
     return 'text-muted-foreground border border-border bg-transparent';
   };
 
-  //TODO: remove this when we complete the bug fix.
-  const logWorkoutData = () => {
-    data.map((week) => {
-      week.days.map((day) => {
-        console.log("This is a log of the day exercises !!!!!!", JSON.stringify(day.workouts))
-      });
-    });
-  }
-
-  useEffect(() => {
-    logWorkoutData();
-  }, []);
-
   return (
     <div className="space-y-6">
       {data.map((week, weekIndex) => {
         // Alternating backgrounds with subtle elevation for visual separation
         const isEven = weekIndex % 2 === 0;
+        const hasMacroChecks = week.days?.some((d) => typeof d.macroWithinTolerance === 'boolean');
+        const macrosOk = hasMacroChecks ? week.days.every((d) => d.macroWithinTolerance) : undefined;
 
         return (
           <div
@@ -179,6 +181,18 @@ export function WeeklyScheduleTable({ data, plan }: WeeklyScheduleTableProps) {
                         </h3>
                         <span className="text-sm text-muted-foreground">•</span>
                         <span className="text-sm font-medium">{week.phaseName}</span>
+                        {hasMacroChecks ? (
+                          <Badge
+                            variant="outline"
+                            className={
+                              macrosOk
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : 'bg-red-50 text-red-700 border-red-200'
+                            }
+                          >
+                            {macrosOk ? 'Macros On Target' : 'Macros Off Target'}
+                          </Badge>
+                        ) : null}
                       </div>
                       <p className="text-sm text-muted-foreground text-left">{week.focus}</p>
                     </div>
@@ -577,26 +591,82 @@ export function WeeklyScheduleTable({ data, plan }: WeeklyScheduleTableProps) {
                                   <div>
                                     <div className="text-xl font-semibold font-mono">
                                       {Math.round(day.dailyMacros.totalCalories)}
+                                      {day.targetMacros?.totalCalories ? (
+                                        <span className="text-xs text-muted-foreground font-normal">
+                                          {' '}
+                                          / {Math.round(day.targetMacros.totalCalories)}
+                                        </span>
+                                      ) : null}
                                     </div>
-                                    <div className="text-xs text-muted-foreground mt-1">Calories</div>
+                                    <div className="text-xs text-muted-foreground mt-1 flex items-center justify-between">
+                                      <span>Calories</span>
+                                      {typeof day.macroDelta?.totalCalories === 'number' ? (
+                                        <span className={day.macroWithinTolerance ? 'text-emerald-600' : 'text-red-600'}>
+                                          {day.macroDelta.totalCalories >= 0 ? '+' : ''}
+                                          {Math.round(day.macroDelta.totalCalories)} kcal
+                                        </span>
+                                      ) : null}
+                                    </div>
                                   </div>
                                   <div>
                                     <div className="text-xl font-semibold font-mono">
                                       {Math.round(day.dailyMacros.protein)}g
+                                      {day.targetMacros?.protein ? (
+                                        <span className="text-xs text-muted-foreground font-normal">
+                                          {' '}
+                                          / {Math.round(day.targetMacros.protein)}g
+                                        </span>
+                                      ) : null}
                                     </div>
-                                    <div className="text-xs text-muted-foreground mt-1">Protein</div>
+                                    <div className="text-xs text-muted-foreground mt-1 flex items-center justify-between">
+                                      <span>Protein</span>
+                                      {typeof day.macroDelta?.protein === 'number' ? (
+                                        <span className={day.macroWithinTolerance ? 'text-emerald-600' : 'text-red-600'}>
+                                          {day.macroDelta.protein >= 0 ? '+' : ''}
+                                          {Math.round(day.macroDelta.protein)}g
+                                        </span>
+                                      ) : null}
+                                    </div>
                                   </div>
                                   <div>
                                     <div className="text-xl font-semibold font-mono">
                                       {Math.round(day.dailyMacros.carbs)}g
+                                      {day.targetMacros?.carbs ? (
+                                        <span className="text-xs text-muted-foreground font-normal">
+                                          {' '}
+                                          / {Math.round(day.targetMacros.carbs)}g
+                                        </span>
+                                      ) : null}
                                     </div>
-                                    <div className="text-xs text-muted-foreground mt-1">Carbs</div>
+                                    <div className="text-xs text-muted-foreground mt-1 flex items-center justify-between">
+                                      <span>Carbs</span>
+                                      {typeof day.macroDelta?.carbs === 'number' ? (
+                                        <span className={day.macroWithinTolerance ? 'text-emerald-600' : 'text-red-600'}>
+                                          {day.macroDelta.carbs >= 0 ? '+' : ''}
+                                          {Math.round(day.macroDelta.carbs)}g
+                                        </span>
+                                      ) : null}
+                                    </div>
                                   </div>
                                   <div>
                                     <div className="text-xl font-semibold font-mono">
                                       {Math.round(day.dailyMacros.fat)}g
+                                      {day.targetMacros?.fat ? (
+                                        <span className="text-xs text-muted-foreground font-normal">
+                                          {' '}
+                                          / {Math.round(day.targetMacros.fat)}g
+                                        </span>
+                                      ) : null}
                                     </div>
-                                    <div className="text-xs text-muted-foreground mt-1">Fat</div>
+                                    <div className="text-xs text-muted-foreground mt-1 flex items-center justify-between">
+                                      <span>Fat</span>
+                                      {typeof day.macroDelta?.fat === 'number' ? (
+                                        <span className={day.macroWithinTolerance ? 'text-emerald-600' : 'text-red-600'}>
+                                          {day.macroDelta.fat >= 0 ? '+' : ''}
+                                          {Math.round(day.macroDelta.fat)}g
+                                        </span>
+                                      ) : null}
+                                    </div>
                                   </div>
                                 </div>
                               </div>

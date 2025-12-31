@@ -34,6 +34,7 @@ interface GroupedMeal {
   avgProtein: number;
   avgCarbs: number;
   avgFat: number;
+  variantKeys: Set<string>;
 }
 
 export function ComprehensiveMealTable({ data }: ComprehensiveMealTableProps) {
@@ -45,12 +46,45 @@ export function ComprehensiveMealTable({ data }: ComprehensiveMealTableProps) {
   const groupedMeals = useMemo(() => {
     const groups = new Map<string, GroupedMeal>();
 
+    const getTotalCalories = (meal: ComprehensiveMeal) => {
+      return (
+        meal?.ingredients?.map((ingredient) => ingredient.calories).reduce((acc, curr) => acc + curr, 0) ||
+        meal.totalCalories ||
+        0
+      );
+    };
+
+    const buildVariantKey = (meal: ComprehensiveMeal) => {
+      const cal = Math.round(getTotalCalories(meal));
+      const p = Math.round((meal.proteinGrams || 0) * 10) / 10;
+      const c = Math.round((meal.carbsGrams || 0) * 10) / 10;
+      const f = Math.round((meal.fatGrams || 0) * 10) / 10;
+
+      const ingredientsKey = (meal.ingredients || [])
+        .map((ing) => {
+          const name = (ing?.name || '').toLowerCase().trim();
+          const amount = (ing?.amount || '').toLowerCase().trim();
+          const ingCal = Math.round(Number(ing?.calories || 0));
+          return `${name}|${amount}|${ingCal}`;
+        })
+        .sort()
+        .join(';');
+
+      return `${cal}|${p}|${c}|${f}::${ingredientsKey}`;
+    };
+
     data.forEach((meal) => {
       const normalizedName = meal.name.toLowerCase().trim();
       const existing = groups.get(normalizedName);
+      const variantKey = buildVariantKey(meal);
 
       if (existing) {
-        existing.meals.push(meal);
+        // Dedupe: if a "version" is identical (same ingredients + macros), don't show it twice.
+        if (!existing.variantKeys.has(variantKey)) {
+          existing.variantKeys.add(variantKey);
+          existing.meals.push(meal);
+        }
+
         existing.mealTypes.add(meal.mealType);
         // Recalculate averages
         const total = existing.meals.length;
@@ -71,6 +105,7 @@ export function ComprehensiveMealTable({ data }: ComprehensiveMealTableProps) {
           avgProtein: meal.proteinGrams || 0,
           avgCarbs: meal.carbsGrams || 0,
           avgFat: meal.fatGrams || 0,
+          variantKeys: new Set([variantKey]),
         });
       }
     });

@@ -9,10 +9,11 @@ async function run() {
   const generator = new BatchMealGenerator(fakeUsdaService, fakeCotService);
   const generatorAny = generator as any;
 
-  // Pretend LP is available, but make it fail hard if called (we expect bypass when supplements exist)
-  generatorAny.optimizerInitialized = true;
-  generatorAny.adjustDayWithLP = async () => {
-    throw new Error('adjustDayWithLP should not be called when supplement meals are present');
+  // Day-level optimization should still run; supplement meals are locked inside the optimizer.
+  let calledDayLevel = false;
+  generatorAny.adjustDayWithLP = async (dayMeals: any) => {
+    calledDayLevel = true;
+    return dayMeals;
   };
 
   // Make per-meal adjustment a no-op to keep test fast and deterministic
@@ -50,6 +51,10 @@ async function run() {
     dummyUsdaData
   );
 
+  if (!calledDayLevel) {
+    throw new Error('Expected adjustDayWithLP to be called even when supplement meals are present');
+  }
+
   console.log('✅ SupplementMealsBypassLP test passed');
 }
 
@@ -58,4 +63,3 @@ run().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-

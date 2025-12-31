@@ -178,7 +178,7 @@ export function formToUserProfile(formData: FormData): UserProfile {
     dislikedIngredients: formData.dislikedIngredients || [],
     cookingTimePerMeal: formData.cookingTimePerMeal || 30,
     mealComplexity: formData.mealComplexity || 'moderate',
-    mealPrepPreference: formData.mealPrepPreference || 'fresh_daily',
+    mealPrepPreference: formData.mealPrepPreference || 'repeat_weekly',
     workoutLevel: workoutLevelMap[formData.workoutLevel] || 'intermediate',
     workoutSplit: splitMap[formData.workoutSplit] || 'upper_lower',
     trainingDaysPerWeek: formData.trainingDaysPerWeek,

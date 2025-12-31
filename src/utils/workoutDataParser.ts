@@ -119,6 +119,19 @@ export interface WeeklyScheduleRow {
       carbs: number;
       fat: number;
     };
+    targetMacros?: {
+      totalCalories: number;
+      protein: number;
+      carbs: number;
+      fat: number;
+    };
+    macroDelta?: {
+      totalCalories: number;
+      protein: number;
+      carbs: number;
+      fat: number;
+    };
+    macroWithinTolerance?: boolean;
     restDay?: boolean;
   }>;
   weeklyTotals: {
@@ -564,58 +577,101 @@ export function parseWorkoutData(jsonData: any): ParsedWorkoutData {
 
     jsonData.weeklyOutlines.forEach((week: any) => {
       const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+      const weekDays = days.map((day, index) => {
+        const dayNumber = index + 1;
+        const isWorkoutDay = week.trainingSchedule?.resistanceDays?.includes(day) || dayNumber <= 6;
+
+        const workouts = isWorkoutDay
+          ? generateDayWorkouts(
+              dayNumber,
+              sessionTemplatesForGeneration,
+              week.phase,
+              week.weekNumber,
+              exerciseLibraryForGeneration,
+              week.trainingSchedule
+            )
+          : [];
+
+        const meals =
+          dailyMealCombinations.length > 0
+            ? generateDayMealsFromCombinations(dailyMealCombinations, week.weekNumber, dayNumber)
+            : generateDayMeals(allMealTemplates, isWorkoutDay, week.weekNumber, jsonData.mealFrequency);
+
+        const dailyMacros = meals.reduce(
+          (totals, meal) => ({
+            totalCalories: totals.totalCalories + meal.calories,
+            protein: totals.protein + meal.macros.protein,
+            carbs: totals.carbs + meal.macros.carbs,
+            fat: totals.fat + meal.macros.fat,
+          }),
+          { totalCalories: 0, protein: 0, carbs: 0, fat: 0 }
+        );
+
+        const override = week?.dailyTargetsOverride?.[index];
+        const targetCalories = Number(override?.calories ?? week?.dailyTargets?.calories ?? 0);
+        const targetProtein = Number(override?.protein ?? week?.dailyTargets?.protein ?? 0);
+        const targetCarbs = Number(override?.carbs ?? week?.dailyTargets?.carbs ?? 0);
+        const targetFat = Number(override?.fat ?? override?.fats ?? week?.dailyTargets?.fat ?? 0);
+
+        const targetMacros = {
+          totalCalories: targetCalories,
+          protein: targetProtein,
+          carbs: targetCarbs,
+          fat: targetFat,
+        };
+
+        const macroDelta = {
+          totalCalories: dailyMacros.totalCalories - targetCalories,
+          protein: dailyMacros.protein - targetProtein,
+          carbs: dailyMacros.carbs - targetCarbs,
+          fat: dailyMacros.fat - targetFat,
+        };
+
+        const tolerance = { totalCalories: 5, protein: 1, carbs: 1, fat: 1 };
+        const macroWithinTolerance =
+          Math.abs(macroDelta.totalCalories) <= tolerance.totalCalories &&
+          Math.abs(macroDelta.protein) <= tolerance.protein &&
+          Math.abs(macroDelta.carbs) <= tolerance.carbs &&
+          Math.abs(macroDelta.fat) <= tolerance.fat;
+
+        const inferredRestDay = !isWorkoutDay || workouts.length === 0;
+
+        return {
+          day,
+          dayNumber,
+          workouts,
+          meals,
+          dailyMacros,
+          targetMacros,
+          macroDelta,
+          macroWithinTolerance,
+          restDay: inferredRestDay,
+        };
+      });
+
+      const weeklyTargetTotals = weekDays.reduce(
+        (sum, d) => ({
+          totalCalories: sum.totalCalories + (d.targetMacros?.totalCalories || 0),
+          totalProtein: sum.totalProtein + (d.targetMacros?.protein || 0),
+          totalCarbs: sum.totalCarbs + (d.targetMacros?.carbs || 0),
+          totalFat: sum.totalFat + (d.targetMacros?.fat || 0),
+        }),
+        { totalCalories: 0, totalProtein: 0, totalCarbs: 0, totalFat: 0 }
+      );
+
       const weeklyScheduleData: WeeklyScheduleRow = {
         weekNumber: week.weekNumber,
         phaseName: week.phase,
         focus: week.objectives?.join(', ') || '',
-        days: days.map((day, index) => {
-          const dayNumber = index + 1;
-          const isWorkoutDay = week.trainingSchedule?.resistanceDays?.includes(day) || dayNumber <= 6;
-
-          // Generate workouts for this day using weekly outline context
-          // Pass exercise library to resolve exercise names from IDs
-          // Pass training schedule to determine if this is a workout day
-          const workouts = isWorkoutDay ? generateDayWorkouts(
-            dayNumber,
-            sessionTemplatesForGeneration,
-            week.phase,
-            week.weekNumber,
-            exerciseLibraryForGeneration,
-            week.trainingSchedule
-          ) : [];
-
-          // Generate meals for this day using daily meal combinations (with fallback)
-          const meals = dailyMealCombinations.length > 0
-            ? generateDayMealsFromCombinations(dailyMealCombinations, week.weekNumber, dayNumber)
-            : generateDayMeals(allMealTemplates, isWorkoutDay, week.weekNumber, jsonData.mealFrequency);
-
-          // Calculate daily macros
-          const dailyMacros = meals.reduce((totals, meal) => ({
-            totalCalories: totals.totalCalories + meal.calories,
-            protein: totals.protein + meal.macros.protein,
-            carbs: totals.carbs + meal.macros.carbs,
-            fat: totals.fat + meal.macros.fat
-          }), { totalCalories: 0, protein: 0, carbs: 0, fat: 0 });
-
-          const inferredRestDay = !isWorkoutDay || workouts.length === 0;
-
-          return {
-            day,
-            dayNumber,
-            workouts,
-            meals,
-            dailyMacros,
-            restDay: inferredRestDay
-          };
-        }),
+        days: weekDays,
         weeklyTotals: {
-          totalCalories: week.dailyTargets?.calories * 7 || 0,
-          totalProtein: week.dailyTargets?.protein * 7 || 0,
-          totalCarbs: week.dailyTargets?.carbs * 7 || 0,
-          totalFat: week.dailyTargets?.fat * 7 || 0,
+          totalCalories: weeklyTargetTotals.totalCalories,
+          totalProtein: weeklyTargetTotals.totalProtein,
+          totalCarbs: weeklyTargetTotals.totalCarbs,
+          totalFat: weeklyTargetTotals.totalFat,
           totalWorkouts: week.trainingSchedule?.resistanceDays?.length || 0,
-          totalWorkoutTime: (week.trainingSchedule?.resistanceDays?.length || 0) * 60
-        }
+          totalWorkoutTime: (week.trainingSchedule?.resistanceDays?.length || 0) * 60,
+        },
       };
 
       weeklySchedule.push(weeklyScheduleData);

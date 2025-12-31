@@ -20,14 +20,10 @@ function assertWithinPercent(value: number, target: number, tolerance: number, l
   }
 }
 
-function assertNotBelowPercent(value: number, target: number, maxDeficit: number, label: string) {
-  const minAllowed = target * (1 - maxDeficit);
-  if (value < minAllowed) {
-    throw new Error(
-      `${label} undershot by ${(((target - value) / target) * 100).toFixed(2)}% (actual ${value.toFixed(
-        2
-      )} vs target ${target.toFixed(2)})`
-    );
+function assertWithinAbsolute(value: number, target: number, epsilon: number, label: string) {
+  const delta = Math.abs(value - target);
+  if (delta > epsilon) {
+    throw new Error(`${label} off by ${delta.toFixed(2)} (actual ${value.toFixed(2)} vs target ${target.toFixed(2)})`);
   }
 }
 
@@ -128,12 +124,10 @@ async function run() {
         { calories: 0, protein: 0, carbs: 0, fats: 0 }
       );
 
-      assertWithinPercent(totals.calories, dummyDailyTarget.calories, 0.06, `Day ${dayIdx + 1} calories`);
-      // Protein should not be meaningfully undershot; overshoot is acceptable.
-      assertNotBelowPercent(totals.protein, dummyDailyTarget.protein, 0.06, `Day ${dayIdx + 1} protein`);
-      // Carbs/fats are more flexible as long as calories and protein are on target.
-      assertWithinPercent(totals.carbs, dummyDailyTarget.carbs, 0.30, `Day ${dayIdx + 1} carbs`);
-      assertWithinPercent(totals.fats, dummyDailyTarget.fats, 0.30, `Day ${dayIdx + 1} fats`);
+      assertWithinAbsolute(totals.calories, dummyDailyTarget.calories, 5, `Day ${dayIdx + 1} calories`);
+      assertWithinAbsolute(totals.protein, dummyDailyTarget.protein, 1, `Day ${dayIdx + 1} protein`);
+      assertWithinAbsolute(totals.carbs, dummyDailyTarget.carbs, 1, `Day ${dayIdx + 1} carbs`);
+      assertWithinAbsolute(totals.fats, dummyDailyTarget.fats, 1, `Day ${dayIdx + 1} fats`);
 
       dayMeals.forEach((meal) => {
         if (

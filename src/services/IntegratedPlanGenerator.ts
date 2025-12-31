@@ -42,6 +42,7 @@ import {
 } from './NutritionCalculationService';
 import { getAverageDailyTargets } from '../utils/planTargets';
 import { validateGoalForUser } from '../rag/goals/goalStrategyKnowledgeBase';
+import { estimateResistanceCalories } from '../utils/planCalculations';
 
 /**
  * Generation State
@@ -1346,14 +1347,6 @@ export class IntegratedPlanGenerator {
     const goalCategory = userProfile.goalCategory || 'maintenance';
     const effectiveGoal = getEffectiveGoalType(goalCategory);
 
-    // Only apply for Bulking or Maintenance per user request
-    const isGainingOrMaintaining = effectiveGoal === 'muscle_gain' || effectiveGoal === 'maintenance';
-
-    if (!isGainingOrMaintaining) {
-      console.log(`ℹ️ [RECONCILIATION] Skipping daily calorie cycling for goal: ${goalCategory}`);
-      return;
-    }
-
     console.log(`🔄 [RECONCILIATION] Calculating DAILY nutrition targets for ${weeklyOutlines.length} weeks...`);
 
     const metrics = {
@@ -1367,8 +1360,6 @@ export class IntegratedPlanGenerator {
 
     const maintenance = await nutritionCalculationService.calculateMaintenanceCalories(metrics);
     const baseTdee = trainingMetrics.tdee || maintenance.tdee;
-    // Hardcoded estimate for resistance training burn (per session)
-    const RESISTANCE_BURN = 250;
 
     const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -1384,10 +1375,9 @@ export class IntegratedPlanGenerator {
       console.log(`\n📅 [WEEK ${outline.weekNumber}] Calculating Daily Targets:`);
       console.log(`   Base TDEE: ${baseTdee} | Resistance Days: ${resistanceDays.length}`);
 
-      // Preserve weekly progression by deriving the goal-specific adjustment from this week's target calories
+      // Baseline planned intake for this week (already includes weekly progression).
+      // Reconciliation rule: daily target = baseline intake + (cardio burn + resistance burn) for that day.
       const weekBaseCalories = Number(outline?.dailyTargets?.calories ?? baseTdee);
-      const weekAdjustmentPercent =
-        baseTdee > 0 ? (weekBaseCalories - baseTdee) / baseTdee : 0;
 
       for (let i = 0; i < 7; i++) {
         const dayName = days[i];
@@ -1395,12 +1385,16 @@ export class IntegratedPlanGenerator {
 
         // 1. Calculate Daily Burn
         let dailyBurn = 0;
-        let activityLog = [];
+        const activityLog: string[] = [];
 
         // Add Resistance Burn
         if (resistanceDays.includes(dayName)) {
-          dailyBurn += RESISTANCE_BURN;
-          activityLog.push(`Resistance (${RESISTANCE_BURN})`);
+          const estimatedMinutes = Number(trainingSplit?.days?.[i]?.estimatedDuration ?? 60);
+          const resistanceBurn = estimateResistanceCalories(estimatedMinutes, userProfile.weightKg, 'moderate');
+          if (resistanceBurn > 0) {
+            dailyBurn += resistanceBurn;
+            activityLog.push(`Resistance (${Math.round(resistanceBurn)})`);
+          }
         }
 
         // Add Cardio Burn (specific to this day)
@@ -1427,8 +1421,9 @@ export class IntegratedPlanGenerator {
           tdeeFormula: `${maintenance.tdeeFormula} + ${dailyBurn.toFixed(0)} (${activityLog.join(' + ')})`
         };
 
-        // 3. Calculate target calories for this day, preserving weekly progression
-        const dayTargetCalories = Math.round(dayTdee * (1 + weekAdjustmentPercent));
+        // 3. Calculate target calories for this day by "eating back" the burn.
+        // If dailyBurn is 0, this remains the baseline intake for the week.
+        const dayTargetCalories = Math.round(weekBaseCalories + dailyBurn);
 
         // 4. Calculate Macros for this day (fixed calories, deterministic macro rules)
         const dayMacros = await nutritionCalculationService.calculateMacroTargetsFromCategory(
@@ -1445,7 +1440,9 @@ export class IntegratedPlanGenerator {
         dailyTargets.push(dayMacros);
 
         if (dailyBurn > 0) {
-          console.log(`   - ${dayName}: TDEE ${baseTdee} + Burn ${Math.round(dailyBurn)} = ${Math.round(dayTdee)} -> Target: ${dayMacros.calories} cal (${activityLog.join(', ')})`);
+          console.log(
+            `   - ${dayName}: Base ${Math.round(weekBaseCalories)} + Burn ${Math.round(dailyBurn)} = Target ${dayMacros.calories} cal (${activityLog.join(', ')})`
+          );
         }
       }
 
@@ -1476,6 +1473,24 @@ export class IntegratedPlanGenerator {
             ? Math.round(((avg.protein / divisor) / userProfile.weightKg) * 100) / 100
             : outline.dailyTargets.proteinPerKg,
       };
+
+      // Console verification table
+      const rows = days.map((dayName, idx) => {
+        const target = dailyTargets[idx];
+        const burn = Math.max(0, Math.round(Number(target?.calories ?? 0) - weekBaseCalories));
+        return {
+          day: dayName,
+          burnCalories: burn,
+          targetCalories: Math.round(Number(target?.calories ?? 0)),
+          proteinG: Math.round(Number(target?.protein ?? 0)),
+          carbsG: Math.round(Number(target?.carbs ?? 0)),
+          fatsG: Math.round(Number(target?.fat ?? 0)),
+        };
+      });
+      console.log('\n📊 WEEKLY PROGRESSION VERIFICATION LOG');
+      console.log(`Week ${outline.weekNumber} baseline intake: ${Math.round(weekBaseCalories)} kcal/day`);
+      // eslint-disable-next-line no-console
+      console.table(rows);
     }
   }
 }

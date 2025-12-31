@@ -16,7 +16,7 @@ import { MacroValues } from '../../types/nutrition';
 import { normalizeFoodName, calculateMacrosForAmount } from '../../utils/usdaMapper';
 import { ProteinPriorityOptimizer, OptimizableIngredient, OptimizationResult, OptimizationTargets } from './ProteinPriorityOptimizer';
 import { LinearProgrammingOptimizer } from './LinearProgrammingOptimizer';
-import { isZeroImpactIngredient, isSensitiveIngredient } from '../../constants/ingredients';
+import { isAddedSugarIngredient, isZeroImpactIngredient, isSensitiveIngredient } from '../../constants/ingredients';
 
 export interface HybridOptimizationResult extends OptimizationResult {
   method: 'lp' | 'protein-priority' | 'hybrid';
@@ -67,6 +67,11 @@ export class HybridMealOptimizer {
       forceLp?: boolean; // Force LP only (fail if not available)
       forceHeuristic?: boolean; // Force heuristic only
       compareResults?: boolean; // Try both and compare (slower but best quality)
+      lpOptions?: {
+        enforceTargetTolerance?: boolean;
+        includeRatioConstraints?: boolean;
+        directionalWeights?: boolean;
+      };
     }
   ): Promise<HybridOptimizationResult> {
     const log: string[] = [];
@@ -107,6 +112,7 @@ export class HybridMealOptimizer {
           carbsWeight: 1.0,
           fatsWeight: 1.0,
           caloriesWeight: 0.5,
+          ...(options?.lpOptions || {}),
         });
 
         lpSucceeded = lpResult.converged;
@@ -132,7 +138,8 @@ export class HybridMealOptimizer {
     // Strategy 2: Try Protein-Priority heuristic (always run if comparing or LP failed)
     let heuristicResult: OptimizationResult | null = null;
 
-    if (!options?.forceLp || !lpSucceeded) {
+    // If forceLp is set, do not fall back to heuristic (strict mode should fail fast).
+    if (!options?.forceLp && (options?.compareResults || !lpSucceeded)) {
       log.push('📊 Attempting Protein-Priority heuristic optimization...');
 
       try {
@@ -148,6 +155,20 @@ export class HybridMealOptimizer {
         log.push(`⚠️ Heuristic failed: ${error}`);
         heuristicResult = null;
       }
+    }
+
+    if (options?.forceLp) {
+      if (!lpResult) {
+        throw new Error('LP optimization was forced but no LP result was produced');
+      }
+
+      return {
+        ...lpResult,
+        log,
+        method: 'lp',
+        lpAttempted,
+        lpSucceeded,
+      };
     }
 
     // Strategy 3: Compare results and pick best
@@ -241,6 +262,7 @@ export class HybridMealOptimizer {
     options?: {
       seasoningThreshold?: number; // Amount in grams below which ingredient is considered seasoning
       seasoningKeywords?: string[]; // Keywords to identify seasonings
+      sensitiveIngredientMode?: 'all' | 'added_sugars_only' | 'none';
     }
   ): OptimizableIngredient[] {
     const seasoningThreshold = options?.seasoningThreshold ?? 5; // 5g or less
@@ -249,24 +271,82 @@ export class HybridMealOptimizer {
       'paprika', 'cumin', 'oregano', 'basil', 'thyme', 'rosemary',
       'cilantro', 'parsley', 'cinnamon', 'nutmeg', 'vanilla', 'extract',
     ];
+    const sensitiveIngredientMode = options?.sensitiveIngredientMode ?? 'all';
+
+    const safeNumber = (value: unknown): number => {
+      const n = typeof value === 'number' ? value : Number(value);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const safeAtwater = (macros: { protein: number; carbs: number; fats: number }): MacroValues => {
+      const protein = Math.max(0, safeNumber(macros.protein));
+      const carbs = Math.max(0, safeNumber(macros.carbs));
+      const fats = Math.max(0, safeNumber(macros.fats));
+      return {
+        calories: Math.round((protein * 4 + carbs * 4 + fats * 9) * 10) / 10,
+        protein,
+        carbs,
+        fats,
+      };
+    };
 
     return mealIngredients.map((ing, index) => {
       const normalized = normalizeFoodName(ing.name);
       const usdaEntry = usdaData[normalized];
       const zeroImpact = isZeroImpactIngredient(ing.name);
-      const sensitive = isSensitiveIngredient(ing.name);
+      const sensitive =
+        sensitiveIngredientMode === 'all'
+          ? isSensitiveIngredient(ing.name)
+          : sensitiveIngredientMode === 'added_sugars_only'
+            ? isAddedSugarIngredient(ing.name)
+            : false;
 
       // Determine if ingredient should be locked (seasoning or sensitive)
-      const isSmallAmount = ing.amount <= seasoningThreshold;
       const isSeasoningKeyword = seasoningKeywords.some(keyword =>
         ing.name.toLowerCase().includes(keyword)
       );
-      const isLocked = zeroImpact || sensitive || isSmallAmount || isSeasoningKeyword || !usdaEntry;
+
+      const fallbackNutrition = {
+        calories: safeNumber(ing.nutrition?.calories),
+        protein: safeNumber(ing.nutrition?.protein),
+        carbs: safeNumber(ing.nutrition?.carbs),
+        fats: safeNumber(ing.nutrition?.fats),
+      } as MacroValues;
+
+      const amount = Math.max(0, safeNumber(ing.amount));
+      const canDerivePer100g =
+        !zeroImpact &&
+        !usdaEntry &&
+        amount >= 1 &&
+        (fallbackNutrition.protein > 0 || fallbackNutrition.carbs > 0 || fallbackNutrition.fats > 0);
+
+      // If USDA is missing but we have AI-estimated totals for this exact amount, derive a per-100g estimate so the
+      // optimizer can still scale realistically (and avoid treating per-serving totals as "per 100g").
+      const derivedPer100g = canDerivePer100g
+        ? safeAtwater({
+          protein: (fallbackNutrition.protein * 100) / amount,
+          carbs: (fallbackNutrition.carbs * 100) / amount,
+          fats: (fallbackNutrition.fats * 100) / amount,
+        })
+        : null;
+
+      const isSeasoningByAmount =
+        amount > 0 &&
+        amount <= seasoningThreshold &&
+        // Keep small high-impact tuners (e.g., oils) adjustable; lock only truly low-impact items.
+        fallbackNutrition.calories <= 25;
+
+      const isLocked =
+        zeroImpact ||
+        sensitive ||
+        isSeasoningKeyword ||
+        isSeasoningByAmount ||
+        (!usdaEntry && !derivedPer100g);
 
       // Get per-100g nutrition
       const per100g = zeroImpact
         ? { calories: 0, protein: 0, carbs: 0, fats: 0 }
-        : usdaEntry?.nutrition ?? ing.nutrition;
+        : usdaEntry?.nutrition ?? derivedPer100g ?? safeAtwater(fallbackNutrition);
 
       // Calculate density (per 1g)
       const density = {

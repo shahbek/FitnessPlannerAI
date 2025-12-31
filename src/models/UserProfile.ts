@@ -104,7 +104,7 @@ export interface UserProfile {
 
 export type DietType = 'omnivore' | 'vegetarian' | 'vegan' | 'pescatarian' | 'keto' | 'paleo' | 'gluten_free' | 'anything';
 export type MealComplexity = 'simple' | 'moderate' | 'complex';
-export type MealPrepStyle = 'fresh_daily' | 'batch_cooking' | 'leftovers_ok';
+export type MealPrepStyle = 'fresh_daily' | 'repeat_weekly' | 'batch_cooking' | 'leftovers_ok';
 
 export interface NormalizedUserProfile extends UserProfile {
   // Normalized values

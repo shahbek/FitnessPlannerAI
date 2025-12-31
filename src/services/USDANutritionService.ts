@@ -55,6 +55,8 @@ const CATEGORY_FALLBACKS = [
   { keywords: ['rice', 'cracker'], replacements: ['rice crackers plain', 'rice cakes'] },
   { keywords: ['scrambled', 'egg'], replacements: ['egg, whole, cooked, scrambled', 'egg, whole, scrambled', 'egg, whole, raw'] },
   { keywords: ['rolled', 'oats'], replacements: ['oats, rolled', 'old fashioned oats', 'oatmeal'] },
+  { keywords: ['whey', 'protein'], replacements: ['whey protein powder', 'whey protein concentrate powder', 'whey protein isolate powder'] },
+  { keywords: ['pea', 'protein'], replacements: ['pea protein powder', 'pea protein isolate powder'] },
   { keywords: ['quinoa'], replacements: ['quinoa, cooked', 'quinoa, uncooked'] },
   { keywords: ['matoke'], replacements: ['plantain', 'green banana', 'cooking banana'] },
   { keywords: ['matooke'], replacements: ['plantain', 'green banana', 'cooking banana'] },
@@ -264,7 +266,7 @@ export class USDANutritionService {
     // Disambiguation: inspect top candidates and prefer plausible nutrition data.
     // This avoids selecting the "wrong variant" (e.g. sprays/substitutes/whites) when token scoring is close.
     let best: { details: USDAFoodItem; macros: MacroValues; score: number } | null = null;
-    const candidatesToInspect = scored.slice(0, 3);
+    const candidatesToInspect = scored.slice(0, 8);
 
     for (const c of candidatesToInspect) {
       try {
@@ -290,16 +292,15 @@ export class USDANutritionService {
       }
     }
 
-    // Fallback: accept top ranked candidate even if plausibility checks couldn't validate.
-    // Still returns USDA-backed data (not AI macros).
+    // No "best-effort" fallback: if we can't find plausible USDA macros, bubble up so the caller can either
+    // use deterministic curated staples (if available) or fail fast (per policy).
     if (!best) {
-      const details = await this.getFoodDetails(top.food.fdcId);
-      const macros = extractMacrosFromUSDA(details.nutrients || [], {
-        foodName: details.description,
-        fdcId: details.fdcId,
-        debug: false,
-      });
-      best = { details, macros, score: top.score };
+      throw this.createError(
+        NutritionErrorType.INVALID_RESPONSE,
+        `No plausible USDA nutrition data found for "${query}"`,
+        query,
+        'Try a more specific ingredient name (e.g. "oil, olive" or "almond milk, unsweetened")'
+      );
     }
 
     return {
@@ -352,6 +353,18 @@ export class USDANutritionService {
       }
     }
 
+    // "Milk" should not resolve to the base nut/seed.
+    if (queryLower.includes('milk')) {
+      const looksLikeMilk = name.includes('milk') || name.includes('beverage') || name.includes('drink');
+      if (!looksLikeMilk) return false;
+    }
+
+    // "Oil" should not resolve to dressings/sauces unless explicitly requested.
+    if (queryLower.includes('oil')) {
+      const avoid = ['dressing', 'mayonnaise', 'mayo', 'sauce', 'dip', 'spread'];
+      if (!avoid.some((t) => queryLower.includes(t)) && avoid.some((t) => name.includes(t))) return false;
+    }
+
     return true;
   }
 
@@ -383,13 +396,13 @@ export class USDANutritionService {
     }
 
     // Strong penalties for "wrong class" tokens unless explicitly requested.
-    const strongAvoid = ['spray', 'substitute', 'imitation', 'flavored', 'seasoning', 'mix'];
+    const strongAvoid = ['spray', 'substitute', 'imitation', 'flavored', 'seasoning', 'mix', 'dressing', 'mayonnaise', 'mayo', 'sauce', 'dip', 'spread'];
     for (const t of strongAvoid) {
       if (!queryTokens.has(t) && descTokens.has(t)) tokenScore -= 25;
     }
 
     // Mild penalties for processed forms unless requested.
-    const mildAvoid = ['dried', 'dehydrated', 'powder', 'canned', 'frozen', 'prepared'];
+    const mildAvoid = ['dried', 'dehydrated', 'powder', 'canned', 'frozen', 'prepared', 'uncooked', 'dry', 'raw'];
     for (const t of mildAvoid) {
       if (!queryTokens.has(t) && descTokens.has(t)) tokenScore -= 8;
     }
@@ -576,6 +589,34 @@ export class USDANutritionService {
     // Pure oil is ~800-900 kcal/100g.
     if (name.includes('oil') && !name.includes('spray') && cals < 500) {
       console.warn(`❌ [USDA] Rejected suspiciously low-cal oil for "${foodName}": ${cals} kcal/100g`);
+      return false;
+    }
+
+    // Rule 5: Milk should not be calorie-dense like nuts/seeds.
+    // Whole milk is ~60 kcal/100g; even coconut milk is ~230 kcal/100g.
+    if (name.includes('milk') && !name.includes('powder') && cals > 250) {
+      console.warn(`❌ [USDA] Rejected implausible milk for "${foodName}": ${cals} kcal/100g`);
+      return false;
+    }
+
+    // Rule 6: Lean proteins shouldn't come back as carb-heavy unless explicitly requested.
+    const highCarbForProtein = macrosPer100g.carbs > 8;
+    const proteinKeywords = ['chicken', 'turkey', 'beef', 'pork', 'salmon', 'fish', 'cod', 'tuna', 'shrimp'];
+    const allowsCarbs = ['breaded', 'glazed', 'teriyaki', 'with', 'in', 'sauce', 'marinated', 'battered'].some((t) =>
+      name.includes(t)
+    );
+    if (proteinKeywords.some((k) => name.includes(k)) && highCarbForProtein && !allowsCarbs) {
+      console.warn(
+        `❌ [USDA] Rejected carb-heavy protein for "${foodName}": ${macrosPer100g.carbs}g carbs/100g`
+      );
+      return false;
+    }
+
+    // Rule 7: "Chicken breast" should be high-protein per 100g.
+    if (name.includes('chicken breast') && macrosPer100g.protein < 18) {
+      console.warn(
+        `❌ [USDA] Rejected low-protein chicken breast for "${foodName}": ${macrosPer100g.protein}g protein/100g`
+      );
       return false;
     }
 

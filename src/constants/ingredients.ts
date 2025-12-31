@@ -229,6 +229,32 @@ const SENSITIVE_INGREDIENT_EXACT = new Set([
   'walnut oil',
 ]);
 
+const ADDED_SUGAR_INGREDIENT_EXACT = new Set([
+  'sugar',
+  'honey',
+  'molasses',
+  'nectar',
+  'maple syrup',
+  'agave syrup',
+  'corn syrup',
+  'syrup',
+]);
+
+export function isAddedSugarIngredient(name: string): boolean {
+  const stripped = stripDescriptorWords(name);
+  if (!stripped) {
+    return false;
+  }
+
+  if (ADDED_SUGAR_INGREDIENT_EXACT.has(stripped)) {
+    return true;
+  }
+
+  const normalized = normalizeFoodName(name);
+  // Avoid keyword matching on "sugar" to prevent false positives like "sugar snap peas".
+  return normalized.includes('syrup');
+}
+
 const SENSITIVE_INGREDIENT_KEYWORDS = [
   ' oil', // Space before to avoid catching "boil", "spoil"
   'syrup',

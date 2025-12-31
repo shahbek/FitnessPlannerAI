@@ -15,7 +15,7 @@
     "format": "prettier --write .",
     "type-check": "tsc --noEmit",
     "test": "npm run test:smoke",
-    "test:smoke": "node --import tsx src/tests/unit/PlanTargetsOverrideExtractor.test.ts && node --import tsx src/tests/unit/NutritionCaloriesOverride.test.ts && node --import tsx src/tests/unit/GetTDEEUserProfileShape.test.ts && node --import tsx src/tests/unit/SupplementMealsBypassLP.test.ts && node --import tsx src/tests/unit/PhaseCachedWorkouts.test.ts",
+    "test:smoke": "node --import tsx src/tests/unit/PlanTargetsOverrideExtractor.test.ts && node --import tsx src/tests/unit/NutritionCaloriesOverride.test.ts && node --import tsx src/tests/unit/GetTDEEUserProfileShape.test.ts && node --import tsx src/tests/unit/SupplementMealsBypassLP.test.ts && node --import tsx src/tests/unit/MealFrequencyDistribution.test.ts && node --import tsx src/tests/unit/DummyWeeklyAdjust.test.ts && node --import tsx src/tests/unit/CarbDeficitRescue.test.ts && node --import tsx src/tests/unit/MicroCorrectionCarbFatSwap.test.ts && node --import tsx src/tests/unit/SnackCalorieCap.test.ts && node --import tsx src/tests/unit/EmptyMealRepair.test.ts && node --import tsx src/tests/unit/MealIntegrityRescueAndYogurtCap.test.ts && node --import tsx src/tests/unit/ReconciledDailyTargetsBurn.test.ts && node --import tsx src/tests/unit/PhaseCachedWorkouts.test.ts",
     "test:watch": "node --import tsx --watch src/tests/unit/PlanTargetsOverrideExtractor.test.ts",
     "test:api": "node --import tsx src/tests/apiKeyValidator.test.ts",
     "test:profile": "node --import tsx src/tests/candidateProfile.test.ts",

@@ -106,7 +106,7 @@ const defaultFormData: FormData = {
   cuisinePreferences: [],
   customCuisines: '',
   mealComplexity: 'moderate',
-  mealPrepPreference: 'fresh_daily',
+  mealPrepPreference: 'repeat_weekly',
   cookingTimePerMeal: 30,
   likedIngredients: '',
   dislikedIngredients: '',
@@ -660,6 +660,7 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="fresh_daily">Fresh Daily</SelectItem>
+                    <SelectItem value="repeat_weekly">Repeat Weekly</SelectItem>
                     <SelectItem value="batch_cooking">Batch Cook</SelectItem>
                     <SelectItem value="leftovers_ok">Leftovers OK</SelectItem>
                   </SelectContent>

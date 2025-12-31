@@ -51,8 +51,12 @@ export const saveIngredients = internalMutation({
                 .first();
 
             if (existing) {
-                // Update existing if needed (optional: only update if old)
-                // For now, we assume cached data is good forever or until TTL policy
+                // Upsert: nutrition data quality evolves (e.g., per-serving -> per-100g normalization), so refresh.
+                await ctx.db.patch(existing._id, {
+                    ...item,
+                    source: 'usda',
+                    updatedAt: now,
+                });
                 continue;
             }
 
@@ -205,8 +209,33 @@ export const getFoodDetails = action({
             fdcId: args.fdcId,
         });
 
+        const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+        const getValue = (nutrients: any[], id: number): number => {
+            const n = (nutrients || []).find((x: any) => Number(x?.nutrientId) === id);
+            const v = n?.value ?? n?.amount ?? 0;
+            return typeof v === 'number' ? v : Number(v || 0);
+        };
+        const isLocalPlausible = (doc: any): boolean => {
+            const desc = String(doc?.description || doc?.name || '').toLowerCase();
+            const nutrients = doc?.nutrients || [];
+            const calories = getValue(nutrients, 1008);
+            const fat = getValue(nutrients, 1004);
+
+            // Pure oils should never be ~<500 kcal/100g (per-100g normalization).
+            if (desc.includes('oil') && !desc.includes('spray') && calories > 0 && calories < 500) return false;
+            // "Milk" should not be extremely calorie-dense like nuts/seeds.
+            if (desc.includes('milk') && !desc.includes('powder') && calories > 250) return false;
+            // If fat is tiny but calories are high, data is likely per-serving or corrupted.
+            if (calories > 400 && fat < 10) return false;
+            return true;
+        };
+
         if (local) {
-            return mapToFoodItem(local);
+            const updatedAt = Number(local.updatedAt ?? local.cachedAt ?? 0);
+            const ageOk = updatedAt > 0 ? (Date.now() - updatedAt) < CACHE_TTL_MS : false;
+            if (ageOk && isLocalPlausible(local)) {
+                return mapToFoodItem(local);
+            }
         }
 
         // 2. Fetch USDA
@@ -265,7 +294,7 @@ function normalizeUSDAFood(food: any) {
 
     let rawNutrients = food.nutrients || food.foodNutrients || [];
 
-    const normalizedNutrients = rawNutrients.map((nut: any) => {
+    let normalizedNutrients = rawNutrients.map((nut: any) => {
         // Check if it's already in normalized format
         if (nut.nutrientId !== undefined) {
             return {
@@ -294,6 +323,28 @@ function normalizeUSDAFood(food: any) {
             value: nut.value ?? nut.amount ?? 0,
         };
     }).filter((nut: any) => nut.nutrientId > 0);
+
+    // Branded foods often report nutrients per serving. Convert to per-100g when serving size is in grams/ml.
+    const dataType = String(food.dataType || '').toLowerCase();
+    const isBranded = dataType.includes('branded');
+    const servingSizeRaw = food.servingSize ?? food?.foodPortions?.[0]?.gramWeight ?? 0;
+    const servingSize = typeof servingSizeRaw === 'number' ? servingSizeRaw : Number(servingSizeRaw || 0);
+    const servingUnit = String(food.servingSizeUnit || 'g').toLowerCase();
+
+    const gramsPerServing =
+        servingSize > 0 && (servingUnit === 'g' || servingUnit === 'gram' || servingUnit === 'grams')
+            ? servingSize
+            : servingSize > 0 && (servingUnit === 'ml' || servingUnit === 'milliliter' || servingUnit === 'milliliters')
+                ? servingSize // Approximate 1g/ml; good enough for nutrition scaling in practice.
+                : 0;
+
+    if (isBranded && gramsPerServing > 0) {
+        const factor = 100 / gramsPerServing;
+        normalizedNutrients = normalizedNutrients.map((n: any) => ({
+            ...n,
+            value: (typeof n.value === 'number' ? n.value : Number(n.value || 0)) * factor,
+        }));
+    }
 
     return {
         fdcId: food.fdcId,

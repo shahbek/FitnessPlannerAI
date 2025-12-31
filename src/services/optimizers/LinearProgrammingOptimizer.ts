@@ -101,6 +101,13 @@ export class LinearProgrammingOptimizer {
       carbsWeight?: number;   // Default 1.0
       fatsWeight?: number;    // Default 1.0
       caloriesWeight?: number; // Default 0.5
+      // When true, deviations are bounded by `targets.tolerance` (or DEFAULT_TOLERANCE if missing).
+      // This turns the LP into a strict feasibility solver for macro targets.
+      enforceTargetTolerance?: boolean;
+      // Optional: include/exclude ratio constraints. Ratio constraints can conflict with the target macro split.
+      includeRatioConstraints?: boolean;
+      // When false, over/under deviations are penalized symmetrically (no bias to be under/over).
+      directionalWeights?: boolean;
     }
   ): Promise<OptimizationResult> {
     if (!this.glpkInstance) {
@@ -120,15 +127,30 @@ export class LinearProgrammingOptimizer {
     };
 
     const tolerance = this.normalizeTolerance(targets);
+    const enforceTargetTolerance = Boolean(options?.enforceTargetTolerance);
+    const includeRatioConstraints = options?.includeRatioConstraints ?? !enforceTargetTolerance;
+    const constraintTolerance: MacroTolerance = enforceTargetTolerance
+      ? {
+          calories: targets.tolerance?.calories ?? DEFAULT_TOLERANCE.calories,
+          protein: targets.tolerance?.protein ?? DEFAULT_TOLERANCE.protein,
+          carbs: targets.tolerance?.carbs ?? DEFAULT_TOLERANCE.carbs,
+          fats: targets.tolerance?.fats ?? DEFAULT_TOLERANCE.fats,
+        }
+      : tolerance;
     const weights = this.adjustWeightsForTolerance(baseWeights, targets, tolerance);
-    const dirWeights = this.directionalizeWeights(weights);
+    const useDirectionalWeights = options?.directionalWeights ?? true;
+    const dirWeights: DirectionalWeights = useDirectionalWeights
+      ? this.directionalizeWeights(weights)
+      : { pos: { ...weights }, neg: { ...weights } };
 
     log.push(`Base weights: P=${baseWeights.protein}x C=${baseWeights.carbs}x F=${baseWeights.fats}x Cal=${baseWeights.calories}x`);
     log.push(
       `Tolerance-adjusted weights: P=${weights.protein}x C=${weights.carbs}x F=${weights.fats}x Cal=${weights.calories}x`
     );
     log.push(
-      `Directional weights: P(+${dirWeights.pos.protein}/-${dirWeights.neg.protein}) C(+${dirWeights.pos.carbs}/-${dirWeights.neg.carbs}) F(+${dirWeights.pos.fats}/-${dirWeights.neg.fats}) Cal(+${dirWeights.pos.calories}/-${dirWeights.neg.calories})`
+      useDirectionalWeights
+        ? `Directional weights: P(+${dirWeights.pos.protein}/-${dirWeights.neg.protein}) C(+${dirWeights.pos.carbs}/-${dirWeights.neg.carbs}) F(+${dirWeights.pos.fats}/-${dirWeights.neg.fats}) Cal(+${dirWeights.pos.calories}/-${dirWeights.neg.calories})`
+        : 'Directional weights: disabled (symmetric penalties)'
     );
 
     // Separate adjustable and locked ingredients
@@ -163,7 +185,11 @@ export class LinearProgrammingOptimizer {
     log.push(`Adjusted targets (excluding locked): P=${adjustedTargets.protein.toFixed(1)}g C=${adjustedTargets.carbs.toFixed(1)}g F=${adjustedTargets.fats.toFixed(1)}g`);
 
     // Build LP problem
-    const lp = this.buildLPProblem(adjustable, adjustedTargets, dirWeights);
+    const lp = this.buildLPProblem(adjustable, adjustedTargets, dirWeights, {
+      constraintTolerance,
+      enforceTargetTolerance,
+      includeRatioConstraints,
+    });
 
     // Solve
     log.push('🔧 Solving LP problem...');
@@ -261,11 +287,18 @@ export class LinearProgrammingOptimizer {
         log.push(`  ${adj.name}: ${adj.change > 0 ? '+' : ''}${adj.change.toFixed(1)}g (${adj.percent}%)`);
       });
 
+    const withinTargetTolerance =
+      Math.abs(finalMacros.calories - targets.calories) <= (targets.tolerance?.calories ?? tolerance.calories) &&
+      Math.abs(finalMacros.protein - targets.protein) <= (targets.tolerance?.protein ?? tolerance.protein) &&
+      Math.abs(finalMacros.carbs - targets.carbs) <= (targets.tolerance?.carbs ?? tolerance.carbs) &&
+      Math.abs(finalMacros.fats - targets.fats) <= (targets.tolerance?.fats ?? tolerance.fats);
+
     return {
       ingredients: optimized,
       totalMacros: finalMacros,
       iterations: 1, // LP is single-step
-      converged: status === this.glpkConstants.GLP_OPT,
+      // "Converged" means "meets target tolerances", not just "solver was optimal".
+      converged: withinTargetTolerance,
       log,
     };
   }
@@ -276,7 +309,12 @@ export class LinearProgrammingOptimizer {
   private buildLPProblem(
     ingredients: OptimizableIngredient[],
     targets: { protein: number; carbs: number; fats: number; calories: number },
-    weights: DirectionalWeights
+    weights: DirectionalWeights,
+    options: {
+      constraintTolerance: MacroTolerance;
+      enforceTargetTolerance: boolean;
+      includeRatioConstraints: boolean;
+    }
   ): any {
     const vars: any[] = [];
     const constraints: any[] = [];
@@ -332,60 +370,57 @@ export class LinearProgrammingOptimizer {
       constraints.push(constraint);
     });
 
-    // Ratio constraints (linear):
-    // 1) Fat energy share cap: 9*Σ(fat_i * x_i) ≤ α * Σ(cal_i * x_i)
-    // 2) Protein energy floor: 4*Σ(prot_i * x_i) ≥ β * Σ(cal_i * x_i)
-    // 3) Carb energy floor: 4*Σ(carb_i * x_i) ≥ γ * Σ(cal_i * x_i)
-    const RATIO = {
-      maxFatEnergyFraction: 0.35,   // ≤35% of calories from fat
-      minProteinEnergyFraction: 0.20, // ≥20% of calories from protein
-      minCarbEnergyFraction: 0.40,    // ≥40% of calories from carbs
-    } as const;
+    if (options.includeRatioConstraints) {
+      // Ratio constraints (linear). Note: these can conflict with explicit macro targets, so they must be optional.
+      // 1) Fat energy share cap: 9*Σ(fat_i * x_i) ≤ α * Σ(cal_i * x_i)
+      // 2) Protein energy floor: 4*Σ(prot_i * x_i) ≥ β * Σ(cal_i * x_i)
+      // 3) Carb energy floor: 4*Σ(carb_i * x_i) ≥ γ * Σ(cal_i * x_i)
+      const RATIO = {
+        maxFatEnergyFraction: 0.35, // ≤35% of calories from fat
+        minProteinEnergyFraction: 0.2, // ≥20% of calories from protein
+        minCarbEnergyFraction: 0.4, // ≥40% of calories from carbs
+      } as const;
 
-    // Helper to push ratio constraint of form: A*Σ(densityA*x) + B*Σ(densityB*x) ≤ rhs (rhs usually 0)
-    const pushRatioConstraint = (
-      name: string,
-      leftVars: Array<{ name: string; coef: number }>,
-      bnds: { type: number; ub: number; lb: number }
-    ) => {
-      constraints.push({ name, vars: leftVars, bnds });
-    };
+      const pushRatioConstraint = (
+        name: string,
+        leftVars: Array<{ name: string; coef: number }>,
+        bnds: { type: number; ub: number; lb: number }
+      ) => {
+        constraints.push({ name, vars: leftVars, bnds });
+      };
 
-    // Precompute variable contributions
-    const fatLeft: Array<{ name: string; coef: number }> = [];
-    const protLeft: Array<{ name: string; coef: number }> = [];
-    const carbLeft: Array<{ name: string; coef: number }> = [];
-    const calLeft: Array<{ name: string; coef: number }> = [];
-    ingredients.forEach(ing => {
-      fatLeft.push({ name: `x_${ing.index}`, coef: 9 * ing.density.fats });
-      protLeft.push({ name: `x_${ing.index}`, coef: 4 * ing.density.protein });
-      carbLeft.push({ name: `x_${ing.index}`, coef: 4 * ing.density.carbs });
-      calLeft.push({ name: `x_${ing.index}`, coef: ing.density.calories });
-    });
+      const fatLeft: Array<{ name: string; coef: number }> = [];
+      const protLeft: Array<{ name: string; coef: number }> = [];
+      const carbLeft: Array<{ name: string; coef: number }> = [];
+      const calLeft: Array<{ name: string; coef: number }> = [];
+      ingredients.forEach((ing) => {
+        fatLeft.push({ name: `x_${ing.index}`, coef: 9 * ing.density.fats });
+        protLeft.push({ name: `x_${ing.index}`, coef: 4 * ing.density.protein });
+        carbLeft.push({ name: `x_${ing.index}`, coef: 4 * ing.density.carbs });
+        calLeft.push({ name: `x_${ing.index}`, coef: ing.density.calories });
+      });
 
-    // Build fat cap: (9*fats_i - α*cal_i) summed over i ≤ 0
-    const fatCapVars: Array<{ name: string; coef: number }> = [];
-    for (let i = 0; i < ingredients.length; i++) {
-      const coef = (fatLeft[i].coef) - (RATIO.maxFatEnergyFraction * calLeft[i].coef);
-      fatCapVars.push({ name: fatLeft[i].name, coef });
+      const fatCapVars: Array<{ name: string; coef: number }> = [];
+      for (let i = 0; i < ingredients.length; i++) {
+        const coef = fatLeft[i].coef - RATIO.maxFatEnergyFraction * calLeft[i].coef;
+        fatCapVars.push({ name: fatLeft[i].name, coef });
+      }
+      pushRatioConstraint('fat_energy_cap', fatCapVars, { type: this.glpkConstants.GLP_UP, ub: 0, lb: -1e12 });
+
+      const protFloorVars: Array<{ name: string; coef: number }> = [];
+      for (let i = 0; i < ingredients.length; i++) {
+        const coef = RATIO.minProteinEnergyFraction * calLeft[i].coef - protLeft[i].coef;
+        protFloorVars.push({ name: protLeft[i].name, coef });
+      }
+      pushRatioConstraint('protein_energy_floor', protFloorVars, { type: this.glpkConstants.GLP_UP, ub: 0, lb: -1e12 });
+
+      const carbFloorVars: Array<{ name: string; coef: number }> = [];
+      for (let i = 0; i < ingredients.length; i++) {
+        const coef = RATIO.minCarbEnergyFraction * calLeft[i].coef - carbLeft[i].coef;
+        carbFloorVars.push({ name: carbLeft[i].name, coef });
+      }
+      pushRatioConstraint('carb_energy_floor', carbFloorVars, { type: this.glpkConstants.GLP_UP, ub: 0, lb: -1e12 });
     }
-    pushRatioConstraint('fat_energy_cap', fatCapVars, { type: this.glpkConstants.GLP_UP, ub: 0, lb: -1e12 });
-
-    // Protein floor: (β*cal_i - 4*prot_i) summed over i ≤ 0  => 4Σprot ≥ βΣcal
-    const protFloorVars: Array<{ name: string; coef: number }> = [];
-    for (let i = 0; i < ingredients.length; i++) {
-      const coef = (RATIO.minProteinEnergyFraction * calLeft[i].coef) - (protLeft[i].coef);
-      protFloorVars.push({ name: protLeft[i].name, coef });
-    }
-    pushRatioConstraint('protein_energy_floor', protFloorVars, { type: this.glpkConstants.GLP_UP, ub: 0, lb: -1e12 });
-
-    // Carb floor: (γ*cal_i - 4*carb_i) summed over i ≤ 0  => 4Σcarb ≥ γΣcal
-    const carbFloorVars: Array<{ name: string; coef: number }> = [];
-    for (let i = 0; i < ingredients.length; i++) {
-      const coef = (RATIO.minCarbEnergyFraction * calLeft[i].coef) - (carbLeft[i].coef);
-      carbFloorVars.push({ name: carbLeft[i].name, coef });
-    }
-    pushRatioConstraint('carb_energy_floor', carbFloorVars, { type: this.glpkConstants.GLP_UP, ub: 0, lb: -1e12 });
 
     // Bounds on ingredient amounts
     const bounds: any[] = [];
@@ -398,21 +433,16 @@ export class LinearProgrammingOptimizer {
       });
     });
 
-    // Bounds on deviation variables (non-negative)
-    macros.forEach(macro => {
+    // Bounds on deviation variables (non-negative; optionally bounded by tolerance for strict mode)
+    macros.forEach((macro) => {
+      const tol = Math.max(0, options.constraintTolerance[macro] ?? DEFAULT_TOLERANCE[macro]);
       bounds.push(
-        {
-          name: `d_${macro}_pos`,
-          type: this.glpkConstants.GLP_LO,
-          lb: 0,
-          ub: 0, // Will be ignored for GLP_LO
-        },
-        {
-          name: `d_${macro}_neg`,
-          type: this.glpkConstants.GLP_LO,
-          lb: 0,
-          ub: 0,
-        }
+        options.enforceTargetTolerance
+          ? { name: `d_${macro}_pos`, type: this.glpkConstants.GLP_DB, lb: 0, ub: tol }
+          : { name: `d_${macro}_pos`, type: this.glpkConstants.GLP_LO, lb: 0, ub: 0 },
+        options.enforceTargetTolerance
+          ? { name: `d_${macro}_neg`, type: this.glpkConstants.GLP_DB, lb: 0, ub: tol }
+          : { name: `d_${macro}_neg`, type: this.glpkConstants.GLP_LO, lb: 0, ub: 0 }
       );
     });
 

@@ -24,7 +24,8 @@ import { MacroValues, NutritionErrorType } from '../types/nutrition';
 import { MacroTargets } from './NutritionCalculationService';
 import { calculateMacrosForAmount, extractMacrosFromUSDA, normalizeFoodName } from '../utils/usdaMapper';
 import { HybridMealOptimizer } from './optimizers/HybridMealOptimizer';
-import { isZeroImpactIngredient, stripDescriptorWords, isSensitiveIngredient } from '../constants/ingredients';
+import type { OptimizableIngredient } from './optimizers/ProteinPriorityOptimizer';
+import { isAddedSugarIngredient, isSensitiveIngredient, isZeroImpactIngredient, stripDescriptorWords } from '../constants/ingredients';
 import { HARD_FAILURE_THRESHOLDS, GENERATION_TOLERANCES } from '../constants/validation';
 import { selectAndAdjustSupplementMeal, adjustSupplementMealToTarget } from './SupplementMealGenerator';
 import { searchNutritionKnowledge, NutritionFact } from '../rag/nutrition/nutritionKnowledgeBase';
@@ -33,30 +34,38 @@ import { env } from '../config/env';
 /**
  * Meal Schema for Batch Generation
  */
+const MealSchema = z.object({
+  mealName: z
+    .string()
+    .describe(
+      'Creative, descriptive meal name based on ingredients. MUST be unique for each meal type within the same day. Breakfast meals should use breakfast-appropriate names (e.g., "Greek Yogurt Parfait", "Scrambled Eggs with Toast"), lunch meals should use lunch-appropriate names (e.g., "Grilled Chicken Salad", "Turkey Wrap"), dinner meals should use dinner-appropriate names (e.g., "Baked Salmon with Vegetables", "Beef Stir-Fry"). DO NOT repeat the same meal name for different meal types on the same day.',
+    ),
+  mealType: z.enum(['breakfast', 'lunch', 'dinner', 'snack']),
+  ingredients: z.array(
+    z.object({
+      name: z.string(),
+      amount: z.number().describe('Amount in grams (e.g., 150, 25, 5)'),
+      estimatedCalories: z.number().optional().describe('Rough caloric estimate per this amount (e.g., 120)'),
+      estimatedProtein: z.number().optional().describe('Rough protein estimate in grams (e.g., 25)'),
+      estimatedCarbs: z.number().optional().describe('Rough carbs estimate in grams (e.g., 30)'),
+      estimatedFats: z.number().optional().describe('Rough fats estimate in grams (e.g., 10)'),
+    }),
+  ),
+  instructions: z
+    .array(z.string())
+    .describe(
+      'Step-by-step cooking instructions (3-5 steps, e.g., ["Season steak with salt and pepper", "Grill steak for 4-5 minutes per side", "Rest for 5 minutes before serving"])',
+    ),
+  estimatedCalories: z.number().optional(),
+  estimatedProtein: z.number().optional(),
+  estimatedCarbs: z.number().optional(),
+  estimatedFats: z.number().optional(),
+});
+
 const WeeklyMealSchema = z.object({
   dayNumber: z.number().min(1).max(7),
   dayName: z.string(),
-  meals: z.array(
-    z.object({
-      mealName: z.string().describe('Creative, descriptive meal name based on ingredients. MUST be unique for each meal type within the same day. Breakfast meals should use breakfast-appropriate names (e.g., "Greek Yogurt Parfait", "Scrambled Eggs with Toast"), lunch meals should use lunch-appropriate names (e.g., "Grilled Chicken Salad", "Turkey Wrap"), dinner meals should use dinner-appropriate names (e.g., "Baked Salmon with Vegetables", "Beef Stir-Fry"). DO NOT repeat the same meal name for different meal types on the same day.'),
-      mealType: z.enum(['breakfast', 'lunch', 'dinner', 'snack']),
-      ingredients: z.array(
-        z.object({
-          name: z.string(),
-          amount: z.number().describe('Amount in grams (e.g., 150, 25, 5)'),
-          estimatedCalories: z.number().optional().describe('Rough caloric estimate per this amount (e.g., 120)'),
-          estimatedProtein: z.number().optional().describe('Rough protein estimate in grams (e.g., 25)'),
-          estimatedCarbs: z.number().optional().describe('Rough carbs estimate in grams (e.g., 30)'),
-          estimatedFats: z.number().optional().describe('Rough fats estimate in grams (e.g., 10)'),
-        })
-      ),
-      instructions: z.array(z.string()).describe('Step-by-step cooking instructions (3-5 steps, e.g., ["Season steak with salt and pepper", "Grill steak for 4-5 minutes per side", "Rest for 5 minutes before serving"])'),
-      estimatedCalories: z.number().optional(),
-      estimatedProtein: z.number().optional(),
-      estimatedCarbs: z.number().optional(),
-      estimatedFats: z.number().optional(),
-    })
-  ),
+  meals: z.array(MealSchema),
 });
 
 const BatchMealGenerationSchema = z.object({
@@ -64,7 +73,87 @@ const BatchMealGenerationSchema = z.object({
   reasoning: z.string().optional(),
 });
 
+const WeeklyMealTemplatesSchema = z.object({
+  meals: z.array(MealSchema),
+  reasoning: z.string().optional(),
+});
+
 export type BatchMealGeneration = z.infer<typeof BatchMealGenerationSchema>;
+type WeeklyMealTemplatesGeneration = z.infer<typeof WeeklyMealTemplatesSchema>;
+
+type MealTemplateIngredient = {
+  name: string;
+  amount: number;
+  estimatedCalories?: number;
+  estimatedProtein?: number;
+  estimatedCarbs?: number;
+  estimatedFats?: number;
+};
+
+const atwaterPer100g = (macros: Omit<MacroValues, 'calories'>): MacroValues => {
+  const protein = Math.max(0, Number(macros.protein || 0));
+  const carbs = Math.max(0, Number(macros.carbs || 0));
+  const fats = Math.max(0, Number(macros.fats || 0));
+  return {
+    calories: Math.round((protein * 4 + carbs * 4 + fats * 9) * 10) / 10,
+    protein,
+    carbs,
+    fats,
+  };
+};
+
+// Deterministic fallback nutrition estimates (per 100g) for common staples.
+// Used ONLY when USDA lookup fails AND the AI did not provide estimates (e.g., for internal fallback templates).
+const FALLBACK_ESTIMATES_PER_100G: Record<string, MacroValues> = {
+  [normalizeFoodName('Eggs')]: atwaterPer100g({ protein: 13, carbs: 1.1, fats: 10.6 }),
+  [normalizeFoodName('Chicken Breast')]: atwaterPer100g({ protein: 31, carbs: 0, fats: 3.6 }),
+  [normalizeFoodName('Salmon')]: atwaterPer100g({ protein: 20, carbs: 0, fats: 13 }),
+  [normalizeFoodName('Tofu')]: atwaterPer100g({ protein: 8, carbs: 2, fats: 4.8 }),
+  [normalizeFoodName('Brown Rice')]: atwaterPer100g({ protein: 2.6, carbs: 23, fats: 0.9 }),
+  [normalizeFoodName('Quinoa')]: atwaterPer100g({ protein: 4.4, carbs: 21.3, fats: 1.9 }),
+  [normalizeFoodName('Sweet Potato')]: atwaterPer100g({ protein: 1.6, carbs: 20, fats: 0.1 }),
+  [normalizeFoodName('Broccoli')]: atwaterPer100g({ protein: 2.8, carbs: 7, fats: 0.4 }),
+  [normalizeFoodName('Spinach')]: atwaterPer100g({ protein: 2.9, carbs: 3.6, fats: 0.4 }),
+  [normalizeFoodName('Tomato')]: atwaterPer100g({ protein: 0.9, carbs: 3.9, fats: 0.2 }),
+  [normalizeFoodName('Mushrooms')]: atwaterPer100g({ protein: 3, carbs: 3, fats: 0.3 }),
+  [normalizeFoodName('Avocado')]: atwaterPer100g({ protein: 2, carbs: 9, fats: 15 }),
+  [normalizeFoodName('Greek Yogurt')]: atwaterPer100g({ protein: 10, carbs: 4, fats: 0.5 }),
+  [normalizeFoodName('Soy Yogurt')]: atwaterPer100g({ protein: 4, carbs: 7, fats: 3 }),
+  [normalizeFoodName('Olive Oil')]: atwaterPer100g({ protein: 0, carbs: 0, fats: 100 }),
+  [normalizeFoodName('Rolled Oats')]: atwaterPer100g({ protein: 12, carbs: 60, fats: 6 }),
+  [normalizeFoodName('Chia Seeds')]: atwaterPer100g({ protein: 16, carbs: 42, fats: 31 }),
+  [normalizeFoodName('Banana')]: atwaterPer100g({ protein: 1.1, carbs: 23, fats: 0.3 }),
+  [normalizeFoodName('Berries')]: atwaterPer100g({ protein: 1, carbs: 14, fats: 0.3 }),
+  [normalizeFoodName('Whey Protein Powder')]: atwaterPer100g({ protein: 80, carbs: 10, fats: 5 }),
+  [normalizeFoodName('Pea Protein Powder')]: atwaterPer100g({ protein: 80, carbs: 8, fats: 5 }),
+  [normalizeFoodName('Water')]: atwaterPer100g({ protein: 0, carbs: 0, fats: 0 }),
+  [normalizeFoodName('Peanut Butter')]: atwaterPer100g({ protein: 25, carbs: 20, fats: 50 }),
+  [normalizeFoodName('Almond Butter')]: atwaterPer100g({ protein: 21, carbs: 19, fats: 55 }),
+  [normalizeFoodName('Almonds')]: atwaterPer100g({ protein: 21, carbs: 22, fats: 50 }),
+};
+
+const withFallbackEstimates = (ingredient: MealTemplateIngredient): MealTemplateIngredient => {
+  const hasEstimates =
+    typeof ingredient.estimatedCalories === 'number' ||
+    typeof ingredient.estimatedProtein === 'number' ||
+    typeof ingredient.estimatedCarbs === 'number' ||
+    typeof ingredient.estimatedFats === 'number';
+  if (hasEstimates) return ingredient;
+
+  const normalized = normalizeFoodName(ingredient.name);
+  const stripped = stripDescriptorWords(ingredient.name);
+  const per100g = FALLBACK_ESTIMATES_PER_100G[normalized] || (stripped ? FALLBACK_ESTIMATES_PER_100G[stripped] : null);
+  if (!per100g) return ingredient;
+
+  const macros = calculateMacrosForAmount(per100g, ingredient.amount, 'g');
+  return {
+    ...ingredient,
+    estimatedCalories: macros.calories,
+    estimatedProtein: macros.protein,
+    estimatedCarbs: macros.carbs,
+    estimatedFats: macros.fats,
+  };
+};
 
 /**
  * Meal with USDA Data
@@ -197,6 +286,1048 @@ export class BatchMealGenerator {
     });
   }
 
+  private isProteinPowderIngredient(name: string): boolean {
+    const normalized = normalizeFoodName(name);
+    return (
+      normalized.includes('protein powder') ||
+      normalized.includes('whey protein') ||
+      normalized.includes('pea protein powder') ||
+      normalized === 'whey protein powder' ||
+      normalized === 'pea protein powder'
+    );
+  }
+
+  private sanitizeMealsForRealism(dayMeals: MealWithUSDA[]): MealWithUSDA[] {
+    return (dayMeals || []).map((meal) => {
+      // Protein powder is only acceptable in dedicated shake/snack meals.
+      if (meal.mealType === 'snack') return meal;
+
+      const hadProteinPowder = (meal.ingredients || []).some((ing) => this.isProteinPowderIngredient(ing.name));
+      if (!hadProteinPowder) return meal;
+
+      const filteredIngredients = (meal.ingredients || []).filter((ing) => !this.isProteinPowderIngredient(ing.name));
+      const filteredInstructions = (meal.instructions || []).filter((step) => {
+        const s = (step || '').toLowerCase();
+        return !(s.includes('protein powder') || s.includes('whey') || s.includes('pea protein'));
+      });
+
+      const totalMacros = filteredIngredients.reduce(
+        (sum, ing) => ({
+          calories: sum.calories + (ing.nutrition.calories || 0),
+          protein: sum.protein + (ing.nutrition.protein || 0),
+          carbs: sum.carbs + (ing.nutrition.carbs || 0),
+          fats: sum.fats + (ing.nutrition.fats || 0),
+        }),
+        { calories: 0, protein: 0, carbs: 0, fats: 0 } as MacroValues
+      );
+
+      return {
+        ...meal,
+        ingredients: filteredIngredients,
+        instructions: filteredInstructions.length > 0 ? filteredInstructions : meal.instructions,
+        totalMacros,
+        adjustmentLog: [
+          ...(meal.adjustmentLog || []),
+          'Removed protein powder from non-snack meal for realism; macros rebalanced via ingredient scaling.',
+        ],
+      };
+    });
+  }
+
+  private pruneZeroAmountIngredients(meal: MealWithUSDA): MealWithUSDA {
+    const prunedIngredients = (meal.ingredients || []).filter((ing) => Number(ing.amount || 0) > 0.1);
+    if (prunedIngredients.length === (meal.ingredients || []).length) {
+      return meal;
+    }
+
+    const totalMacros = prunedIngredients.reduce(
+      (sum, ing) => ({
+        calories: sum.calories + (ing.nutrition.calories || 0),
+        protein: sum.protein + (ing.nutrition.protein || 0),
+        carbs: sum.carbs + (ing.nutrition.carbs || 0),
+        fats: sum.fats + (ing.nutrition.fats || 0),
+      }),
+      { calories: 0, protein: 0, carbs: 0, fats: 0 } as MacroValues
+    );
+
+    return {
+      ...meal,
+      ingredients: prunedIngredients,
+      totalMacros,
+      adjustmentLog: [...(meal.adjustmentLog || []), 'Removed zero-amount ingredients (<=0.1g)'],
+    };
+  }
+
+  private applySnackCalorieCaps(
+    dayMeals: MealWithUSDA[],
+    optimizable: OptimizableIngredient[],
+    indexMap: Array<{ mealIdx: number; ingIdx: number }>,
+    dayTargets: MacroValues,
+    options?: {
+      boundsMode?: 'normal' | 'expanded' | 'rescue';
+      snackCapMode?: 'normal' | 'relaxed' | 'disabled';
+    }
+  ): void {
+    const snackMeals = dayMeals
+      .map((meal, mealIdx) => ({ meal, mealIdx }))
+      .filter(({ meal }) => meal.mealType === 'snack');
+
+    if (snackMeals.length === 0) return;
+
+    const mealDistribution = this.getMealCalorieDistribution(this.currentMealFrequency, dayTargets.calories);
+    const snackTargets = mealDistribution.snacks ?? [];
+
+    const boundsMode = options?.boundsMode || 'normal';
+    const snackCapMode = options?.snackCapMode || 'normal';
+
+    const capConfig =
+      snackCapMode === 'disabled'
+        ? boundsMode === 'rescue'
+          ? { maxFractionOfDay: 0.34, targetMultiplier: 3.0, targetPlus: 450, absoluteCap: 1150 }
+          : boundsMode === 'expanded'
+            ? { maxFractionOfDay: 0.30, targetMultiplier: 2.6, targetPlus: 340, absoluteCap: 1050 }
+            : { maxFractionOfDay: 0.28, targetMultiplier: 2.4, targetPlus: 300, absoluteCap: 950 }
+        : snackCapMode === 'relaxed'
+          ? boundsMode === 'rescue'
+            ? { maxFractionOfDay: 0.32, targetMultiplier: 2.8, targetPlus: 400, absoluteCap: 1050 }
+            : boundsMode === 'expanded'
+              ? { maxFractionOfDay: 0.28, targetMultiplier: 2.3, targetPlus: 280, absoluteCap: 950 }
+              : { maxFractionOfDay: 0.26, targetMultiplier: 2.0, targetPlus: 220, absoluteCap: 900 }
+          : boundsMode === 'rescue'
+            ? { maxFractionOfDay: 0.3, targetMultiplier: 2.4, targetPlus: 300, absoluteCap: 1200 }
+            : boundsMode === 'expanded'
+              ? { maxFractionOfDay: 0.25, targetMultiplier: 2.0, targetPlus: 200, absoluteCap: 950 }
+              : { maxFractionOfDay: 0.22, targetMultiplier: 1.8, targetPlus: 150, absoluteCap: 800 };
+
+    const indicesByMealIdx = new Map<number, number[]>();
+    indexMap.forEach((entry, globalIdx) => {
+      const indices = indicesByMealIdx.get(entry.mealIdx);
+      if (indices) {
+        indices.push(globalIdx);
+      } else {
+        indicesByMealIdx.set(entry.mealIdx, [globalIdx]);
+      }
+    });
+
+    let snackCounter = 0;
+    snackMeals.forEach(({ meal, mealIdx }) => {
+      const snackIndex = snackCounter++;
+      const snackTargetCalories =
+        snackTargets[snackIndex] ??
+        snackTargets[snackTargets.length - 1] ??
+        Math.round(dayTargets.calories * 0.1);
+
+      const maxSnackCalories = Math.min(
+        dayTargets.calories * capConfig.maxFractionOfDay,
+        Math.max(snackTargetCalories * capConfig.targetMultiplier, snackTargetCalories + capConfig.targetPlus),
+        capConfig.absoluteCap
+      );
+
+      const ingredientIndices = indicesByMealIdx.get(mealIdx) ?? [];
+      if (ingredientIndices.length === 0) return;
+
+      let lockedCalories = 0;
+      let adjustableCalories = 0;
+      const adjustableIndices: number[] = [];
+
+      ingredientIndices.forEach((globalIdx) => {
+        const opt = optimizable[globalIdx];
+        const calories = (opt.density?.calories ?? 0) * (opt.currentAmount ?? 0);
+        if (opt.isLocked) {
+          lockedCalories += calories;
+        } else {
+          adjustableCalories += calories;
+          adjustableIndices.push(globalIdx);
+        }
+      });
+
+      if (adjustableIndices.length === 0) {
+        if (lockedCalories > maxSnackCalories + 1) {
+          console.warn(
+            `⚠️ [BATCH] Snack "${meal.mealName}" is fully locked at ~${lockedCalories.toFixed(
+              0
+            )} kcal and exceeds cap ${maxSnackCalories.toFixed(0)} kcal`
+          );
+        }
+        return;
+      }
+
+      const maxAdjustableCalories = Math.max(0, maxSnackCalories - lockedCalories);
+      if (!(adjustableCalories > 0)) return;
+
+      const scale = maxAdjustableCalories / adjustableCalories;
+      if (!Number.isFinite(scale) || scale <= 0) {
+        // No calorie room left after locked items; clamp all adjustable ingredients to zero.
+        adjustableIndices.forEach((globalIdx) => {
+          const opt = optimizable[globalIdx];
+          if (opt.isLocked) return;
+          opt.maxAmount = 0;
+          opt.minAmount = 0;
+          opt.currentAmount = 0;
+        });
+        console.log(
+          `⚖️  [BATCH] Snack cap forced "${meal.mealName}" to 0 kcal adjustable (locked ~${lockedCalories.toFixed(
+            0
+          )} kcal, cap ${maxSnackCalories.toFixed(0)} kcal)`
+        );
+        return;
+      }
+
+      let didClamp = false;
+      adjustableIndices.forEach((globalIdx) => {
+        const opt = optimizable[globalIdx];
+        if (opt.isLocked) return;
+
+        const scaledMax = Math.max(0, (opt.currentAmount ?? 0) * scale);
+        if (scaledMax < opt.maxAmount - 0.01) {
+          didClamp = true;
+          opt.maxAmount = scaledMax;
+        }
+
+        if (opt.minAmount > opt.maxAmount) {
+          opt.minAmount = 0;
+        }
+        if (opt.currentAmount > opt.maxAmount) {
+          opt.currentAmount = opt.maxAmount;
+        }
+      });
+
+      if (didClamp) {
+        console.log(
+          `⚖️  [BATCH] Snack cap applied: "${meal.mealName}" (target ~${snackTargetCalories} kcal, cap ${maxSnackCalories.toFixed(
+            0
+          )} kcal)`
+        );
+      }
+    });
+  }
+
+  private applyMainMealCalorieFloors(
+    dayMeals: MealWithUSDA[],
+    optimizable: OptimizableIngredient[],
+    indexMap: Array<{ mealIdx: number; ingIdx: number }>,
+    dayTargets: MacroValues,
+    options?: {
+      boundsMode?: 'normal' | 'expanded' | 'rescue';
+    }
+  ): void {
+    const mealDistribution = this.getMealCalorieDistribution(this.currentMealFrequency, dayTargets.calories);
+    const boundsMode = options?.boundsMode || 'normal';
+
+    // Prevent any main meal from collapsing into a near-zero "empty meal". We keep this lightweight:
+    // it never forces increases, it only stops the optimizer from shrinking below a reasonable floor.
+    const floorFraction = boundsMode === 'rescue' ? 0.30 : boundsMode === 'expanded' ? 0.25 : 0.20;
+    const minFloorCalories = boundsMode === 'rescue' ? 90 : boundsMode === 'expanded' ? 85 : 80;
+
+    const indicesByMealIdx = new Map<number, number[]>();
+    indexMap.forEach((entry, globalIdx) => {
+      const indices = indicesByMealIdx.get(entry.mealIdx);
+      if (indices) {
+        indices.push(globalIdx);
+      } else {
+        indicesByMealIdx.set(entry.mealIdx, [globalIdx]);
+      }
+    });
+
+    dayMeals.forEach((meal, mealIdx) => {
+      if (meal.mealType === 'snack') return;
+
+      const targetCalories =
+        meal.mealType === 'breakfast'
+          ? mealDistribution.breakfast
+          : meal.mealType === 'lunch'
+            ? mealDistribution.lunch
+            : mealDistribution.dinner;
+
+      const floorWanted = Math.max(minFloorCalories, Math.round(targetCalories * floorFraction));
+      const ingredientIndices = indicesByMealIdx.get(mealIdx) ?? [];
+      if (ingredientIndices.length === 0) return;
+
+      // Only protect non-sensitive ingredients so the optimizer can still reduce oils/nut butters to hit fat targets.
+      const protectedIndices = ingredientIndices.filter((globalIdx) => {
+        const opt = optimizable[globalIdx];
+        if (opt.isLocked) return false;
+        if (isZeroImpactIngredient(opt.name)) return false;
+        if (isSensitiveIngredient(opt.name)) return false;
+        return true;
+      });
+      if (protectedIndices.length === 0) return;
+
+      let lockedCalories = 0;
+      let adjustableCalories = 0;
+      ingredientIndices.forEach((globalIdx) => {
+        const opt = optimizable[globalIdx];
+        const calories = (opt.density?.calories ?? 0) * (opt.currentAmount ?? 0);
+        if (opt.isLocked) lockedCalories += calories;
+        else if (protectedIndices.includes(globalIdx)) adjustableCalories += calories;
+      });
+
+      const currentMealCalories = lockedCalories + adjustableCalories;
+      if (!(currentMealCalories > 1)) return;
+
+      // Only prevent meals from shrinking below a reasonable floor; never force increases here.
+      const enforcedFloor = Math.min(currentMealCalories, floorWanted);
+      if (!(enforcedFloor > lockedCalories + 1e-6)) return;
+      if (!(adjustableCalories > 0)) return;
+
+      const requiredAdjustableFloorCalories = Math.max(0, enforcedFloor - lockedCalories);
+      const scale = Math.max(0, Math.min(1, requiredAdjustableFloorCalories / adjustableCalories));
+      if (!Number.isFinite(scale) || scale <= 0) return;
+
+      let didApply = false;
+      protectedIndices.forEach((globalIdx) => {
+        const opt = optimizable[globalIdx];
+        if (opt.isLocked) return;
+        const minAmount = Math.max(0, (opt.currentAmount ?? 0) * scale);
+        if (minAmount > opt.minAmount + 0.01) {
+          didApply = true;
+          opt.minAmount = minAmount;
+        }
+        if (opt.maxAmount < opt.minAmount) {
+          opt.maxAmount = opt.minAmount;
+        }
+      });
+
+      if (didApply) {
+        console.log(
+          `⚖️  [BATCH] Main-meal floor enforced: ${meal.mealType} "${meal.mealName}" ≥ ~${Math.round(
+            enforcedFloor
+          )} kcal`
+        );
+      }
+    });
+  }
+
+  private nudgeDayForResiduals(
+    dayMeals: MealWithUSDA[],
+    usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>,
+    targets: MacroValues,
+    tolerance: { calories: number; protein: number; carbs: number; fats: number }
+  ): MealWithUSDA[] {
+    const cloneMeals = dayMeals.map((m) => ({
+      ...m,
+      ingredients: m.ingredients.map((ing) => ({ ...ing })),
+      totalMacros: { ...m.totalMacros },
+    }));
+
+    const calculateTotals = (meals: MealWithUSDA[]) =>
+      meals.reduce(
+        (sum, meal) => ({
+          calories: sum.calories + meal.totalMacros.calories,
+          protein: sum.protein + meal.totalMacros.protein,
+          carbs: sum.carbs + meal.totalMacros.carbs,
+          fats: sum.fats + meal.totalMacros.fats,
+        }),
+        { calories: 0, protein: 0, carbs: 0, fats: 0 } as MacroValues
+      );
+
+    const getDensity = (
+      macro: 'protein' | 'carbs' | 'fats',
+      ing: { amount?: number; nutrition: MacroValues },
+      usda?: MacroValues
+    ) => {
+      if (usda) {
+        return macro === 'protein' ? usda.protein / 100 : macro === 'carbs' ? usda.carbs / 100 : usda.fats / 100;
+      }
+      const amount = Number(ing.amount || 0);
+      if (!(amount > 0)) return 0;
+      return macro === 'protein'
+          ? ing.nutrition.protein / amount
+          : macro === 'carbs'
+            ? ing.nutrition.carbs / amount
+            : ing.nutrition.fats / amount;
+    };
+
+    const derivePer100gFromIngredient = (ing: { amount?: number; nutrition: MacroValues }): MacroValues | undefined => {
+      const amount = Number(ing.amount || 0);
+      if (!(amount > 0)) return undefined;
+      const scale = 100 / amount;
+      return {
+        calories: ing.nutrition.calories * scale,
+        protein: ing.nutrition.protein * scale,
+        carbs: ing.nutrition.carbs * scale,
+        fats: ing.nutrition.fats * scale,
+      };
+    };
+
+    const macroConfigs: Record<
+      'protein' | 'carbs' | 'fats',
+      { maxAdd: number; minDensity: number; maxCut?: number; maxCutDensity?: number }
+    > = {
+      protein: { maxAdd: 80, minDensity: 0.05 },
+      // Allow meaningful trims when the LP result is close-but-not-exact (e.g., -20g carbs / +9g fats),
+      // while still capping per-iteration adjustments for realism.
+      carbs: { maxAdd: 120, minDensity: 0.1, maxCut: 40, maxCutDensity: 0.05 },
+      fats: { maxAdd: 25, minDensity: 0.05, maxCut: 25, maxCutDensity: 0.08 },
+    };
+
+    const adjust = (macro: 'protein' | 'carbs' | 'fats') => {
+      const totals = calculateTotals(cloneMeals);
+      const delta = totals[macro] - targets[macro]; // positive = over, negative = under
+
+      // Under-target: add to best high-density ingredient
+      if (delta < -tolerance[macro]) {
+        const deficit = -delta;
+        if (deficit > macroConfigs[macro].maxAdd * 2) return; // too large; main optimizer should have handled
+
+        let best:
+          | { mealIdx: number; ingIdx: number; density: number; per100g: MacroValues }
+          | undefined;
+
+        cloneMeals.forEach((meal, mealIdx) => {
+          meal.ingredients.forEach((ing, ingIdx) => {
+            if (isZeroImpactIngredient(ing.name)) return;
+            // Never use protein powders as a "macro crutch" in micro-corrections.
+            if (this.isProteinPowderIngredient(ing.name)) return;
+            const usda = usdaData[normalizeFoodName(ing.name)];
+            const per100g = usda?.nutrition;
+            if (per100g) {
+              const density = getDensity(macro, ing, per100g);
+              if (density > macroConfigs[macro].minDensity && (!best || density > best.density)) {
+                best = { mealIdx, ingIdx, density, per100g };
+              }
+            }
+          });
+
+          // Fallback to ingredient-derived density if USDA lookup failed everywhere
+          if (!best) {
+            meal.ingredients.forEach((ing, ingIdx) => {
+              if (isZeroImpactIngredient(ing.name)) return;
+              if (this.isProteinPowderIngredient(ing.name)) return;
+              const density = getDensity(macro, ing);
+              if (!(density > macroConfigs[macro].minDensity)) return;
+              const derived = derivePer100gFromIngredient(ing);
+              if (!derived) return;
+              if (!best || density > best.density) {
+                best = { mealIdx, ingIdx, density, per100g: derived };
+              }
+            });
+          }
+        });
+
+        if (!best) return;
+
+        const { mealIdx, ingIdx, density, per100g } = best;
+        const meal = cloneMeals[mealIdx];
+        const ing = meal.ingredients[ingIdx];
+        const maxBump = macroConfigs[macro].maxAdd / density;
+        const bump = Math.min(maxBump, Math.max(3, deficit / density));
+
+        ing.amount = Math.round((ing.amount + bump) * 10) / 10;
+        ing.nutrition = calculateMacrosForAmount(per100g, ing.amount, 'g');
+        meal.totalMacros = meal.ingredients.reduce(
+          (sum, ingredient) => ({
+            calories: sum.calories + ingredient.nutrition.calories,
+            protein: sum.protein + ingredient.nutrition.protein,
+            carbs: sum.carbs + ingredient.nutrition.carbs,
+            fats: sum.fats + ingredient.nutrition.fats,
+          }),
+          { calories: 0, protein: 0, carbs: 0, fats: 0 }
+        );
+      }
+
+      // Over-target: gently trim high-density ingredient for carbs/fats only (never trim protein)
+      if (delta > tolerance[macro] && macro !== 'protein') {
+        const surplus = delta;
+        const cfg = macroConfigs[macro];
+        if (!cfg.maxCut || !cfg.maxCutDensity) return;
+
+        let best:
+          | { mealIdx: number; ingIdx: number; density: number; per100g: MacroValues }
+          | undefined;
+
+        cloneMeals.forEach((meal, mealIdx) => {
+          meal.ingredients.forEach((ing, ingIdx) => {
+            if (isZeroImpactIngredient(ing.name)) return;
+            if (this.isProteinPowderIngredient(ing.name)) return;
+            const usda = usdaData[normalizeFoodName(ing.name)];
+            const per100g = usda?.nutrition;
+            if (per100g) {
+              const density = getDensity(macro, ing, per100g);
+              if (density > cfg.maxCutDensity && (!best || density > best.density)) {
+                best = { mealIdx, ingIdx, density, per100g };
+              }
+            }
+          });
+
+          if (!best) {
+            meal.ingredients.forEach((ing, ingIdx) => {
+              if (isZeroImpactIngredient(ing.name)) return;
+              if (this.isProteinPowderIngredient(ing.name)) return;
+              const density = getDensity(macro, ing);
+              if (!(density > cfg.maxCutDensity)) return;
+              const derived = derivePer100gFromIngredient(ing);
+              if (!derived) return;
+              if (!best || density > best.density) {
+                best = { mealIdx, ingIdx, density, per100g: derived };
+              }
+            });
+          }
+        });
+
+        if (!best) return;
+        const { mealIdx, ingIdx, density, per100g } = best;
+        const meal = cloneMeals[mealIdx];
+        const ing = meal.ingredients[ingIdx];
+        const maxCut = cfg.maxCut / density;
+        const cut = Math.min(maxCut, Math.max(2, surplus / density));
+
+        const newAmount = Math.max(0, Math.round((ing.amount - cut) * 10) / 10);
+        ing.amount = newAmount;
+        ing.nutrition = calculateMacrosForAmount(per100g, ing.amount, 'g');
+        meal.totalMacros = meal.ingredients.reduce(
+          (sum, ingredient) => ({
+            calories: sum.calories + ingredient.nutrition.calories,
+            protein: sum.protein + ingredient.nutrition.protein,
+            carbs: sum.carbs + ingredient.nutrition.carbs,
+            fats: sum.fats + ingredient.nutrition.fats,
+          }),
+          { calories: 0, protein: 0, carbs: 0, fats: 0 }
+        );
+      }
+    };
+
+    for (let i = 0; i < 6; i++) {
+      adjust('protein');
+      adjust('carbs');
+      adjust('fats');
+      const totals = calculateTotals(cloneMeals);
+      const within =
+        Math.abs(totals.calories - targets.calories) <= tolerance.calories &&
+        Math.abs(totals.protein - targets.protein) <= tolerance.protein &&
+        Math.abs(totals.carbs - targets.carbs) <= tolerance.carbs &&
+        Math.abs(totals.fats - targets.fats) <= tolerance.fats;
+      if (within) break;
+    }
+
+    // Final convergence: if we are still outside tolerance, explicitly push deltas into the densest available ingredient.
+    const totalsAfterLoop = calculateTotals(cloneMeals);
+    const resolveMacro = (macro: 'protein' | 'carbs' | 'fats'): boolean => {
+      const delta = totalsAfterLoop[macro] - targets[macro];
+      if (Math.abs(delta) <= tolerance[macro]) return false;
+
+      const cfg = macroConfigs[macro];
+      const findBest = (preferCuts: boolean) => {
+        let best:
+          | { mealIdx: number; ingIdx: number; density: number; per100g: MacroValues }
+          | undefined;
+        cloneMeals.forEach((meal, mealIdx) => {
+          meal.ingredients.forEach((ing, ingIdx) => {
+            if (isZeroImpactIngredient(ing.name)) return;
+            const usda = usdaData[normalizeFoodName(ing.name)];
+            const per100g = usda?.nutrition || derivePer100gFromIngredient(ing);
+            if (!per100g) return;
+            const density = getDensity(macro, ing, per100g);
+            if (!(density > 0)) return;
+            // When cutting, pick highest density to minimize amount removed; when adding, pick highest density to minimize volume.
+            if (!best || density > best.density) {
+              best = { mealIdx, ingIdx, density, per100g };
+            }
+          });
+        });
+        return best;
+      };
+
+      if (delta < 0) {
+        const best = findBest(false);
+        if (!best) return false;
+        const deficit = -delta;
+        const { mealIdx, ingIdx, density, per100g } = best;
+        const bump = Math.max(1, deficit / Math.max(density, 0.01));
+        const meal = cloneMeals[mealIdx];
+        const ing = meal.ingredients[ingIdx];
+        ing.amount = Math.round((ing.amount + bump) * 10) / 10;
+        ing.nutrition = calculateMacrosForAmount(per100g, ing.amount, 'g');
+        meal.totalMacros = meal.ingredients.reduce(
+          (sum, ingredient) => ({
+            calories: sum.calories + ingredient.nutrition.calories,
+            protein: sum.protein + ingredient.nutrition.protein,
+            carbs: sum.carbs + ingredient.nutrition.carbs,
+          fats: sum.fats + ingredient.nutrition.fats,
+        }),
+        { calories: 0, protein: 0, carbs: 0, fats: 0 }
+      );
+        return true;
+      } else if (macro !== 'protein') {
+        // Trim only carbs/fats; never trim protein in final convergence.
+        const best = findBest(true);
+        if (!best) return false;
+        const surplus = delta;
+        const { mealIdx, ingIdx, density, per100g } = best;
+        const cut = Math.max(0.5, surplus / Math.max(density, 0.01));
+        const meal = cloneMeals[mealIdx];
+        const ing = meal.ingredients[ingIdx];
+        const newAmount = Math.max(0, Math.round((ing.amount - cut) * 10) / 10);
+        ing.amount = newAmount;
+        ing.nutrition = calculateMacrosForAmount(per100g, ing.amount, 'g');
+        meal.totalMacros = meal.ingredients.reduce(
+          (sum, ingredient) => ({
+            calories: sum.calories + ingredient.nutrition.calories,
+            protein: sum.protein + ingredient.nutrition.protein,
+            carbs: sum.carbs + ingredient.nutrition.carbs,
+          fats: sum.fats + ingredient.nutrition.fats,
+        }),
+        { calories: 0, protein: 0, carbs: 0, fats: 0 }
+      );
+        return true;
+      }
+      return false;
+    };
+
+    // Re-evaluate totals after each forced adjustment to ensure convergence.
+    for (let j = 0; j < 4; j++) {
+      const changedProtein = resolveMacro('protein');
+      const changedCarbs = resolveMacro('carbs');
+      const changedFats = resolveMacro('fats');
+      if (changedProtein || changedCarbs || changedFats) {
+        const totals = calculateTotals(cloneMeals);
+        const within =
+          Math.abs(totals.calories - targets.calories) <= tolerance.calories &&
+          Math.abs(totals.protein - targets.protein) <= tolerance.protein &&
+          Math.abs(totals.carbs - targets.carbs) <= tolerance.carbs &&
+          Math.abs(totals.fats - targets.fats) <= tolerance.fats;
+        if (within) break;
+        totalsAfterLoop.calories = totals.calories;
+        totalsAfterLoop.protein = totals.protein;
+        totalsAfterLoop.carbs = totals.carbs;
+        totalsAfterLoop.fats = totals.fats;
+      } else {
+        break;
+      }
+    }
+
+    // Final snap-to-target for tiny residuals: directly solve for grams needed on the densest ingredient.
+    const snapMacro = (macro: 'protein' | 'carbs' | 'fats'): boolean => {
+      const totals = calculateTotals(cloneMeals);
+      const delta = targets[macro] - totals[macro]; // positive means we are under
+      if (Math.abs(delta) <= tolerance[macro]) return false;
+
+      let best:
+        | { mealIdx: number; ingIdx: number; density: number; per100g: MacroValues }
+        | undefined;
+
+      cloneMeals.forEach((meal, mealIdx) => {
+        meal.ingredients.forEach((ing, ingIdx) => {
+          if (isZeroImpactIngredient(ing.name)) return;
+          const usda = usdaData[normalizeFoodName(ing.name)];
+          const per100g = usda?.nutrition || derivePer100gFromIngredient(ing);
+          if (!per100g) return;
+          const density = getDensity(macro, ing, per100g);
+          if (!(density > 0)) return;
+          if (!best || density > best.density) {
+            best = { mealIdx, ingIdx, density, per100g };
+          }
+        });
+      });
+
+      if (!best) return false;
+
+      const { mealIdx, ingIdx, density, per100g } = best;
+      const meal = cloneMeals[mealIdx];
+      const ing = meal.ingredients[ingIdx];
+
+      if (delta > 0) {
+        // Need to add
+        const bump = Math.max(0.5, delta / Math.max(density, 0.01));
+        ing.amount = Math.round((ing.amount + bump) * 10) / 10;
+      } else if (macro !== 'protein') {
+        // Need to cut (only carbs/fats); never cut protein in final snap.
+        const cut = Math.max(0.5, -delta / Math.max(density, 0.01));
+        ing.amount = Math.max(0, Math.round((ing.amount - cut) * 10) / 10);
+      } else {
+        return false;
+      }
+
+      ing.nutrition = calculateMacrosForAmount(per100g, ing.amount, 'g');
+      meal.totalMacros = meal.ingredients.reduce(
+        (sum, ingredient) => ({
+          calories: sum.calories + ingredient.nutrition.calories,
+          protein: sum.protein + ingredient.nutrition.protein,
+          carbs: sum.carbs + ingredient.nutrition.carbs,
+          fats: sum.fats + ingredient.nutrition.fats,
+        }),
+        { calories: 0, protein: 0, carbs: 0, fats: 0 }
+      );
+      return true;
+    };
+
+    for (let k = 0; k < 2; k++) {
+      const any = snapMacro('protein') || snapMacro('carbs') || snapMacro('fats');
+      if (!any) break;
+      const totals = calculateTotals(cloneMeals);
+      const within =
+        Math.abs(totals.calories - targets.calories) <= tolerance.calories &&
+        Math.abs(totals.protein - targets.protein) <= tolerance.protein &&
+        Math.abs(totals.carbs - targets.carbs) <= tolerance.carbs &&
+        Math.abs(totals.fats - targets.fats) <= tolerance.fats;
+      if (within) break;
+    }
+
+    return cloneMeals;
+  }
+
+  private injectMacroBalancerIngredients(
+    dayMeals: MealWithUSDA[],
+    usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>,
+    dayTargets: MacroValues,
+    gaps: MacroValues,
+    userProfile?: UserProfile
+  ): MealWithUSDA[] {
+    if (!dayMeals || dayMeals.length === 0) return dayMeals;
+
+    const prefs = ((userProfile?.preferences || '') + ' ' + (userProfile?.dietType || '')).toLowerCase();
+    const allergies = (userProfile?.allergies || []).map((a) => (a || '').toLowerCase());
+    const isVegan = prefs.includes('vegan');
+    const isVegetarian = !isVegan && prefs.includes('vegetarian');
+    const isPescatarian = prefs.includes('pescatarian');
+    const isKeto = prefs.includes('keto');
+
+    const avoidEggs = isVegan || allergies.some((a) => a.includes('egg'));
+    const avoidFish = allergies.some((a) => a.includes('fish') || a.includes('seafood'));
+
+    const proteinBalancer = isVegan
+      ? 'Tofu'
+      : isPescatarian && !avoidFish
+        ? 'Salmon'
+        : isVegetarian
+          ? avoidEggs
+            ? 'Tofu'
+            : 'Eggs'
+          : 'Chicken Breast';
+
+    const carbBalancer = isKeto ? null : 'Brown Rice';
+    const fatBalancer = 'Olive Oil';
+
+    const hasIngredient = (name: string) => {
+      const key = normalizeFoodName(name);
+      return dayMeals.some((meal) => (meal.ingredients || []).some((ing) => normalizeFoodName(ing.name) === key));
+    };
+
+    const getEntry = (name: string) => usdaData[normalizeFoodName(name)]?.nutrition ?? null;
+    const getFdcId = (name: string) => usdaData[normalizeFoodName(name)]?.fdcId ?? 0;
+
+    const pickAnchorMealIdx = (preferredTypes: Array<'dinner' | 'lunch' | 'breakfast'>) => {
+      for (const t of preferredTypes) {
+        const idx = dayMeals.findIndex((m) => m.mealType === t);
+        if (idx >= 0) return idx;
+      }
+      return 0;
+    };
+
+    const addToMeal = (mealIdx: number, name: string) => {
+      const per100g = getEntry(name);
+      if (!per100g) return;
+      const meal = dayMeals[mealIdx];
+      const already = (meal.ingredients || []).some((ing) => normalizeFoodName(ing.name) === normalizeFoodName(name));
+      if (already) return;
+      const nutrition = calculateMacrosForAmount(per100g, 0, 'g');
+      meal.ingredients = [...(meal.ingredients || []), { name, amount: 0, nutrition, fdcId: getFdcId(name) }];
+    };
+
+    // Always inject missing levers (0g by default). This is a feasibility guarantee:
+    // the optimizer can only correct a macro if at least one adjustable ingredient spans that axis.
+    if (!hasIngredient(proteinBalancer)) {
+      addToMeal(pickAnchorMealIdx(['dinner', 'lunch', 'breakfast']), proteinBalancer);
+    }
+    if (carbBalancer && !hasIngredient(carbBalancer)) {
+      addToMeal(pickAnchorMealIdx(['lunch', 'dinner', 'breakfast']), carbBalancer);
+    }
+    if (!hasIngredient(fatBalancer)) {
+      addToMeal(pickAnchorMealIdx(['dinner', 'lunch', 'breakfast']), fatBalancer);
+    }
+
+    // Keep totals consistent (0g additions are no-ops, but meals might be mutated above).
+    return dayMeals.map((meal) => {
+      const totals = (meal.ingredients || []).reduce(
+        (acc, ing) => ({
+          calories: acc.calories + (ing.nutrition?.calories ?? 0),
+          protein: acc.protein + (ing.nutrition?.protein ?? 0),
+          carbs: acc.carbs + (ing.nutrition?.carbs ?? 0),
+          fats: acc.fats + (ing.nutrition?.fats ?? 0),
+        }),
+        { calories: 0, protein: 0, carbs: 0, fats: 0 } as MacroValues
+      );
+      return { ...meal, ingredients: [...(meal.ingredients || [])], totalMacros: totals };
+    });
+  }
+
+  private isEmptyTemplateMeal(meal: WeeklyMealTemplatesGeneration['meals'][number]): boolean {
+    const ingredients = meal.ingredients || [];
+    if (ingredients.length === 0) return true;
+    const substantive = ingredients.filter((ing) => !isZeroImpactIngredient(ing.name) && Number(ing.amount || 0) > 0.1);
+    return substantive.length === 0;
+  }
+
+  private buildFallbackMainMealTemplate(
+    userProfile: UserProfile,
+    mealType: 'breakfast' | 'lunch' | 'dinner',
+    seed: number
+  ): WeeklyMealTemplatesGeneration['meals'][number] {
+    const dietType = (userProfile.dietType || 'anything').toLowerCase();
+    const prefs = ((userProfile.preferences || '') + ' ' + dietType).toLowerCase();
+    const allergies = (userProfile.allergies || []).map((a) => a.toLowerCase());
+
+    const isVegan = prefs.includes('vegan');
+    const isVegetarian = !isVegan && prefs.includes('vegetarian');
+    const isPescatarian = prefs.includes('pescatarian');
+    const isKeto = prefs.includes('keto');
+    const isPaleo = prefs.includes('paleo');
+
+    const avoidEggs = isVegan || allergies.some((a) => a.includes('egg'));
+    const avoidDairy = isVegan || allergies.some((a) => a.includes('dairy') || a.includes('milk'));
+    const avoidFish = allergies.some((a) => a.includes('fish') || a.includes('seafood'));
+
+    const variant = Math.abs(seed) % 2;
+
+    const base: WeeklyMealTemplatesGeneration['meals'][number] = (() => {
+      if (mealType === 'breakfast') {
+        if (isKeto) {
+          const eggOrTofu = avoidEggs ? 'Tofu' : 'Eggs';
+          return {
+            mealName: avoidEggs ? 'Tofu & Avocado Breakfast Bowl' : 'Egg & Avocado Breakfast Bowl',
+            mealType,
+            ingredients: [
+              { name: eggOrTofu, amount: avoidEggs ? 220 : 180 },
+              { name: 'Avocado', amount: 100 },
+              { name: 'Spinach', amount: 60 },
+              { name: 'Olive Oil', amount: 8 },
+              { name: 'Salt', amount: 2 },
+              { name: 'Black Pepper', amount: 1 },
+            ],
+            instructions: [
+              `Cook ${eggOrTofu} in a nonstick pan with olive oil.`,
+              'Add spinach and cook until wilted.',
+              'Top with sliced avocado, then season with salt and pepper.',
+            ],
+          };
+        }
+
+        if (avoidEggs) {
+          return {
+            mealName: 'Tofu Veggie Scramble',
+            mealType,
+            ingredients: [
+              { name: 'Tofu', amount: 250 },
+              { name: 'Spinach', amount: 70 },
+              { name: 'Tomato', amount: 120 },
+              { name: 'Olive Oil', amount: 8 },
+              { name: 'Salt', amount: 2 },
+              { name: 'Black Pepper', amount: 1 },
+            ],
+            instructions: [
+              'Crumble tofu and cook in a pan with olive oil.',
+              'Add tomato and spinach; cook until softened.',
+              'Season with salt and pepper and serve warm.',
+            ],
+          };
+        }
+
+        return {
+          mealName: variant === 0 ? 'Veggie Omelette' : 'Spinach & Mushroom Scramble',
+          mealType,
+          ingredients: [
+            { name: 'Eggs', amount: 180 },
+            { name: 'Spinach', amount: 60 },
+            { name: variant === 0 ? 'Tomato' : 'Mushrooms', amount: 120 },
+            { name: 'Olive Oil', amount: 8 },
+            { name: 'Salt', amount: 2 },
+            { name: 'Black Pepper', amount: 1 },
+          ],
+          instructions: [
+            'Whisk eggs with salt and pepper.',
+            'Cook vegetables in olive oil, then add eggs.',
+            'Cook until set and serve warm.',
+          ],
+        };
+      }
+
+      if (mealType === 'lunch') {
+        if (isKeto) {
+          const protein = isVegan ? 'Tofu' : 'Chicken Breast';
+          return {
+            mealName: isVegan ? 'Tofu & Avocado Salad' : 'Chicken & Avocado Salad',
+            mealType,
+            ingredients: [
+              { name: protein, amount: isVegan ? 250 : 200 },
+              { name: 'Avocado', amount: 120 },
+              { name: 'Spinach', amount: 80 },
+              { name: 'Tomato', amount: 120 },
+              { name: 'Olive Oil', amount: 10 },
+              { name: 'Salt', amount: 2 },
+              { name: 'Black Pepper', amount: 1 },
+            ],
+            instructions: [
+              `Cook or prep ${protein} (grill/air-fry/press tofu).`,
+              'Assemble salad with spinach, tomato, and avocado.',
+              'Dress with olive oil; season with salt and pepper.',
+            ],
+          };
+        }
+
+        if (isVegan || isVegetarian) {
+          const carb = isPaleo ? 'Sweet Potato' : 'Brown Rice';
+          return {
+            mealName: variant === 0 ? 'Tofu & Rice Bowl' : 'Tofu Veggie Bowl',
+            mealType,
+            ingredients: [
+              { name: 'Tofu', amount: 250 },
+              { name: carb, amount: 220 },
+              { name: 'Broccoli', amount: 160 },
+              { name: 'Olive Oil', amount: 10 },
+              { name: 'Salt', amount: 2 },
+              { name: 'Black Pepper', amount: 1 },
+            ],
+            instructions: [
+              'Cook tofu and broccoli (pan-sear/steam).',
+              `Serve over ${carb}.`,
+              'Finish with olive oil, salt, and pepper.',
+            ],
+          };
+        }
+
+        // Anything / pescatarian: default to chicken bowl for reliability (USDA staples).
+        return {
+          mealName: variant === 0 ? 'Grilled Chicken Rice Bowl' : 'Chicken & Broccoli Bowl',
+          mealType,
+          ingredients: [
+            { name: 'Chicken Breast', amount: 200 },
+            { name: isPaleo ? 'Sweet Potato' : 'Brown Rice', amount: 220 },
+            { name: 'Broccoli', amount: 160 },
+            { name: 'Olive Oil', amount: 10 },
+            { name: 'Salt', amount: 2 },
+            { name: 'Black Pepper', amount: 1 },
+          ],
+          instructions: [
+            'Cook chicken and broccoli (grill/roast/steam).',
+            `Serve with ${isPaleo ? 'sweet potato' : 'brown rice'}.`,
+            'Finish with olive oil, salt, and pepper.',
+          ],
+        };
+      }
+
+      // dinner
+      if (!avoidFish && (isPescatarian || (!isVegan && !isVegetarian && variant === 0))) {
+        const carb = isKeto ? 'Avocado' : isPaleo ? 'Sweet Potato' : 'Quinoa';
+        const carbAmount = isKeto ? 120 : 260;
+        return {
+          mealName: isKeto ? 'Baked Salmon & Avocado Plate' : 'Baked Salmon with Sweet Potato',
+          mealType,
+          ingredients: [
+            { name: 'Salmon', amount: 200 },
+            { name: carb, amount: carbAmount },
+            { name: 'Broccoli', amount: 160 },
+            { name: 'Olive Oil', amount: 10 },
+            { name: 'Salt', amount: 2 },
+            { name: 'Black Pepper', amount: 1 },
+          ],
+          instructions: [
+            'Bake or pan-sear salmon until cooked through.',
+            `Prepare ${carb} and broccoli.`,
+            'Finish with olive oil, salt, and pepper.',
+          ],
+        };
+      }
+
+      const dinnerProtein = isVegan || isVegetarian ? 'Tofu' : 'Chicken Breast';
+      const carb = isKeto ? 'Avocado' : isPaleo ? 'Sweet Potato' : 'Quinoa';
+      const carbAmount = isKeto ? 120 : 260;
+      return {
+        mealName: isVegan || isVegetarian ? 'Tofu Quinoa Dinner Bowl' : 'Chicken Quinoa Dinner Bowl',
+        mealType,
+        ingredients: [
+          { name: dinnerProtein, amount: isVegan || isVegetarian ? 260 : 220 },
+          { name: carb, amount: carbAmount },
+          { name: 'Broccoli', amount: 160 },
+          { name: 'Olive Oil', amount: 10 },
+          { name: 'Salt', amount: 2 },
+          { name: 'Black Pepper', amount: 1 },
+        ],
+        instructions: [
+          `Cook ${dinnerProtein} and broccoli.`,
+          `Serve with ${carb}.`,
+          'Finish with olive oil, salt, and pepper.',
+        ],
+      };
+    })();
+
+    return {
+      ...base,
+      ingredients: (base.ingredients || []).map((ing) => withFallbackEstimates(ing)),
+    };
+  }
+
+  private repairEmptyMealsInBatch(
+    meals: BatchMealGeneration,
+    userProfile: UserProfile,
+    options?: { repeatWeekly?: boolean; weekSeed?: number }
+  ): BatchMealGeneration {
+    const repeatWeekly = options?.repeatWeekly ?? false;
+    const weekSeed = Number(options?.weekSeed ?? 0);
+
+    const clone = <T,>(value: T): T => {
+      try {
+        return structuredClone(value);
+      } catch {
+        return JSON.parse(JSON.stringify(value)) as T;
+      }
+    };
+
+    if (!meals?.weeklyMeals?.length) return meals;
+
+    if (repeatWeekly) {
+      const templateMeals = meals.weeklyMeals[0]?.meals || [];
+      let snackCounter = 0;
+      const repairedTemplates = templateMeals.map((meal) => {
+        const snackIndex = meal.mealType === 'snack' ? snackCounter++ : undefined;
+        if (!this.isEmptyTemplateMeal(meal)) return meal;
+
+        console.warn(`⚠️  [BATCH] Repairing empty template meal: ${meal.mealType} "${meal.mealName}"`);
+        if (meal.mealType === 'snack') {
+          const fallback = this.buildMacroBalancerSnackTemplate(userProfile, snackIndex ?? 0, weekSeed);
+          return {
+            ...fallback,
+            ingredients: (fallback.ingredients || []).map((ing: any) => withFallbackEstimates(ing)),
+          };
+        }
+
+        return this.buildFallbackMainMealTemplate(userProfile, meal.mealType, weekSeed);
+      });
+
+      return {
+        ...meals,
+        weeklyMeals: meals.weeklyMeals.map((day) => ({
+          ...day,
+          meals: repairedTemplates.map((m) => clone(m)),
+        })),
+      };
+    }
+
+    // Fresh daily / non-repeat: repair day-by-day (deterministic per day+meal type).
+    return {
+      ...meals,
+      weeklyMeals: meals.weeklyMeals.map((day) => {
+        let snackCounter = 0;
+        const repaired = (day.meals || []).map((meal) => {
+          const snackIndex = meal.mealType === 'snack' ? snackCounter++ : undefined;
+          if (!this.isEmptyTemplateMeal(meal)) return meal;
+
+          console.warn(`⚠️  [BATCH] Repairing empty meal: Day ${day.dayNumber} ${meal.mealType} "${meal.mealName}"`);
+          const seed = weekSeed * 10 + Number(day.dayNumber || 0);
+          if (meal.mealType === 'snack') {
+            const fallback = this.buildMacroBalancerSnackTemplate(userProfile, snackIndex ?? 0, seed);
+            return {
+              ...fallback,
+              ingredients: (fallback.ingredients || []).map((ing: any) => withFallbackEstimates(ing)),
+            };
+          }
+
+          return this.buildFallbackMainMealTemplate(userProfile, meal.mealType, seed);
+        });
+        return { ...day, meals: repaired };
+      }),
+    };
+  }
+
   private async ensureOptimizerInitialized(): Promise<void> {
     if (this.optimizerInitialized) return;
     try {
@@ -225,7 +1356,9 @@ export class BatchMealGenerator {
     console.log('🚀 [BATCH] Starting optimal batch meal generation...');
 
     // Store meal frequency for use in adjustment calculations
-    this.currentMealFrequency = userProfile.mealFrequency || 4;
+    this.currentMealFrequency = Math.max(3, Math.min(6, userProfile.mealFrequency || 4));
+    const mealPrepPreference = userProfile.mealPrepPreference || 'repeat_weekly';
+    const useWeeklyRepeatTemplates = mealPrepPreference === 'repeat_weekly';
 
     // Log weekly targets structure
     console.log('📊 [BATCH] Weekly Targets Object:', JSON.stringify(weeklyOutline, null, 2));
@@ -260,28 +1393,36 @@ export class BatchMealGenerator {
     const nutritionFacts = searchNutritionKnowledge('', { minPriority: 5 });
     console.log(`🧠 [BATCH] Retrieved ${nutritionFacts.length} nutritional hard truths from RAG`);
 
-    // Step 0: Generate high-protein supplement meals for backup
-    options?.onProgress?.('Generating protein supplement meals...', 5);
-    const supplementKey = this.buildSupplementMealsCacheKey(userProfile);
-    if (!this.supplementMealsCacheKey || this.supplementMealsCacheKey !== supplementKey || this.supplementMeals.length === 0) {
-      await this.generateSupplementMealsForPlan(userProfile);
-      this.supplementMealsCacheKey = supplementKey;
-      console.log(`✅ [BATCH] Generated ${this.supplementMeals.length} protein supplement meals for backup`);
-    } else {
-      console.log(`⚡️ [BATCH] Reusing cached protein supplement meals (${this.supplementMeals.length})`);
-    }
+    // Step 1: Generate meals (weekly templates by default; full 7-day if user wants fresh daily)
+    options?.onProgress?.(
+      useWeeklyRepeatTemplates ? 'Generating weekly meal templates with AI...' : 'Generating all meals with AI...',
+      10
+    );
 
-    // Step 1: Generate all meals with single AI call
-    options?.onProgress?.('Generating all meals with AI...', 10);
     const shouldReuseAiTemplate =
-      options?.reuseAiTemplate ??
-      // Default: reuse templates for long plans unless user explicitly wants "fresh daily"
-      (userProfile.mealPrepPreference !== 'fresh_daily' && (userProfile.timelineWeeks || 0) >= 8);
+      useWeeklyRepeatTemplates
+        ? false
+        : options?.reuseAiTemplate ??
+          // Default: reuse templates for long plans unless user explicitly wants "fresh daily"
+          (mealPrepPreference !== 'fresh_daily' && (userProfile.timelineWeeks || 0) >= 8);
 
     const cacheKey = this.buildAiTemplateCacheKey(userProfile, weeklyOutline);
 
     let aiGeneratedMeals: BatchMealGeneration;
-    if (shouldReuseAiTemplate && this.aiTemplateCache.has(cacheKey)) {
+    if (useWeeklyRepeatTemplates) {
+      const templateDraft = await this.generateWeeklyTemplatesWithAI(
+        userProfile,
+        weeklyOutline,
+        trainingSplit,
+        nutritionFacts,
+        dailyTargetsOverride
+      );
+      const normalizedTemplates = this.normalizeWeeklyTemplateMeals(templateDraft.meals, userProfile, weeklyOutline.weekNumber);
+      aiGeneratedMeals = this.expandTemplateMealsToWeek(normalizedTemplates, trainingSplit);
+      console.log(
+        `✅ [BATCH] AI generated ${normalizedTemplates.length} template meals; expanded to ${aiGeneratedMeals.weeklyMeals.length} days`
+      );
+    } else if (shouldReuseAiTemplate && this.aiTemplateCache.has(cacheKey)) {
       const cached = this.aiTemplateCache.get(cacheKey)!;
       aiGeneratedMeals = this.deepCloneAiTemplate(cached);
       console.log(`⚡️ [BATCH] Reusing cached AI meal template for key: ${cacheKey}`);
@@ -297,11 +1438,17 @@ export class BatchMealGenerator {
         this.aiTemplateCache.set(cacheKey, this.deepCloneAiTemplate(aiGeneratedMeals));
         console.log(`💾 [BATCH] Cached AI meal template for key: ${cacheKey}`);
       }
+      console.log(`✅ [BATCH] AI generated ${aiGeneratedMeals.weeklyMeals.length} days of meals`);
     }
-    console.log(`✅ [BATCH] AI generated ${aiGeneratedMeals.weeklyMeals.length} days of meals`);
+
+    // Repair empty meals (e.g., seasoning-only meals) deterministically so 0-cal meals never reach customers.
+    aiGeneratedMeals = this.repairEmptyMealsInBatch(aiGeneratedMeals, userProfile, {
+      repeatWeekly: useWeeklyRepeatTemplates,
+      weekSeed: weeklyOutline.weekNumber,
+    });
 
     // Validate meal variety (check for duplicate meal names within same day)
-    this.validateMealVariety(aiGeneratedMeals);
+    this.validateMealVariety(aiGeneratedMeals, { allowRepeatsAcrossWeek: useWeeklyRepeatTemplates });
 
     // Warn if ingredient names are composite/generic (non-blocking)
     this.validateIngredientSpecificity(aiGeneratedMeals);
@@ -354,7 +1501,8 @@ export class BatchMealGenerator {
       weeklyOutline,
       trainingSplit,
       usdaData,
-      dailyTargetsOverride
+      dailyTargetsOverride,
+      userProfile
     );
     console.log(`✅ [BATCH] Adjusted meals to match targets`);
 
@@ -364,48 +1512,7 @@ export class BatchMealGenerator {
       dayMeals.push(adjustedMeals.filter((meal: MealWithUSDA) => meal.dayNumber === day));
     }
 
-    // Step 6: PROTEIN SUPPLEMENTATION - Ensure protein targets are ALWAYS met
-    // This is a CRITICAL fallback when LP optimizer can't hit protein targets
-    options?.onProgress?.('Ensuring protein targets...', 90);
-    dayMeals = await this.ensureProteinTargets(
-      userProfile,
-      dayMeals,
-      weeklyOutline,
-      trainingSplit,
-      usdaData,
-      dailyTargetsOverride
-    );
-    console.log(`✅ [BATCH] Ensured protein targets are met for all days`);
-
-    // Step 6.5: Re-adjust to calorie targets after supplementation (supplements locked)
-    // Protein supplementation can add calories; this pass brings totals back to the correct day targets.
-    options?.onProgress?.('Finalizing calories after supplements...', 93);
-    const postSupplementAdjustedMeals = await this.adjustMealsToTargets(
-      dayMeals.flat(),
-      weeklyOutline,
-      trainingSplit,
-      usdaData,
-      dailyTargetsOverride
-    );
-    dayMeals = [];
-    for (let day = 1; day <= 7; day++) {
-      dayMeals.push(postSupplementAdjustedMeals.filter((meal: MealWithUSDA) => meal.dayNumber === day));
-    }
-
-    // Step 6.75: GUARANTEE protein targets after any calorie-only adjustments
-    // Even with supplement meals locked, per-meal adjustments can occasionally reduce protein in other meals.
-    // Protein is the only hard-fail invariant, so we re-run supplementation as the final step before validation.
-    options?.onProgress?.('Guaranteeing final protein targets...', 95);
-    dayMeals = await this.ensureProteinTargets(
-      userProfile,
-      dayMeals,
-      weeklyOutline,
-      trainingSplit,
-      usdaData,
-      dailyTargetsOverride
-    );
-
-    // COMPREHENSIVE VALIDATION - Check all targets are met
+    // Step 6: COMPREHENSIVE VALIDATION - strict day targets + meal structure
     const validation = this.validateAndReportAccuracy(
       dayMeals,
       weeklyOutline,
@@ -419,71 +1526,12 @@ export class BatchMealGenerator {
     console.log(JSON.stringify(validation, null, 2));
     console.log('='.repeat(80) + '\n');
 
-    // HARD VALIDATION: Protein targets MUST be met
-    // - Cuts (fat loss): NEVER undershoot protein
-    // - Other goals: allow small deficit (threshold) before hard-failing
-    const effectiveGoal = getEffectiveGoalType(userProfile.goalCategory || 'maintenance');
-    const strictProtein = effectiveGoal === 'fat_loss' || userProfile.goal === 'fat_loss';
-    const PROTEIN_TOLERANCE_PERCENTAGE = strictProtein ? 0 : HARD_FAILURE_THRESHOLDS.PROTEIN_DEFICIT_PERCENTAGE;
-    const proteinErrors: string[] = [];
-
-    const PROTEIN_EPSILON_GRAMS = 0.5; // avoid false-fails from rounding/USDA float math
-
-    validation.dailyBreakdown.forEach((day: any) => {
-      const actualProtein = Number(day?.actual?.protein ?? 0);
-      const targetProtein = Number(day?.target?.protein ?? 0);
-      if (targetProtein <= 0) return;
-
-      const deficit = targetProtein - actualProtein;
-      const deficitPercentage = deficit / targetProtein;
-
-      const isFailure = strictProtein
-        ? deficit > PROTEIN_EPSILON_GRAMS
-        : deficitPercentage > PROTEIN_TOLERANCE_PERCENTAGE;
-
-      if (isFailure) {
-        proteinErrors.push(
-          `Day ${day.dayNumber} (${day.dayName}): Protein ${actualProtein.toFixed(1)}g vs target ${targetProtein.toFixed(1)}g (${deficit.toFixed(1)}g deficit, ${((actualProtein / targetProtein) * 100).toFixed(1)}% accuracy)`
-        );
-      }
-    });
-
-    if (proteinErrors.length > 0) {
-      console.error('\n🚨 CRITICAL: PROTEIN TARGETS NOT MET!');
-      console.error('The following days have protein below acceptable threshold:');
-      proteinErrors.forEach(err => console.error(`  ❌ ${err}`));
-      console.error('\nThis is a HARD FAILURE - protein targets are critical for muscle retention.');
-
-      // Throw error to prevent invalid plan from being saved
+    if (Array.isArray(validation.errors) && validation.errors.length > 0) {
       throw new Error(
-        `PROTEIN VALIDATION FAILED: ${proteinErrors.length} day(s) below protein target.\n` +
-        proteinErrors.join('\n') +
-        '\n\nProtein targets are critical for muscle retention and cannot be compromised.'
+        `MEAL VALIDATION FAILED: ${validation.errors.length} day(s) outside strict tolerance.\n` +
+          validation.errors.join('\n')
       );
     }
-
-    // Also check weekly protein totals
-    const weeklyActualProtein = Number(validation?.weeklyTotals?.actual?.protein ?? 0);
-    const weeklyTargetProtein = Number(validation?.weeklyTotals?.target?.protein ?? 0);
-    if (weeklyTargetProtein > 0) {
-      const weeklyDeficit = weeklyTargetProtein - weeklyActualProtein;
-      const weeklyDeficitPercentage = weeklyDeficit / weeklyTargetProtein;
-
-	      const isWeeklyFailure = strictProtein
-	        ? weeklyDeficit > PROTEIN_EPSILON_GRAMS * 7
-	        : weeklyDeficitPercentage > PROTEIN_TOLERANCE_PERCENTAGE;
-
-	      if (isWeeklyFailure) {
-	        throw new Error(
-	          `WEEKLY PROTEIN VALIDATION FAILED: Total weekly protein ${weeklyActualProtein.toFixed(1)}g ` +
-	            `vs target ${weeklyTargetProtein.toFixed(1)}g (${weeklyDeficit.toFixed(1)}g deficit).\n` +
-	            `Weekly accuracy: ${((weeklyActualProtein / weeklyTargetProtein) * 100).toFixed(1)}%\n` +
-	            `Protein targets are critical for muscle retention and cannot be compromised.`
-	        );
-	      }
-	    }
-
-    console.log('✅ PROTEIN VALIDATION PASSED: All days meet protein targets');
 
     options?.onProgress?.('Batch meal generation complete!', 100);
     return dayMeals;
@@ -575,35 +1623,98 @@ export class BatchMealGenerator {
         { calories: 0, protein: 0, carbs: 0, fats: 0 }
       );
 
-      // Calculate accuracy percentages
-      const accuracy = {
+      const tolerance = {
+        calories: 5,
+        protein: 1,
+        carbs: 1,
+        fats: 1,
+      };
+
+      // Calculate accuracy percentages (for reporting only)
+      const accuracyPct = {
         calories: dayTargets.calories > 0 ? (actualTotals.calories / dayTargets.calories) * 100 : 0,
         protein: dayTargets.protein > 0 ? (actualTotals.protein / dayTargets.protein) * 100 : 0,
         carbs: dayTargets.carbs > 0 ? (actualTotals.carbs / dayTargets.carbs) * 100 : 0,
         fats: dayTargets.fats > 0 ? (actualTotals.fats / dayTargets.fats) * 100 : 0,
       };
 
-      // Check for errors (threshold: ±10% is acceptable)
+      const delta = {
+        calories: actualTotals.calories - dayTargets.calories,
+        protein: actualTotals.protein - dayTargets.protein,
+        carbs: actualTotals.carbs - dayTargets.carbs,
+        fats: actualTotals.fats - dayTargets.fats,
+      };
+
+      const expectedMealsPerDay = this.currentMealFrequency;
+      const expectedSnacksPerDay = Math.max(0, expectedMealsPerDay - 3);
+      const mealTypeCounts = meals.reduce(
+        (acc, meal) => {
+          acc[meal.mealType] = (acc[meal.mealType] || 0) + 1;
+          return acc;
+        },
+        {} as Record<string, number>
+      );
+
       const errors: string[] = [];
-      if (Math.abs(accuracy.calories - 100) > 10) {
-        errors.push(`Calories off by ${(accuracy.calories - 100).toFixed(1)}%`);
+      if (meals.length !== expectedMealsPerDay) {
+        errors.push(`Expected ${expectedMealsPerDay} meals, found ${meals.length}`);
       }
-      if (Math.abs(accuracy.protein - 100) > 10) {
-        errors.push(`Protein off by ${(accuracy.protein - 100).toFixed(1)}%`);
+      if ((mealTypeCounts.breakfast || 0) !== 1) {
+        errors.push(`Expected 1 breakfast, found ${mealTypeCounts.breakfast || 0}`);
       }
-      if (Math.abs(accuracy.carbs - 100) > 10) {
-        errors.push(`Carbs off by ${(accuracy.carbs - 100).toFixed(1)}%`);
+      if ((mealTypeCounts.lunch || 0) !== 1) {
+        errors.push(`Expected 1 lunch, found ${mealTypeCounts.lunch || 0}`);
       }
-      if (Math.abs(accuracy.fats - 100) > 10) {
-        errors.push(`Fats off by ${(accuracy.fats - 100).toFixed(1)}%`);
+      if ((mealTypeCounts.dinner || 0) !== 1) {
+        errors.push(`Expected 1 dinner, found ${mealTypeCounts.dinner || 0}`);
+      }
+      if ((mealTypeCounts.snack || 0) !== expectedSnacksPerDay) {
+        errors.push(`Expected ${expectedSnacksPerDay} snack(s), found ${mealTypeCounts.snack || 0}`);
+      }
+
+      // Meal integrity: never allow "seasoning-only" meals through validation.
+      meals.forEach((meal) => {
+        const substantive = (meal.ingredients || []).filter(
+          (ing) => !isZeroImpactIngredient(ing.name) && Number(ing.amount || 0) > 0.1 && Number(ing.nutrition?.calories || 0) > 0
+        );
+        if (substantive.length === 0) {
+          errors.push(
+            `${meal.mealType} "${meal.mealName}": Meal has no substantive ingredients/macros (likely seasoning-only).`
+          );
+        }
+      });
+
+      const proteinPowderInMainMeals = meals.some(
+        (meal) =>
+          meal.mealType !== 'snack' &&
+          (meal.ingredients || []).some((ing) => this.isProteinPowderIngredient(ing.name))
+      );
+      if (proteinPowderInMainMeals) {
+        errors.push('Protein powder found in a non-snack meal (forbidden for realism)');
+      }
+
+      if (Math.abs(delta.calories) > tolerance.calories) {
+        errors.push(`Calories off by ${delta.calories.toFixed(1)} kcal`);
+      }
+      if (Math.abs(delta.protein) > tolerance.protein) {
+        errors.push(`Protein off by ${delta.protein.toFixed(1)}g`);
+      }
+      if (Math.abs(delta.carbs) > tolerance.carbs) {
+        errors.push(`Carbs off by ${delta.carbs.toFixed(1)}g`);
+      }
+      if (Math.abs(delta.fats) > tolerance.fats) {
+        errors.push(`Fats off by ${delta.fats.toFixed(1)}g`);
       }
 
       // Meal breakdown
+      let snackCounter = 0;
       const mealBreakdown = meals.map(meal => {
+        const snackIndex = meal.mealType === 'snack' ? snackCounter++ : undefined;
         const mealTargets = this.calculateMealMacroTargets(
           meal.mealType,
           this.currentMealFrequency,
-          dayTargets
+          dayTargets,
+          snackIndex
         );
 
         return {
@@ -636,13 +1747,15 @@ export class BatchMealGenerator {
         isRestDay: day?.isRestDay || false,
         target: dayTargets,
         actual: actualTotals,
+        delta,
+        tolerance,
         accuracy: {
-          calories: accuracy.calories.toFixed(1) + '%',
-          protein: accuracy.protein.toFixed(1) + '%',
-          carbs: accuracy.carbs.toFixed(1) + '%',
-          fats: accuracy.fats.toFixed(1) + '%',
+          calories: accuracyPct.calories.toFixed(1) + '%',
+          protein: accuracyPct.protein.toFixed(1) + '%',
+          carbs: accuracyPct.carbs.toFixed(1) + '%',
+          fats: accuracyPct.fats.toFixed(1) + '%',
         },
-        errors: errors.length > 0 ? errors : ['All within acceptable range'],
+        errors: errors.length > 0 ? errors : ['All within strict tolerance'],
         meals: mealBreakdown,
       });
 
@@ -684,6 +1797,271 @@ export class BatchMealGenerator {
     return report;
   }
 
+  private async generateWeeklyTemplatesWithAI(
+    userProfile: UserProfile,
+    weeklyOutline: WeeklyOutline,
+    trainingSplit: any,
+    nutritionFacts: NutritionFact[] = [],
+    dailyTargetsOverride?: MacroTargets[]
+  ): Promise<WeeklyMealTemplatesGeneration> {
+    const isAIAvailable = this.cotService.isAIAvailable && this.cotService.isAIAvailable();
+    if (!isAIAvailable) {
+      throw new Error('AI service (Groq) is required for meal generation. Please ensure VITE_GROQ_API_KEY is set.');
+    }
+
+    const prompt = this.buildWeeklyTemplatePrompt(
+      userProfile,
+      weeklyOutline,
+      trainingSplit,
+      nutritionFacts,
+      dailyTargetsOverride
+    );
+
+    const { result } = await this.cotService.generateWithCoT(prompt, WeeklyMealTemplatesSchema, {
+      enableVerification: true,
+    });
+
+    return result;
+  }
+
+  private normalizeWeeklyTemplateMeals(
+    meals: WeeklyMealTemplatesGeneration['meals'],
+    userProfile: UserProfile,
+    seed?: number
+  ): WeeklyMealTemplatesGeneration['meals'] {
+    const mealFrequency = this.currentMealFrequency;
+    const expectedSnacks = Math.max(0, mealFrequency - 3);
+
+    const byType = meals.reduce(
+      (acc, meal) => {
+        acc[meal.mealType].push(meal);
+        return acc;
+      },
+      {
+        breakfast: [] as WeeklyMealTemplatesGeneration['meals'],
+        lunch: [] as WeeklyMealTemplatesGeneration['meals'],
+        dinner: [] as WeeklyMealTemplatesGeneration['meals'],
+        snack: [] as WeeklyMealTemplatesGeneration['meals'],
+      }
+    );
+
+    const breakfast = byType.breakfast[0];
+    const lunch = byType.lunch[0];
+    const dinner = byType.dinner[0];
+    if (!breakfast || !lunch || !dinner) {
+      throw new Error(
+        `Weekly template generation missing required meals. Found: breakfast=${byType.breakfast.length}, lunch=${byType.lunch.length}, dinner=${byType.dinner.length}`
+      );
+    }
+
+    const snacks: WeeklyMealTemplatesGeneration['meals'] = byType.snack.slice(0, expectedSnacks);
+    while (snacks.length < expectedSnacks) {
+      snacks.push(this.buildMacroBalancerSnackTemplate(userProfile, snacks.length, seed));
+    }
+
+    const normalized = [breakfast, lunch, dinner, ...snacks];
+    if (normalized.length !== mealFrequency) {
+      throw new Error(
+        `Weekly template normalization failed: expected ${mealFrequency} meals, got ${normalized.length}`
+      );
+    }
+
+    return normalized;
+  }
+
+  private expandTemplateMealsToWeek(
+    templateMeals: WeeklyMealTemplatesGeneration['meals'],
+    trainingSplit: any
+  ): BatchMealGeneration {
+    const clone = <T,>(value: T): T => {
+      try {
+        return structuredClone(value);
+      } catch {
+        return JSON.parse(JSON.stringify(value)) as T;
+      }
+    };
+
+    const weeklyMeals = (trainingSplit?.days || []).slice(0, 7).map((day: any, index: number) => ({
+      dayNumber: index + 1,
+      dayName: day?.dayName || `Day ${index + 1}`,
+      meals: templateMeals.map((m) => clone(m)),
+    }));
+
+    if (weeklyMeals.length !== 7) {
+      throw new Error(`Training split must contain exactly 7 days to expand weekly templates (got ${weeklyMeals.length})`);
+    }
+
+    return { weeklyMeals };
+  }
+
+  private buildMacroBalancerSnackTemplate(
+    userProfile: UserProfile,
+    snackIndex: number,
+    seed?: number
+  ): WeeklyMealTemplatesGeneration['meals'][number] {
+    const allergies = (userProfile.allergies || []).map((a) => a.toLowerCase());
+    const dietType = (userProfile.dietType || 'anything').toLowerCase();
+
+    const avoidDairy = dietType === 'vegan' || allergies.some((a) => a.includes('dairy') || a.includes('milk'));
+    const proteinPowder = avoidDairy ? 'Pea Protein Powder' : 'Whey Protein Powder';
+
+    const avoidNuts = allergies.some((a) => a.includes('peanut') || a.includes('tree nut') || a.includes('nuts'));
+    const isKeto = dietType === 'keto';
+    const isPaleo = dietType === 'paleo';
+
+    const avoidPeanuts = isPaleo || allergies.some((a) => a.includes('peanut'));
+    const fatSource = avoidNuts ? 'Olive Oil' : avoidPeanuts ? 'Almond Butter' : 'Peanut Butter';
+    const fatAmount = fatSource === 'Olive Oil' ? 5 : 15;
+
+    const avoidOats = isPaleo || allergies.some((a) => a.includes('gluten') || a.includes('oat'));
+    const carbSource = isKeto ? 'Chia Seeds' : avoidOats ? 'Banana' : 'Rolled Oats';
+    const carbAmount = isKeto ? 15 : carbSource === 'Banana' ? 150 : 40;
+
+    const fruitSource = 'Berries';
+    const fruitAmount = isKeto ? 60 : 120;
+
+    const seedValue = Number.isFinite(Number(seed)) ? Number(seed) : 0;
+    const variant = Math.abs(seedValue + snackIndex) % 3;
+
+    if (variant === 1) {
+      const yogurtBase = avoidDairy ? 'Soy Yogurt' : 'Greek Yogurt';
+      const yogurtAmount = 220;
+      const addCarb = isKeto ? 'Chia Seeds' : avoidOats ? 'Banana' : 'Rolled Oats';
+      const addCarbAmount = isKeto ? 15 : addCarb === 'Banana' ? 120 : 35;
+      const addFat = avoidNuts ? 'Chia Seeds' : fatSource === 'Olive Oil' ? 'Almonds' : fatSource;
+      const addFatAmount = addFat === 'Chia Seeds' ? 15 : addFat === 'Almonds' ? 18 : 12;
+      const combinedChiaAmount = addCarb === 'Chia Seeds' && addFat === 'Chia Seeds' ? addCarbAmount + addFatAmount : null;
+
+      const template: WeeklyMealTemplatesGeneration['meals'][number] = {
+        mealName: snackIndex > 0 ? `Yogurt Bowl Snack ${snackIndex + 1}` : 'Yogurt Bowl Snack',
+        mealType: 'snack',
+        ingredients: [
+          { name: yogurtBase, amount: yogurtAmount },
+          { name: fruitSource, amount: fruitAmount },
+          ...(combinedChiaAmount !== null
+            ? [{ name: 'Chia Seeds', amount: combinedChiaAmount }]
+            : [{ name: addCarb, amount: addCarbAmount }, { name: addFat, amount: addFatAmount }]),
+        ],
+        instructions: [
+          `Add ${yogurtBase} to a bowl.`,
+          combinedChiaAmount !== null
+            ? `Top with ${fruitSource}, then add Chia Seeds.`
+            : `Top with ${fruitSource}, then add ${addCarb} and ${addFat}.`,
+          'Stir and enjoy immediately.',
+        ],
+      };
+      return { ...template, ingredients: template.ingredients.map((ing) => withFallbackEstimates(ing)) };
+    }
+
+    if (variant === 2) {
+      const fruitMain = isKeto ? 'Berries' : 'Banana';
+      const fruitMainAmount = fruitMain === 'Banana' ? 150 : fruitAmount;
+      const fatTopper = avoidNuts ? 'Chia Seeds' : fatSource;
+      const fatTopperAmount = fatTopper === 'Olive Oil' ? 5 : fatTopper === 'Chia Seeds' ? 18 : 15;
+      const extraFruit = fruitMain === fruitSource ? null : { name: fruitSource, amount: fruitAmount };
+
+      const template: WeeklyMealTemplatesGeneration['meals'][number] = {
+        mealName: snackIndex > 0 ? `Fruit & Fat Snack ${snackIndex + 1}` : 'Fruit & Fat Snack',
+        mealType: 'snack',
+        ingredients: [
+          { name: fruitMain, amount: fruitMainAmount },
+          ...(extraFruit ? [extraFruit] : []),
+          { name: fatTopper, amount: fatTopperAmount },
+        ],
+        instructions: [
+          extraFruit ? `Prepare ${fruitMain} and ${fruitSource}.` : `Prepare ${fruitMain}.`,
+          `Add ${fatTopper} as a topper or dip.`,
+          'Eat immediately.',
+        ],
+      };
+      return { ...template, ingredients: template.ingredients.map((ing) => withFallbackEstimates(ing)) };
+    }
+
+    // Variant 0 (default): shake/smoothie macro-balancer (protein-forward and adjustable)
+    const template: WeeklyMealTemplatesGeneration['meals'][number] = {
+      mealName: snackIndex > 0 ? `Macro Balancer Shake ${snackIndex + 1}` : 'Macro Balancer Shake',
+      mealType: 'snack',
+      ingredients: [
+        { name: proteinPowder, amount: 30 },
+        { name: carbSource, amount: carbAmount },
+        { name: fatSource, amount: fatAmount },
+        { name: fruitSource, amount: fruitAmount },
+        { name: 'Water', amount: 300 },
+      ],
+      instructions: [
+        `Add ${proteinPowder} to a blender or shaker.`,
+        `Add ${carbSource}, ${fatSource}, and ${fruitSource}.`,
+        'Add water and blend/shake until smooth.',
+        'Drink immediately.',
+      ],
+    };
+    return { ...template, ingredients: template.ingredients.map((ing) => withFallbackEstimates(ing)) };
+  }
+
+  private buildWeeklyTemplatePrompt(
+    userProfile: UserProfile,
+    weeklyOutline: WeeklyOutline,
+    trainingSplit: any,
+    nutritionFacts: NutritionFact[] = [],
+    dailyTargetsOverride?: MacroTargets[]
+  ): string {
+    const dailyTargets = weeklyOutline.dailyTargets;
+    const mealFrequency = this.currentMealFrequency;
+    const snacksCount = Math.max(0, mealFrequency - 3);
+
+    const dietaryGuidance = this.buildDietaryGuidance(userProfile);
+
+    const dayInfo = (trainingSplit?.days || []).slice(0, 7).map((day: any, index: number) => {
+      const dayMacros = this.calculateDayMacros(weeklyOutline, day.isRestDay, index, dailyTargetsOverride);
+      return {
+        dayNumber: index + 1,
+        dayName: day.dayName,
+        isTrainingDay: !day.isRestDay,
+        macros: dayMacros,
+      };
+    });
+
+    return `You are a sports nutritionist and meal-prep coach.
+
+Your task: Generate a SINGLE set of meal templates for the week that will repeat Monday-Sunday.
+Portion sizes will be adjusted programmatically per day to hit exact daily targets, so you should provide realistic BASE portions for an average day.
+
+USER PROFILE:
+- Goal: ${userProfile.goal}
+- Meal Frequency: ${mealFrequency} meals per day (${snacksCount} snack${snacksCount === 1 ? '' : 's'})
+
+${dietaryGuidance}
+
+WEEKLY TARGETS (Daily Averages):
+- Calories: ${dailyTargets.calories} kcal/day
+- Protein: ${dailyTargets.protein}g/day (${dailyTargets.proteinPerKg}g/kg)
+- Carbs: ${dailyTargets.carbs}g/day
+- Fats: ${dailyTargets.fat}g/day
+
+DAY-BY-DAY TARGETS (for context; do NOT create different recipes per day):
+${dayInfo.map((d: any) => `- Day ${d.dayNumber} (${d.dayName} - ${d.isTrainingDay ? 'Training' : 'Rest'}): ${d.macros.calories} kcal, P ${d.macros.protein}g, C ${d.macros.carbs}g, F ${d.macros.fats}g`).join('\n')}
+
+${nutritionFacts.length > 0 ? `
+🚨 NUTRITIONAL HARD TRUTHS & PRINCIPLES:
+${nutritionFacts.map(f => `- ${f.content}`).join('\n')}
+` : ''}
+
+REQUIREMENTS:
+1. Output exactly ${mealFrequency} meal templates total:
+   - 1 breakfast
+   - 1 lunch
+   - 1 dinner
+   - ${snacksCount} snack${snacksCount === 1 ? '' : 's'}
+2. Meals must strictly follow dietary restrictions/preferences.
+3. Each meal must include a specific ingredient list with gram amounts (not vague portions).
+4. Provide 3-6 clear cooking instructions per meal.
+5. Snacks should be protein-forward and adjustable (good for fine-tuning macros) but should NOT dominate the day.
+6. Snack realism: keep base snack portions moderate. Avoid extreme amounts (e.g., 900g yogurt). If using yogurt, keep ≤300g base; if using protein powder, keep ≤30g base.
+7. FOR REALISM: Do NOT use protein powder in breakfast/lunch/dinner. If you use protein powder, it MUST be in a snack that is clearly a shake/smoothie.
+
+Generate the meal templates now.`;
+  }
+
   /**
    * Step 1: Generate all meals with single AI call (Groq required)
    */
@@ -719,7 +2097,10 @@ export class BatchMealGenerator {
   /**
    * Validate meal variety - check for duplicate meal names within same day
    */
-  private validateMealVariety(meals: BatchMealGeneration): void {
+  private validateMealVariety(
+    meals: BatchMealGeneration,
+    options?: { allowRepeatsAcrossWeek?: boolean }
+  ): void {
     const issues: string[] = [];
     const globalMealNames = new Map<string, { dayNumber: number; dayName: string; mealType: string }[]>();
 
@@ -754,17 +2135,19 @@ export class BatchMealGenerator {
       });
     });
 
-    // Detect duplicates across different days
-    globalMealNames.forEach((occurrences, mealName) => {
-      if (occurrences.length > 1) {
-        const occurrenceSummary = occurrences
-          .map(o => `Day ${o.dayNumber} (${o.dayName} - ${o.mealType})`)
-          .join(' | ');
-        issues.push(
-          `Meal "${mealName}" appears multiple times across the week: ${occurrenceSummary}`
-        );
-      }
-    });
+    if (!options?.allowRepeatsAcrossWeek) {
+      // Detect duplicates across different days
+      globalMealNames.forEach((occurrences, mealName) => {
+        if (occurrences.length > 1) {
+          const occurrenceSummary = occurrences
+            .map(o => `Day ${o.dayNumber} (${o.dayName} - ${o.mealType})`)
+            .join(' | ');
+          issues.push(
+            `Meal "${mealName}" appears multiple times across the week: ${occurrenceSummary}`
+          );
+        }
+      });
+    }
 
     if (issues.length > 0) {
       console.warn(`\n⚠️  [BATCH] MEAL VARIETY ISSUES DETECTED (non-blocking):`);
@@ -800,6 +2183,15 @@ export class BatchMealGenerator {
         snacks: [Math.round(dailyCalories * 0.10)],  // 10% (evening snack)
       },
       5: {
+        breakfast: Math.round(dailyCalories * 0.25), // 25%
+        lunch: Math.round(dailyCalories * 0.30),     // 30%
+        dinner: Math.round(dailyCalories * 0.25),    // 25%
+        snacks: [
+          Math.round(dailyCalories * 0.10), // 10% (mid-morning)
+          Math.round(dailyCalories * 0.10), // 10% (mid-afternoon)
+        ],
+      },
+      6: {
         breakfast: Math.round(dailyCalories * 0.25), // 25%
         lunch: Math.round(dailyCalories * 0.30),     // 30%
         dinner: Math.round(dailyCalories * 0.20),    // 20%
@@ -847,8 +2239,7 @@ export class BatchMealGenerator {
 
     // Build dietary guidance based on user preferences
     const dietaryGuidance = this.buildDietaryGuidance(userProfile);
-    console.log('[BatchMealGenerator] Full User Profile used for prompt:', JSON.stringify(userProfile, null, 2));
-    console.log('[BatchMealGenerator] Constructed Dietary Guidance snippet:', dietaryGuidance);
+    console.log('[BATCH] Constructed dietary guidance for prompt');
 
     // Build day information
     const dayInfo = trainingSplit.days.map((day: { dayName: string; isRestDay: boolean }, index: number) => {
@@ -865,13 +2256,15 @@ export class BatchMealGenerator {
       };
     });
 
-    const mealPrepStyle = userProfile.mealPrepPreference || 'fresh_daily';
+    const mealPrepStyle = userProfile.mealPrepPreference || 'repeat_weekly';
 
     return `You are an expert nutritionist generating a complete weekly meal plan. Generate ALL 7 days of meals in a single response.
 
 🚨 CRITICAL RULE #1 - MEAL VARIETY:
 ${mealPrepStyle === 'fresh_daily' ? `
 ✅ REQUIREMENT: EACH DAY MUST HAVE COMPLETELY DIFFERENT MEALS FOR EACH MEAL TYPE. Every single breakfast, lunch, and dinner in the 7-day plan must be a UNIQUE recipe. Do not repeat meals across the week.
+` : mealPrepStyle === 'repeat_weekly' ? `
+✅ REQUIREMENT: REPEAT THE SAME SET OF MEALS MONDAY THROUGH SUNDAY. Use the SAME breakfast, lunch, dinner, and snacks each day. Keep ingredient lists stable; portions can be adjusted as needed to match targets.
 ` : mealPrepStyle === 'batch_cooking' ? `
 ✅ REQUIREMENT: YOU MUST USE REPETITION TO ASSIST BATCH PREP. Choose 3-4 core recipes for lunch and dinner and repeat them throughout the week (e.g., Monday Lunch == Wednesday Lunch == Friday Lunch).
 ` : `
@@ -885,6 +2278,9 @@ MEAL TYPE GUIDELINES:
 - Lunch: Should include lunch foods (salads, sandwiches, wraps, bowls, etc.)
 - Dinner: Should include dinner foods (protein + sides, stir-fries, pasta dishes, etc.)
 - Snack: Should be snack-appropriate (nuts, fruit, protein bars, smoothies, etc.). Snacks are flexible gap-fillers and may be small or substantial depending on the remaining daily calorie/macro gap after main meals.
+
+REALISM RULE:
+- Protein powder is ONLY allowed in snack meals that are clearly a shake/smoothie. Do NOT put protein powder into breakfast/lunch/dinner meals.
 
 INGREDIENT NAMING RULES (MUST FOLLOW):
 - List individual, base ingredients only. Do NOT use composite/generic names.
@@ -1135,7 +2531,7 @@ Generate all 7 days of meals now.`;
     const dislikedIngredients = profile.dislikedIngredients || [];
     const likedIngredients = profile.likedIngredients || [];
     const mealComplexity = profile.mealComplexity || 'moderate';
-    const mealPrepPreference = profile.mealPrepPreference || 'fresh_daily';
+    const mealPrepPreference = profile.mealPrepPreference || 'repeat_weekly';
 
     let guidance = `DIETARY PROFILE & CRITICAL CONSTRAINTS:\n`;
     guidance += `=========================================\n\n`;
@@ -1156,13 +2552,15 @@ Generate all 7 days of meals now.`;
     // Strategy based on prep preference
     if (mealPrepPreference === 'fresh_daily') {
       guidance += `3. VARIETY (MAXIMAL): Every single breakfast, lunch, and dinner in the 7-day plan must be a UNIQUE recipe. Do not repeat meals.\n`;
+    } else if (mealPrepPreference === 'repeat_weekly') {
+      guidance += `3. VARIETY (REPEAT WEEKLY): Create ONE set of meals for the week (breakfast, lunch, dinner, and snacks) and repeat them Monday-Sunday. Meals should feel meal-prep friendly.\n`;
     } else if (mealPrepPreference === 'batch_cooking') {
       guidance += `3. VARIETY (BATCH PREP): You should repeat 3-4 core recipes for lunch and dinner throughout the week (e.g., "Monday Lunch" is the same as "Wednesday Lunch" and "Friday Lunch"). This simplifies bulk cooking.\n`;
     } else if (mealPrepPreference === 'leftovers_ok') {
       guidance += `3. VARIETY (LEFTOVERS): Use a "cook once, eat twice" strategy. For example, Monday's Dinner should usually be the same as Tuesday's Lunch.\n`;
     }
 
-    guidance += `4. PORTION CONSISTENCY: If a meal/recipe is repeated on different days, the ingredient AMOUNTS in grams must remain EXACTLY identical. Do not adjust a repeated recipe to fit daily targets; instead, allow the daily totals to be slightly off or adjust non-repeated snacks.\n\n`;
+    guidance += `4. PORTION FLEXIBILITY: Portions (ingredient grams) may be adjusted day-to-day to hit exact daily targets. Keep the ingredient list stable when repeating meals; adjust amounts rather than changing the whole recipe.\n\n`;
 
     // Complexity guidance
     if (mealComplexity === 'simple') {
@@ -1449,6 +2847,16 @@ Generate all 7 days of meals now.`;
           );
         }
 
+        // Rule 4b: Hard reject "seasoning-only" meals (0-cal meals like salt+pepper)
+        const substantiveIngredients = ingredients.filter(
+          (ing) => !isZeroImpactIngredient(ing.name) && Number(ing.amount || 0) > 0.1
+        );
+        if (ingredients.length > 0 && substantiveIngredients.length === 0) {
+          issues.push(
+            `Day ${day.dayNumber} (${day.dayName}) ${meal.mealType} "${mealName}": Empty meal (only zero-impact ingredients like seasonings/water). Must include real food ingredients.`
+          );
+        }
+
         // Rule 5: Check protein density
         if (estimatedCalories > 300) {
           const proteinDensity = estimatedCalories > 0 ? estimatedProtein / estimatedCalories : 0;
@@ -1553,6 +2961,20 @@ Generate all 7 days of meals now.`;
       ingredientSet.add(normalizeFoodName('Whey Protein Powder'));
     }
 
+    // Always include a small set of "macro balancer" staples so optimization can remain feasible even when
+    // the AI template misses a macro category for a day (e.g., low protein anchors, missing carb anchors).
+    // These do not necessarily end up in the final plan; they simply ensure USDA data exists if needed.
+    [
+      'Chicken Breast',
+      'Tofu',
+      'Eggs',
+      'Salmon',
+      'Brown Rice',
+      'Quinoa',
+      'Sweet Potato',
+      'Olive Oil',
+    ].forEach((name) => ingredientSet.add(normalizeFoodName(name)));
+
     return Array.from(ingredientSet);
   }
 
@@ -1567,10 +2989,48 @@ Generate all 7 days of meals now.`;
 	      totalUniqueIngredients: uniqueIngredients.length,
 	      zeroImpactSkipped: [] as string[],
 	      noUsdaFound: [] as string[],
+	      fallbackUsed: [] as string[],
 	      usedMappings: 0,
 	      ambiguous: [] as Array<{ ingredient: string; chosen: string; confidence: number; candidates: any[] }>,
 	      lowConfidence: [] as Array<{ ingredient: string; chosen: string; confidence: number; candidates: any[] }>,
 	      persistedMappings: 0,
+	    };
+
+	    const safeAtwater = (m: Omit<MacroValues, 'calories'>): MacroValues => {
+	      const protein = Number(m.protein || 0);
+	      const carbs = Number(m.carbs || 0);
+	      const fats = Number(m.fats || 0);
+	      return {
+	        calories: Math.round((protein * 4 + carbs * 4 + fats * 9) * 10) / 10,
+	        protein,
+	        carbs,
+	        fats,
+	      };
+	    };
+
+	    // Curated fallbacks for a tiny set of "staple" ingredients that are both common and nutritionally unambiguous.
+	    // This prevents 0-calorie/0-macro artifacts if USDA lookup fails for these specific items.
+	    const STAPLE_FALLBACKS_PER_100G: Record<string, MacroValues> = {
+	      [normalizeFoodName('Eggs')]: safeAtwater({ protein: 13, carbs: 1.1, fats: 10.6 }),
+	      [normalizeFoodName('Chicken Breast')]: safeAtwater({ protein: 31, carbs: 0, fats: 3.6 }),
+	      [normalizeFoodName('Salmon')]: safeAtwater({ protein: 20, carbs: 0, fats: 13 }),
+	      [normalizeFoodName('Tofu')]: safeAtwater({ protein: 8, carbs: 2, fats: 4.8 }),
+	      [normalizeFoodName('Brown Rice')]: safeAtwater({ protein: 2.6, carbs: 23, fats: 0.9 }),
+	      [normalizeFoodName('Quinoa')]: safeAtwater({ protein: 4.4, carbs: 21.3, fats: 1.9 }),
+	      [normalizeFoodName('Sweet Potato')]: safeAtwater({ protein: 1.6, carbs: 20, fats: 0.1 }),
+	      [normalizeFoodName('Olive Oil')]: safeAtwater({ protein: 0, carbs: 0, fats: 100 }),
+	      [normalizeFoodName('Rolled Oats')]: safeAtwater({ protein: 12, carbs: 60, fats: 6 }),
+	      [normalizeFoodName('Chia Seeds')]: safeAtwater({ protein: 16, carbs: 42, fats: 31 }),
+	      [normalizeFoodName('Banana')]: safeAtwater({ protein: 1.1, carbs: 23, fats: 0.3 }),
+	      [normalizeFoodName('Berries')]: safeAtwater({ protein: 1, carbs: 14, fats: 0.3 }),
+	      [normalizeFoodName('Whey Protein Powder')]: safeAtwater({ protein: 80, carbs: 10, fats: 5 }),
+	      [normalizeFoodName('Pea Protein Powder')]: safeAtwater({ protein: 80, carbs: 8, fats: 5 }),
+	      [normalizeFoodName('Water')]: safeAtwater({ protein: 0, carbs: 0, fats: 0 }),
+	    };
+
+	    const getStapleFallback = (ingredient: string): MacroValues | null => {
+	      const key = normalizeFoodName(ingredient);
+	      return STAPLE_FALLBACKS_PER_100G[key] || null;
 	    };
 
 	    // Refine ambiguous queries to canonical USDA-friendly forms
@@ -1682,6 +3142,20 @@ Generate all 7 days of meals now.`;
 	          },
 	        };
 	      } catch (error) {
+	        const fallback = getStapleFallback(ingredient);
+	        if (fallback) {
+	          console.warn(`⚠️  [BATCH] USDA lookup failed for staple "${ingredient}", using curated fallback macros.`);
+	          report.fallbackUsed.push(ingredient);
+	          return {
+	            ingredient,
+	            data: {
+	              nutrition: fallback,
+	              fdcId: 0,
+	              rawFoodDetails: { fallback: 'curated_staple', ingredient },
+	            },
+	          };
+	        }
+
 	        console.error(`❌ [BATCH] Failed to lookup ${ingredient}:`, error);
 	        report.noUsdaFound.push(ingredient);
 	        return { ingredient, data: null };
@@ -1726,6 +3200,7 @@ Generate all 7 days of meals now.`;
 	      totalUniqueIngredients: report.totalUniqueIngredients,
 	      zeroImpactSkipped: report.zeroImpactSkipped.length,
 	      noUsdaFound: report.noUsdaFound.length,
+	      fallbackUsed: report.fallbackUsed.length,
 	      usedMappings: report.usedMappings,
 	      ambiguous: report.ambiguous.length,
 	      lowConfidence: report.lowConfidence.length,
@@ -1752,16 +3227,31 @@ Generate all 7 days of meals now.`;
           const data = usdaData[normalized];
 
           if (!data) {
-            console.warn(`⚠️  [BATCH] No USDA data for ingredient: ${ing.name}, using AI fallback if available`);
+            const fallbackNutrition = {
+              calories: ing.estimatedCalories || 0,
+              protein: ing.estimatedProtein || 0,
+              carbs: ing.estimatedCarbs || 0,
+              fats: ing.estimatedFats || 0,
+            };
+            const hasFallback =
+              fallbackNutrition.calories > 0 ||
+              fallbackNutrition.protein > 0 ||
+              fallbackNutrition.carbs > 0 ||
+              fallbackNutrition.fats > 0;
+
+            if (!hasFallback) {
+              // Hard fail: returning 0-calorie ingredients produces broken plans and makes macro-fitting impossible.
+              throw new Error(
+                `Missing USDA nutrition for ingredient "${ing.name}" and no AI estimates were provided. ` +
+                  `Regenerate meals with simpler/base ingredients or improve USDA mapping for this ingredient.`
+              );
+            }
+
+            console.warn(`⚠️  [BATCH] No USDA data for ingredient: ${ing.name}, using AI estimates as fallback`);
             return {
               name: ing.name,
               amount: ing.amount,
-              nutrition: {
-                calories: ing.estimatedCalories || 0,
-                protein: ing.estimatedProtein || 0,
-                carbs: ing.estimatedCarbs || 0,
-                fats: ing.estimatedFats || 0,
-              },
+              nutrition: fallbackNutrition,
               fdcId: 0,
             };
           }
@@ -1775,7 +3265,7 @@ Generate all 7 days of meals now.`;
           );
 
           // Log detailed ingredient calculation (once per unique ingredient)
-          if (!loggedIngredients.has(normalized)) {
+          if (env.DEBUG && !loggedIngredients.has(normalized)) {
             loggedIngredients.add(normalized);
 
             // Calculate expected values manually for verification
@@ -1842,13 +3332,64 @@ Generate all 7 days of meals now.`;
     return mealsWithUSDA;
   }
 
+  private normalizeUsdaCaloriesFromMacros(
+    usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>
+  ): Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }> {
+    const normalized: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }> = {};
+
+    Object.entries(usdaData).forEach(([key, entry]) => {
+      const nutrition = entry?.nutrition || { calories: 0, protein: 0, carbs: 0, fats: 0 };
+      const protein = Number(nutrition.protein || 0);
+      const carbs = Number(nutrition.carbs || 0);
+      const fats = Number(nutrition.fats || 0);
+      const calories = Math.round((protein * 4 + carbs * 4 + fats * 9) * 10) / 10;
+      const normalizedKey = normalizeFoodName(key);
+
+      normalized[key] = {
+        ...entry,
+        nutrition: {
+          ...nutrition,
+          calories,
+        },
+      };
+
+      // Always expose a normalized key so downstream lookups never miss because of casing/spacing.
+      if (!normalized[normalizedKey]) {
+        normalized[normalizedKey] = {
+          ...entry,
+          nutrition: {
+            ...nutrition,
+            calories,
+          },
+        };
+      }
+    });
+
+    // Ensure deterministic fallback staples are always available to the optimizer even if the caller-provided
+    // USDA map is missing them (e.g., offline/unit tests or partial caches).
+    Object.entries(FALLBACK_ESTIMATES_PER_100G).forEach(([key, per100g]) => {
+      const normalizedKey = normalizeFoodName(key);
+      if (normalized[normalizedKey]) return;
+      normalized[normalizedKey] = {
+        fdcId: 0,
+        nutrition: {
+          ...per100g,
+          calories: Math.round((per100g.protein * 4 + per100g.carbs * 4 + per100g.fats * 9) * 10) / 10,
+        },
+      };
+    });
+
+    return normalized;
+  }
+
   /**
    * Calculate meal-specific macro targets based on meal type and distribution
    */
   private calculateMealMacroTargets(
     mealType: string,
     mealFrequency: number,
-    dayTargets: MacroValues
+    dayTargets: MacroValues,
+    snackIndex?: number
   ): MacroValues {
     // Get meal calorie distribution percentage
     const mealDistribution = this.getMealCalorieDistribution(mealFrequency, dayTargets.calories);
@@ -1862,8 +3403,11 @@ Generate all 7 days of meals now.`;
     } else if (mealType === 'dinner') {
       caloriePercentage = mealDistribution.dinner / dayTargets.calories;
     } else if (mealType === 'snack') {
-      // For snacks, use the first snack percentage (evening snack for 4 meals, or appropriate for 5 meals)
-      const snackCal = mealDistribution.snacks?.[0] || (dayTargets.calories * 0.10);
+      const idx = typeof snackIndex === 'number' && snackIndex >= 0 ? snackIndex : 0;
+      const snackCal =
+        mealDistribution.snacks?.[idx] ??
+        mealDistribution.snacks?.[0] ??
+        (dayTargets.calories * 0.10);
       caloriePercentage = snackCal / dayTargets.calories;
     }
 
@@ -1890,7 +3434,10 @@ Generate all 7 days of meals now.`;
     // Prepare ingredients for optimization
     const optimizableIngredients = HybridMealOptimizer.prepareIngredients(
       meal.ingredients,
-      usdaData
+      usdaData,
+      {
+        sensitiveIngredientMode: 'added_sugars_only',
+      }
     );
 
     // Set up optimization targets with tolerances
@@ -1942,7 +3489,7 @@ Generate all 7 days of meals now.`;
     console.log(`  Actual: Cal=${Math.round(optimized.totalMacros.calories)} P=${optimized.totalMacros.protein.toFixed(1)}g C=${optimized.totalMacros.carbs.toFixed(1)}g F=${optimized.totalMacros.fats.toFixed(1)}g`);
     console.log(`  Accuracy: ${accuracy.calories} ${accuracy.protein} ${accuracy.carbs} ${accuracy.fats}`);
 
-    return optimized;
+    return this.pruneZeroAmountIngredients(optimized);
   }
 
   /**
@@ -2530,9 +4077,11 @@ Generate all 7 days of meals now.`;
     weeklyOutline: WeeklyOutline,
     trainingSplit: any,
     usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>,
-    dailyTargetsOverride?: MacroTargets[]
+    dailyTargetsOverride?: MacroTargets[],
+    userProfile?: UserProfile
   ): Promise<MealWithUSDA[]> {
     await this.ensureOptimizerInitialized();
+    const normalizedUsdaData = this.normalizeUsdaCaloriesFromMacros(usdaData);
     const adjustedMeals: MealWithUSDA[] = [];
     const mealFrequency = this.currentMealFrequency;
     const daySummaries: AdjustmentDaySummary[] = [];
@@ -2549,6 +4098,7 @@ Generate all 7 days of meals now.`;
     // Adjust each day
     for (let dayNum = 1; dayNum <= 7; dayNum++) {
       const dayMeals = mealsByDay[dayNum] || [];
+      const sanitizedDayMeals = this.sanitizeMealsForRealism(dayMeals);
       const day = trainingSplit.days[dayNum - 1];
       const dayTargets = this.calculateDayMacros(
         weeklyOutline,
@@ -2563,46 +4113,39 @@ Generate all 7 days of meals now.`;
         mealCount: dayMeals.length,
       });
 
-      // Prefer day-level optimization if hybrid optimizer is initialized; fallback to per-meal
+      // Prefer day-level optimization (LP if available, heuristic otherwise); fallback to per-meal if it fails.
       let adjustedDayMeals: MealWithUSDA[];
-      const hasLockedSupplements = dayMeals.some((m) => this.isProteinSupplementMeal(m));
-      if (this.optimizerInitialized && !hasLockedSupplements) {
-        try {
-          adjustedDayMeals = await this.adjustDayWithLP(dayMeals, dayTargets, usdaData);
-        } catch (err) {
-          console.warn('⚠️  [BATCH] Day-level LP failed, falling back to per-meal:', err);
-          adjustedDayMeals = await Promise.all(
-            dayMeals.map(async meal => {
-              if (this.isProteinSupplementMeal(meal)) return meal;
-              const mealTargets = this.calculateMealMacroTargets(
-                meal.mealType,
-                mealFrequency,
-                dayTargets
-              );
-              return await this.adjustMealToPreciseTargets(meal, mealTargets, usdaData);
-            })
-          );
-        }
-      } else {
-        if (hasLockedSupplements && this.optimizerInitialized) {
-          console.log('⚙️  [BATCH] Skipping day-level LP because protein supplement meals must remain locked');
-        }
+      const snackIndexByMeal = new Map<MealWithUSDA, number>();
+      {
+        let snackCounter = 0;
+        sanitizedDayMeals.forEach((m) => {
+          if (m.mealType === 'snack') {
+            snackIndexByMeal.set(m, snackCounter);
+            snackCounter += 1;
+          }
+        });
+      }
+      try {
+        adjustedDayMeals = await this.adjustDayWithLP(sanitizedDayMeals, dayTargets, normalizedUsdaData, undefined, userProfile);
+      } catch (err) {
+        console.warn('⚠️  [BATCH] Day-level optimization failed, falling back to per-meal:', err);
         adjustedDayMeals = await Promise.all(
-          dayMeals.map(async meal => {
+          sanitizedDayMeals.map(async (meal) => {
             if (this.isProteinSupplementMeal(meal)) return meal;
+            const snackIndex = snackIndexByMeal.get(meal);
             const mealTargets = this.calculateMealMacroTargets(
               meal.mealType,
               mealFrequency,
-              dayTargets
+              dayTargets,
+              snackIndex
             );
-            return await this.adjustMealToPreciseTargets(meal, mealTargets, usdaData);
+            return await this.adjustMealToPreciseTargets(meal, mealTargets, normalizedUsdaData);
           })
         );
       }
-      adjustedMeals.push(...adjustedDayMeals);
 
       // Log final day totals
-      const dayTotals = adjustedDayMeals.reduce(
+      let dayTotals = adjustedDayMeals.reduce(
         (sum, meal) => ({
           calories: sum.calories + meal.totalMacros.calories,
           protein: sum.protein + meal.totalMacros.protein,
@@ -2611,6 +4154,139 @@ Generate all 7 days of meals now.`;
         }),
         { calories: 0, protein: 0, carbs: 0, fats: 0 }
       );
+
+      const strictTolerance = { calories: 5, protein: 1, carbs: 1, fats: 1 };
+      const withinStrictTolerance =
+        Math.abs(dayTotals.calories - dayTargets.calories) <= strictTolerance.calories &&
+        Math.abs(dayTotals.protein - dayTargets.protein) <= strictTolerance.protein &&
+        Math.abs(dayTotals.carbs - dayTargets.carbs) <= strictTolerance.carbs &&
+        Math.abs(dayTotals.fats - dayTargets.fats) <= strictTolerance.fats;
+
+      if (!withinStrictTolerance && sanitizedDayMeals.length > 0) {
+        console.warn(
+          `⚠️  [BATCH] Day ${dayNum} missed strict targets; widening realistic scaling bounds and re-optimizing`
+        );
+        adjustedDayMeals = await this.adjustDayWithLP(sanitizedDayMeals, dayTargets, normalizedUsdaData, {
+          boundsMode: 'expanded',
+        }, userProfile);
+        dayTotals = adjustedDayMeals.reduce(
+          (sum, meal) => ({
+            calories: sum.calories + meal.totalMacros.calories,
+            protein: sum.protein + meal.totalMacros.protein,
+            carbs: sum.carbs + meal.totalMacros.carbs,
+            fats: sum.fats + meal.totalMacros.fats,
+          }),
+          { calories: 0, protein: 0, carbs: 0, fats: 0 }
+        );
+      }
+
+      const withinStrictToleranceAfterExpand =
+        Math.abs(dayTotals.calories - dayTargets.calories) <= strictTolerance.calories &&
+        Math.abs(dayTotals.protein - dayTargets.protein) <= strictTolerance.protein &&
+        Math.abs(dayTotals.carbs - dayTargets.carbs) <= strictTolerance.carbs &&
+        Math.abs(dayTotals.fats - dayTargets.fats) <= strictTolerance.fats;
+
+      if (!withinStrictToleranceAfterExpand && sanitizedDayMeals.length > 0) {
+        console.warn(
+          `🚨 [BATCH] Day ${dayNum} still missed strict targets; using rescue bounds to guarantee feasibility`
+        );
+        adjustedDayMeals = await this.adjustDayWithLP(sanitizedDayMeals, dayTargets, normalizedUsdaData, {
+          boundsMode: 'rescue',
+        }, userProfile);
+        dayTotals = adjustedDayMeals.reduce(
+          (sum, meal) => ({
+            calories: sum.calories + meal.totalMacros.calories,
+            protein: sum.protein + meal.totalMacros.protein,
+            carbs: sum.carbs + meal.totalMacros.carbs,
+            fats: sum.fats + meal.totalMacros.fats,
+          }),
+          { calories: 0, protein: 0, carbs: 0, fats: 0 }
+        );
+      }
+
+      const withinStrictToleranceAfterRescue =
+        Math.abs(dayTotals.calories - dayTargets.calories) <= strictTolerance.calories &&
+        Math.abs(dayTotals.protein - dayTargets.protein) <= strictTolerance.protein &&
+        Math.abs(dayTotals.carbs - dayTargets.carbs) <= strictTolerance.carbs &&
+        Math.abs(dayTotals.fats - dayTargets.fats) <= strictTolerance.fats;
+
+      if (!withinStrictToleranceAfterRescue && sanitizedDayMeals.length > 0) {
+        console.warn(
+          `⚠️  [BATCH] Day ${dayNum} missed strict targets even after rescue; relaxing snack caps and retrying`
+        );
+        adjustedDayMeals = await this.adjustDayWithLP(sanitizedDayMeals, dayTargets, normalizedUsdaData, {
+          boundsMode: 'rescue',
+          snackCapMode: 'relaxed',
+        }, userProfile);
+        dayTotals = adjustedDayMeals.reduce(
+          (sum, meal) => ({
+            calories: sum.calories + meal.totalMacros.calories,
+            protein: sum.protein + meal.totalMacros.protein,
+            carbs: sum.carbs + meal.totalMacros.carbs,
+            fats: sum.fats + meal.totalMacros.fats,
+          }),
+          { calories: 0, protein: 0, carbs: 0, fats: 0 }
+        );
+      }
+
+      const withinStrictToleranceAfterRelaxedSnackCaps =
+        Math.abs(dayTotals.calories - dayTargets.calories) <= strictTolerance.calories &&
+        Math.abs(dayTotals.protein - dayTargets.protein) <= strictTolerance.protein &&
+        Math.abs(dayTotals.carbs - dayTargets.carbs) <= strictTolerance.carbs &&
+        Math.abs(dayTotals.fats - dayTargets.fats) <= strictTolerance.fats;
+
+      if (!withinStrictToleranceAfterRelaxedSnackCaps && sanitizedDayMeals.length > 0) {
+        console.warn(
+          `🚨 [BATCH] Day ${dayNum} still missed strict targets; using ultra-relaxed snack caps to preserve macro correctness`
+        );
+        adjustedDayMeals = await this.adjustDayWithLP(sanitizedDayMeals, dayTargets, normalizedUsdaData, {
+          boundsMode: 'rescue',
+          snackCapMode: 'disabled',
+        }, userProfile);
+        dayTotals = adjustedDayMeals.reduce(
+          (sum, meal) => ({
+            calories: sum.calories + meal.totalMacros.calories,
+            protein: sum.protein + meal.totalMacros.protein,
+            carbs: sum.carbs + meal.totalMacros.carbs,
+            fats: sum.fats + meal.totalMacros.fats,
+          }),
+          { calories: 0, protein: 0, carbs: 0, fats: 0 }
+        );
+      }
+
+      // Final micro-correction for small residual deficits (keep within strict tolerance, never reduce macros)
+      if (
+        sanitizedDayMeals.length > 0 &&
+        (Math.abs(dayTotals.calories - dayTargets.calories) > strictTolerance.calories ||
+          Math.abs(dayTotals.protein - dayTargets.protein) > strictTolerance.protein ||
+          Math.abs(dayTotals.carbs - dayTargets.carbs) > strictTolerance.carbs ||
+          Math.abs(dayTotals.fats - dayTargets.fats) > strictTolerance.fats)
+      ) {
+        const nudged = this.nudgeDayForResiduals(adjustedDayMeals, normalizedUsdaData, dayTargets, strictTolerance);
+        const nudgedTotals = nudged.reduce(
+          (sum, meal) => ({
+            calories: sum.calories + meal.totalMacros.calories,
+            protein: sum.protein + meal.totalMacros.protein,
+            carbs: sum.carbs + meal.totalMacros.carbs,
+            fats: sum.fats + meal.totalMacros.fats,
+          }),
+          { calories: 0, protein: 0, carbs: 0, fats: 0 }
+        );
+
+        const withinAfterNudge =
+          Math.abs(nudgedTotals.calories - dayTargets.calories) <= strictTolerance.calories &&
+          Math.abs(nudgedTotals.protein - dayTargets.protein) <= strictTolerance.protein &&
+          Math.abs(nudgedTotals.carbs - dayTargets.carbs) <= strictTolerance.carbs &&
+          Math.abs(nudgedTotals.fats - dayTargets.fats) <= strictTolerance.fats;
+
+        if (withinAfterNudge) {
+          adjustedDayMeals = nudged;
+          dayTotals = nudgedTotals;
+          console.log(`✅ [BATCH] Day ${dayNum} micro-corrected into strict tolerance`);
+        }
+      }
+
+      adjustedMeals.push(...adjustedDayMeals);
 
       console.log(`📊 [BATCH] Day ${dayNum} Final Totals:`, {
         target: dayTargets,
@@ -2669,8 +4345,34 @@ Generate all 7 days of meals now.`;
   private async adjustDayWithLP(
     dayMeals: MealWithUSDA[],
     dayTargets: MacroValues,
-    usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>
+    usdaData: Record<string, { nutrition: MacroValues; fdcId: number; rawFoodDetails?: any }>,
+    options?: {
+      boundsMode?: 'normal' | 'expanded' | 'rescue';
+      snackCapMode?: 'normal' | 'relaxed' | 'disabled';
+    },
+    userProfile?: UserProfile
   ): Promise<MealWithUSDA[]> {
+    const currentTotals = dayMeals.reduce(
+      (sum, meal) => ({
+        calories: sum.calories + (meal.totalMacros?.calories ?? 0),
+        protein: sum.protein + (meal.totalMacros?.protein ?? 0),
+        carbs: sum.carbs + (meal.totalMacros?.carbs ?? 0),
+        fats: sum.fats + (meal.totalMacros?.fats ?? 0),
+      }),
+      { calories: 0, protein: 0, carbs: 0, fats: 0 } as MacroValues
+    );
+
+    const gaps = {
+      calories: dayTargets.calories - currentTotals.calories,
+      protein: dayTargets.protein - currentTotals.protein,
+      carbs: dayTargets.carbs - currentTotals.carbs,
+      fats: dayTargets.fats - currentTotals.fats,
+    };
+
+    // Ensure we always have at least one tunable "anchor" for each macro category.
+    // This avoids infeasible days when the AI template accidentally omits a good protein/carb/fat lever.
+    dayMeals = this.injectMacroBalancerIngredients(dayMeals, usdaData, dayTargets, gaps, userProfile);
+
     // Flatten ingredients and keep mapping to (mealIdx, ingIdx)
     const indexMap: Array<{ mealIdx: number; ingIdx: number }> = [];
     const flatIngredients: Array<{ name: string; amount: number; nutrition: MacroValues; fdcId: number }> = [];
@@ -2685,7 +4387,205 @@ Generate all 7 days of meals now.`;
     // Prepare optimizable ingredients with seasonings locked
     const optimizable = HybridMealOptimizer.prepareIngredients(flatIngredients, usdaData, {
       seasoningThreshold: 5,
+      sensitiveIngredientMode: 'added_sugars_only',
     });
+
+    // Ingredient-specific bounds to keep common tuners realistic.
+    const isEmergencyRescue =
+      options?.boundsMode === 'rescue' && options?.snackCapMode === 'disabled';
+
+    const specialBounds: Record<string, { min: number; max: number }> = {
+      [normalizeFoodName('Olive Oil')]: { min: 0, max: 25 },
+      [normalizeFoodName('Chicken Breast')]: { min: 0, max: 900 },
+      [normalizeFoodName('Tofu')]: { min: 0, max: 900 },
+      [normalizeFoodName('Eggs')]: { min: 0, max: 500 },
+      [normalizeFoodName('Salmon')]: { min: 0, max: 700 },
+      [normalizeFoodName('Brown Rice')]: { min: 0, max: 1500 },
+      [normalizeFoodName('Quinoa')]: { min: 0, max: 1500 },
+      [normalizeFoodName('Sweet Potato')]: { min: 0, max: 1500 },
+      [normalizeFoodName('Whey Protein Powder')]: { min: 0, max: isEmergencyRescue ? 90 : 60 },
+      [normalizeFoodName('Pea Protein Powder')]: { min: 0, max: isEmergencyRescue ? 90 : 60 },
+      [normalizeFoodName('Protein Powder')]: { min: 0, max: isEmergencyRescue ? 90 : 60 },
+      [normalizeFoodName('Rolled Oats')]: { min: 0, max: 180 },
+      [normalizeFoodName('Chia Seeds')]: { min: 0, max: 60 },
+      [normalizeFoodName('Banana')]: { min: 0, max: 300 },
+      [normalizeFoodName('Berries')]: { min: 0, max: 300 },
+      [normalizeFoodName('Greek Yogurt')]: { min: 0, max: isEmergencyRescue ? 600 : 450 },
+      [normalizeFoodName('Soy Yogurt')]: { min: 0, max: isEmergencyRescue ? 600 : 450 },
+      [normalizeFoodName('Yogurt')]: { min: 0, max: isEmergencyRescue ? 600 : 450 },
+      [normalizeFoodName('Milk')]: { min: 0, max: 600 },
+      [normalizeFoodName('Peanut Butter')]: { min: 0, max: 70 },
+      [normalizeFoodName('Almond Butter')]: { min: 0, max: 70 },
+      [normalizeFoodName('Almonds')]: { min: 0, max: 70 },
+    };
+
+    const HARD_SPECIAL_MAX = new Set<string>([
+      normalizeFoodName('Olive Oil'),
+      normalizeFoodName('Chicken Breast'),
+      normalizeFoodName('Tofu'),
+      normalizeFoodName('Eggs'),
+      normalizeFoodName('Salmon'),
+      normalizeFoodName('Brown Rice'),
+      normalizeFoodName('Quinoa'),
+      normalizeFoodName('Sweet Potato'),
+      normalizeFoodName('Whey Protein Powder'),
+      normalizeFoodName('Pea Protein Powder'),
+      normalizeFoodName('Protein Powder'),
+      normalizeFoodName('Rolled Oats'),
+      normalizeFoodName('Chia Seeds'),
+      normalizeFoodName('Banana'),
+      normalizeFoodName('Berries'),
+      normalizeFoodName('Greek Yogurt'),
+      normalizeFoodName('Soy Yogurt'),
+      normalizeFoodName('Yogurt'),
+      normalizeFoodName('Milk'),
+      normalizeFoodName('Peanut Butter'),
+      normalizeFoodName('Almond Butter'),
+      normalizeFoodName('Almonds'),
+    ]);
+
+    const boundsMode = options?.boundsMode || 'normal';
+    const ALWAYS_ZERO_MIN = new Set<string>([
+      normalizeFoodName('Olive Oil'),
+      normalizeFoodName('Whey Protein Powder'),
+      normalizeFoodName('Pea Protein Powder'),
+      normalizeFoodName('Protein Powder'),
+      normalizeFoodName('Rolled Oats'),
+      normalizeFoodName('Chia Seeds'),
+      normalizeFoodName('Banana'),
+      normalizeFoodName('Berries'),
+      normalizeFoodName('Greek Yogurt'),
+      normalizeFoodName('Soy Yogurt'),
+      normalizeFoodName('Yogurt'),
+      normalizeFoodName('Milk'),
+      normalizeFoodName('Peanut Butter'),
+      normalizeFoodName('Almond Butter'),
+      normalizeFoodName('Almonds'),
+    ]);
+
+    optimizable.forEach((opt) => {
+      const normalized = normalizeFoodName(opt.name);
+      const stripped = stripDescriptorWords(opt.name);
+      const bounds = specialBounds[normalized] || (stripped ? specialBounds[stripped] : null);
+      if (!bounds) return;
+      opt.isLocked = false;
+      const isInjectedTuner = opt.originalAmount <= 0.1;
+      if (isInjectedTuner || ALWAYS_ZERO_MIN.has(normalized)) {
+        opt.minAmount = bounds.min;
+      } else if (boundsMode === 'rescue') {
+        opt.minAmount = Math.min(opt.minAmount, bounds.min);
+      }
+
+      // Always apply max caps AND allow raising max up to the cap for feasibility.
+      opt.maxAmount = bounds.max;
+      if (opt.maxAmount < opt.minAmount) {
+        opt.maxAmount = Math.max(opt.minAmount, opt.originalAmount);
+      }
+    });
+    if (boundsMode === 'expanded' || boundsMode === 'rescue') {
+      const isRescue = boundsMode === 'rescue';
+
+      // Phase 1: Relax general bounds so the optimizer has room to work.
+      optimizable.forEach((opt) => {
+        if (opt.isLocked) return;
+
+        const normalized = normalizeFoodName(opt.name);
+        const stripped = stripDescriptorWords(opt.name);
+        if (HARD_SPECIAL_MAX.has(normalized) || (stripped && HARD_SPECIAL_MAX.has(stripped))) return;
+        const isFatHeavy = opt.density.fats >= 0.2;
+        const isProteinAnchor = opt.density.protein >= 0.12;
+        const isCarbAnchor = opt.density.carbs >= 0.15;
+
+        const cap = isFatHeavy ? (isRescue ? 150 : 120) : (isRescue ? 1500 : 1200);
+
+        const expandedMin = Math.max(0, opt.originalAmount * (isRescue ? 0 : 0.25));
+        const baseMultiplier = isProteinAnchor || isCarbAnchor ? (isRescue ? 8.0 : 6.0) : (isRescue ? 6.0 : 4.5);
+        const expandedMax = Math.min(cap, Math.max(opt.maxAmount, opt.originalAmount * baseMultiplier));
+
+        opt.minAmount = Math.min(opt.minAmount, expandedMin);
+        opt.maxAmount = Math.max(opt.maxAmount, expandedMax);
+
+        if (opt.maxAmount < opt.minAmount) {
+          opt.maxAmount = Math.max(opt.minAmount, opt.originalAmount);
+        }
+      });
+
+      // Phase 2: If we're under target, dynamically expand caps for the best "macro anchors".
+      const expandForDeficit = (
+        macro: 'protein' | 'carbs' | 'fats',
+        deficit: number,
+        options: {
+          minDensity: number;
+          maxCandidates: number;
+          hardCap: number;
+          bufferMultiplier: number;
+          purity?: { maxOtherDensity?: Partial<Record<'protein' | 'carbs' | 'fats', number>> };
+        }
+      ) => {
+        if (!(deficit > 0.5)) return;
+
+        const candidates = optimizable
+          .filter((opt) => !opt.isLocked)
+          .filter((opt) => {
+            const normalized = normalizeFoodName(opt.name);
+            const stripped = stripDescriptorWords(opt.name);
+            // Never expand beyond hard special caps like whey/oil.
+            if (HARD_SPECIAL_MAX.has(normalized) || (stripped && HARD_SPECIAL_MAX.has(stripped))) return false;
+            return true;
+          })
+          .filter((opt) => opt.density[macro] >= options.minDensity)
+          .filter((opt) => {
+            const maxOther = options.purity?.maxOtherDensity;
+            if (!maxOther) return true;
+            return (Object.entries(maxOther) as Array<[keyof typeof maxOther, unknown]>).every(
+              ([k, max]) => {
+                if (typeof max !== 'number') return true;
+                return opt.density[k] <= max;
+              }
+            );
+          })
+          .sort((a, b) => b.density[macro] - a.density[macro])
+          .slice(0, Math.max(1, options.maxCandidates));
+
+        if (candidates.length === 0) return;
+
+        const perCandidateShare = deficit / candidates.length;
+        candidates.forEach((opt) => {
+          const density = opt.density[macro];
+          if (!(density > 0)) return;
+
+          const requiredAdd = perCandidateShare / density;
+          const requiredMax = opt.currentAmount + (requiredAdd * options.bufferMultiplier);
+          const cap = Math.max(opt.maxAmount, Math.min(options.hardCap, requiredMax));
+          opt.maxAmount = Math.max(opt.maxAmount, cap);
+        });
+      };
+
+      expandForDeficit('carbs', gaps.carbs, {
+        minDensity: 0.15,
+        maxCandidates: 3,
+        hardCap: isRescue ? 1500 : 1200,
+        bufferMultiplier: isRescue ? 1.4 : 1.25,
+        // Prefer "clean" carb anchors (avoid using high-fat foods to fix carbs)
+        purity: { maxOtherDensity: { fats: 0.12 } },
+      });
+
+      expandForDeficit('protein', gaps.protein, {
+        minDensity: 0.12,
+        maxCandidates: 3,
+        hardCap: isRescue ? 1200 : 900,
+        bufferMultiplier: isRescue ? 1.35 : 1.2,
+        // Prefer lean protein anchors
+        purity: { maxOtherDensity: { fats: 0.25 } },
+      });
+
+      expandForDeficit('fats', gaps.fats, {
+        minDensity: 0.15,
+        maxCandidates: 2,
+        hardCap: isRescue ? 200 : 150,
+        bufferMultiplier: isRescue ? 1.25 : 1.15,
+      });
+    }
 
     // CRITICAL: Sugar RAG Enforcement (Daily Limit: 30g added sugars)
     const totalCurrentSugar = flatIngredients.reduce((acc, ing) => acc + (ing.nutrition.sugar || 0), 0);
@@ -2696,7 +4596,7 @@ Generate all 7 days of meals now.`;
       // We exclude natural sugars from fruits which aren't typically "sensitive" ingredients
       const sugarIngredients = flatIngredients
         .map((ing, idx) => ({ ing, idx }))
-        .filter(entry => entry.ing.nutrition.sugar && (entry.ing.nutrition.sugar > 0) && isSensitiveIngredient(entry.ing.name));
+        .filter(entry => entry.ing.nutrition.sugar && (entry.ing.nutrition.sugar > 0) && isAddedSugarIngredient(entry.ing.name));
 
       const totalAddedSugar = sugarIngredients.reduce((acc, entry) => acc + (entry.ing.nutrition.sugar || 0), 0);
 
@@ -2738,15 +4638,20 @@ Generate all 7 days of meals now.`;
           opt.maxAmount = opt.originalAmount;
         }
 
-        // Handle Sensitive Ingredient Locking (Sugar, Oils, Butter)
-        // This ensures that sensitive ingredients remain fixed for health/sugar compliance.
-        if (isSensitiveIngredient(ing.name)) {
+        // Lock added-sugar ingredients so macro fitting can't "cheat" by pushing sugar up/down.
+        if (isAddedSugarIngredient(ing.name)) {
           opt.isLocked = true;
           opt.minAmount = opt.originalAmount;
           opt.maxAmount = opt.originalAmount;
         }
       });
     });
+
+    // Enforce snack caps so a single snack can't become a calorie/macro "dumping ground".
+    this.applySnackCalorieCaps(dayMeals, optimizable, indexMap, dayTargets, options);
+
+    // Prevent main meals from collapsing into "seasoning-only" 0-cal meals in rescue scenarios.
+    this.applyMainMealCalorieFloors(dayMeals, optimizable, indexMap, dayTargets, { boundsMode: options?.boundsMode });
 
     // Build day targets with tolerances
     const targets = {
@@ -2755,19 +4660,24 @@ Generate all 7 days of meals now.`;
       carbs: dayTargets.carbs,
       fats: dayTargets.fats,
       tolerance: {
-        calories: Math.max(25, Math.round(dayTargets.calories * 0.05)),
-        protein: Math.max(5, Math.round(dayTargets.protein * 0.05)),
-        carbs: Math.max(8, Math.round(dayTargets.carbs * 0.06)),
-        fats: Math.max(4, Math.round(dayTargets.fats * 0.06)),
+        calories: 5,
+        protein: 1,
+        carbs: 1,
+        fats: 1,
       },
     } as const;
 
     const result = await this.hybridOptimizer.optimize(optimizable, targets, {
+      // For day-level matching, use LP without extra ratio constraints (targets already encode macro split).
+      // Do not enforce strict tolerance inside LP; we use a separate micro-correction pass for the final 1g/5kcal snap.
+      // If LP is available, force it (deterministic + globally optimal). If not, HybridMealOptimizer falls back.
+      forceLp: this.optimizerInitialized,
       compareResults: false,
+      lpOptions: { includeRatioConstraints: false, enforceTargetTolerance: false, directionalWeights: false },
     });
 
     // Map optimized amounts back into meals
-    const optimizedByIndex: number[] = result.ingredients.map(ing => ing.currentAmount);
+    const optimizedByIndex: number[] = result.ingredients.map((ing) => ing.currentAmount);
     const updatedMeals: MealWithUSDA[] = dayMeals.map(meal => ({ ...meal, ingredients: meal.ingredients.map(ing => ({ ...ing })) }));
 
     indexMap.forEach((mapEntry, flatIdx) => {
@@ -2776,7 +4686,8 @@ Generate all 7 days of meals now.`;
       const newAmount = Math.max(0, Math.round(optimizedByIndex[flatIdx] * 10) / 10);
       const normalized = normalizeFoodName(ing.name);
       const entry = usdaData[normalized];
-      const nutrition = entry ? calculateMacrosForAmount(entry.nutrition, newAmount, 'g') : ing.nutrition;
+      const per100g = entry?.nutrition ?? result.ingredients?.[flatIdx]?.per100g;
+      const nutrition = per100g ? calculateMacrosForAmount(per100g, newAmount, 'g') : ing.nutrition;
       updatedMeals[mealIdx].ingredients[ingIdx] = { ...ing, amount: newAmount, nutrition };
     });
 
@@ -2794,7 +4705,7 @@ Generate all 7 days of meals now.`;
       return { ...meal, totalMacros: totals };
     });
 
-    return recomputed;
+    return recomputed.map((meal) => this.pruneZeroAmountIngredients(meal));
   }
 
   /**
@@ -3030,7 +4941,15 @@ Generate all 7 days of meals now.`;
     const WHEY_FAT_PER_GRAM = wheyUsda ? wheyUsda.nutrition.fats / 100 : 0.02;
 
     const proteinWithBuffer = proteinNeeded * 1.05;
-    const wheyAmount = Math.ceil(proteinWithBuffer / WHEY_PROTEIN_PER_GRAM);
+    const wheyAmountRaw = Math.ceil(proteinWithBuffer / WHEY_PROTEIN_PER_GRAM);
+    const MAX_WHEY_GRAMS = 60; // realism guard: avoid absurd "150g whey in one shake"
+    if (wheyAmountRaw > MAX_WHEY_GRAMS) {
+      throw new Error(
+        `Precision protein shake would require ${wheyAmountRaw}g whey protein powder (max ${MAX_WHEY_GRAMS}g allowed). ` +
+          `Scale up the primary protein ingredients in meals instead of adding excessive protein powder.`
+      );
+    }
+    const wheyAmount = wheyAmountRaw;
 
     const macros: MacroValues = wheyUsda
       ? calculateMacrosForAmount(wheyUsda.nutrition, wheyAmount, 'g')

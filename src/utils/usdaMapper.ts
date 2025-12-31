@@ -182,9 +182,10 @@ export function extractMacrosFromUSDA(
     for (const altId of ALT_CALORIE_NUTRIENT_IDS) {
       const alt = getNutrientValue(altId);
       if (alt.value > 0) {
-        macros.calories = Math.round(alt.value);
+        // Nutrient 1062 is kJ (convert to kcal). Others are kcal-like.
+        macros.calories = altId === 1062 ? Math.round(alt.value / 4.184) : Math.round(alt.value);
         console.warn(
-          `⚠️ Missing primary calorie nutrient (ID ${NUTRIENT_IDS.CALORIES}); using alternative energy value from nutrient ${altId} (${alt.value} kcal)`
+          `⚠️ Missing primary calorie nutrient (ID ${NUTRIENT_IDS.CALORIES}); using alternative energy value from nutrient ${altId} (${alt.value}${altId === 1062 ? ' kJ' : ' kcal'})`
         );
         break;
       }
