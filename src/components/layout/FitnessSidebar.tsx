@@ -67,6 +67,8 @@ interface FitnessSidebarProps {
   workoutHistory: WorkoutHistoryItem[];
 }
 
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+
 export function FitnessSidebar({
   onNewWorkout,
   onSelectWorkout,
@@ -81,6 +83,21 @@ export function FitnessSidebar({
   const [settingsOpen, setSettingsOpen] = useState(
     currentView?.startsWith('settings') ?? false
   );
+  const [deleteConfirmation, setDeleteConfirmation] = useState<{ isOpen: boolean; planId: number | null }>({
+    isOpen: false,
+    planId: null
+  });
+
+  const handleConfirmDelete = () => {
+    if (deleteConfirmation.planId !== null) {
+      onDeleteWorkout(deleteConfirmation.planId);
+      setDeleteConfirmation({ isOpen: false, planId: null });
+      toast({
+        title: "Plan Deleted",
+        description: "The workout plan has been permanently removed.",
+      });
+    }
+  };
 
   const handleSignOut = async () => {
     try {
@@ -242,9 +259,9 @@ export function FitnessSidebar({
                               <DropdownMenuItem
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  onDeleteWorkout(workout.id);
+                                  setDeleteConfirmation({ isOpen: true, planId: workout.id });
                                 }}
-                                className="text-destructive focus:text-destructive"
+                                className="text-destructive focus:text-destructive cursor-pointer"
                               >
                                 <Trash2 className="h-4 w-4 mr-2" />
                                 Delete
@@ -326,6 +343,27 @@ export function FitnessSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarFooter>
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={deleteConfirmation.isOpen}
+        onOpenChange={(open) => setDeleteConfirmation(prev => ({ ...prev, isOpen: open }))}
+        title="Delete Workout Plan?"
+        description={
+          <div className="space-y-2">
+            <p>
+              Are you sure you want to delete <span className="font-semibold text-foreground">"{workoutHistory.find(w => w.id === deleteConfirmation.planId)?.title}"</span>?
+            </p>
+            <p className="text-sm text-muted-foreground">
+              This action cannot be undone. This will permanently delete the workout plan and all associated data from our servers.
+            </p>
+          </div>
+        }
+        confirmText="Delete Plan"
+        cancelText="Cancel"
+        variant="destructive"
+        onConfirm={handleConfirmDelete}
+      />
     </Sidebar>
   );
 }
