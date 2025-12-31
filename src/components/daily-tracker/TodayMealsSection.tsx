@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Utensils, Check, Plus, RefreshCw, ChevronRight, Trash2 } from 'lucide-react';
 import { FoodSearchSheet } from './FoodSearchSheet';
+import mealsIcon from '@/assets/images/3dicons/meals.png';
 
 interface Meal {
   mealId: string;
@@ -174,7 +175,7 @@ export function TodayMealsSection({
               <div className="flex-shrink-0 -ml-2">
                 <div className="w-20 h-20 flex items-center justify-center">
                   <img
-                    src="/assets/images/3dIcons/meals.png"
+                    src={mealsIcon}
                     alt="Meals"
                     className="w-20 h-20 object-contain drop-shadow-xl"
                   />

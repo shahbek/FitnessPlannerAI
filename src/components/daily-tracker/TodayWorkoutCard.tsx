@@ -4,6 +4,7 @@ import { api } from '../../../convex/_generated/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { Dumbbell, Check, X, Clock, Target, Bed } from 'lucide-react';
+import dumbellIcon from '@/assets/images/3dicons/dumbell.png';
 
 interface WorkoutData {
   sessionId: string;
@@ -107,7 +108,7 @@ export function TodayWorkoutCard({
           <div className="flex items-center gap-2">
             <div className="flex-shrink-0 -ml-2">
               <img
-                src="/assets/images/3dIcons/dumbell.png"
+                src={dumbellIcon}
                 alt="Workout"
                 className={cn(
                   "w-20 h-20 object-contain drop-shadow-xl transition-all",

@@ -1,23 +1,27 @@
 import React from 'react';
+import pullupIcon from '@/assets/images/3dicons/pullup.png';
+import calendarIcon from '@/assets/images/3dicons/calendar.png';
+import trackIcon from '@/assets/images/3dicons/track.png';
+import targetIcon from '@/assets/images/3dicons/target.png';
 
 const steps = [
     {
-        icon: "/assets/images/3dIcons/pullup.png",
+        icon: pullupIcon,
         title: "Tell Us Your Goals",
         description: "Share your fitness objectives, current stats, and preferences. Our AI analyzes your profile to create the perfect strategy."
     },
     {
-        icon: "/assets/images/3dIcons/calendar.png",
+        icon: calendarIcon,
         title: "Get Your Custom Plan",
         description: "Receive a comprehensive workout and meal plan tailored specifically to your body type and schedule."
     },
     {
-        icon: "/assets/images/3dIcons/track.png",
+        icon: trackIcon,
         title: "Track & Eat Smart",
         description: "Follow daily macro targets and meal suggestions that adapt to your progress and preferences."
     },
     {
-        icon: "/assets/images/3dIcons/target.png",
+        icon: targetIcon,
         title: "Evolve With AI",
         description: "As you log workouts and check-ins, our AI adjusts your plan in real-time to ensure continuous progress."
     }

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Scale, TrendingUp, TrendingDown, Minus, Check } from 'lucide-react';
+import scaleIcon from '@/assets/images/3dicons/scale.png';
 
 interface TodayWeightCardProps {
   workoutPlanId: string;
@@ -90,7 +91,7 @@ export function TodayWeightCard({
             <div className="flex-shrink-0 -ml-2">
               <div className="w-20 h-20 flex items-center justify-center">
                 <img
-                  src="/assets/images/3dIcons/scale.png"
+                  src={scaleIcon}
                   alt="Scale"
                   className="w-20 h-20 object-contain drop-shadow-xl"
                 />

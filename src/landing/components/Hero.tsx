@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowRight } from 'lucide-react';
+import dashboardImg from '@/assets/images/dashboard.png';
 
 interface HeroProps {
     onStart: () => void;
@@ -52,7 +53,7 @@ export function Hero({ onStart }: HeroProps) {
                         <div className="relative rounded-2xl overflow-hidden border border-white/20 shadow-2xl bg-white/30 backdrop-blur-md p-2">
                             <div className="rounded-xl overflow-hidden bg-background/50 aspect-[16/9] flex items-center justify-center relative">
                                 <img
-                                    src="/assets/images/dashboard.png"
+                                    src={dashboardImg}
                                     alt="Interactive Dashboard Preview"
                                     className="w-full h-full object-cover"
                                 />

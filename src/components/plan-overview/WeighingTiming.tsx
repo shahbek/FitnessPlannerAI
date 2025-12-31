@@ -1,6 +1,7 @@
 import React from 'react';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Scale, Sun, Calendar, TrendingUp, AlertCircle } from 'lucide-react';
+import scaleIcon from '@/assets/images/3dicons/scale.png';
 
 interface WeighingTimingProps {
   plan: any;
@@ -83,7 +84,7 @@ export function WeighingTiming({ plan, userProfile }: WeighingTimingProps) {
           <div className="flex flex-col items-center gap-1.5 flex-shrink-0 ml-4 relative z-10">
             <div className="relative h-32 w-auto drop-shadow-2xl filter hover:brightness-110 transition-all duration-300 transform hover:scale-110">
               <img
-                src="/assets/images/3dIcons/scale.png"
+                src={scaleIcon}
                 alt="Scale"
                 className="h-full w-auto object-contain"
               />

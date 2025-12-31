@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Droplet, Plus, RotateCcw } from 'lucide-react';
+import bottleIcon from '@/assets/images/3dicons/bottle-of-water.png';
 
 interface WaterLog {
   amount: number;
@@ -108,13 +109,13 @@ export function TodayHydrationCard({
               <div className={cn("w-20 h-20 flex items-center justify-center transition-transform duration-500", progress >= 100 && "scale-110")}>
                 {progress >= 100 ? (
                   <img
-                    src="/assets/images/3dIcons/bottle-of-water.png"
+                    src={bottleIcon}
                     alt="Water"
                     className="w-20 h-20 object-contain drop-shadow-2xl"
                   />
                 ) : (
                   <img
-                    src="/assets/images/3dIcons/bottle-of-water.png"
+                    src={bottleIcon}
                     alt="Water"
                     className="w-20 h-20 object-contain drop-shadow-xl"
                   />

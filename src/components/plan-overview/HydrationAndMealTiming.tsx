@@ -2,6 +2,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Droplet, Clock, Coffee, Sun, Sunset, Moon } from 'lucide-react';
 import { calculateWaterIntake } from '@/utils/planCalculations';
+import bottleIcon from '@/assets/images/3dicons/bottle-of-water.png';
 
 interface HydrationAndMealTimingProps {
   plan: any;
@@ -85,7 +86,7 @@ export function HydrationAndMealTiming({ plan, userProfile }: HydrationAndMealTi
             <div className="flex flex-col items-center gap-1 relative z-10">
               <div className="relative h-24 w-auto drop-shadow-xl filter hover:brightness-110 transition-all duration-300 transform hover:scale-105">
                 <img
-                  src="/assets/images/3dIcons/bottle-of-water.png"
+                  src={bottleIcon}
                   alt="Water Bottle"
                   className="h-full w-auto object-contain"
                 />

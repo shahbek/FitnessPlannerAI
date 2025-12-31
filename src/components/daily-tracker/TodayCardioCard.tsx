@@ -4,6 +4,7 @@ import { api } from '../../../convex/_generated/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import { Heart, Clock, Zap, Activity } from 'lucide-react';
+import crossTrainerIcon from '@/assets/images/3dicons/cross-trainer.png';
 
 interface CardioData {
   templateId?: string;
@@ -127,7 +128,7 @@ export function TodayCardioCard({
               <div className={cn("w-20 h-20 flex items-center justify-center transition-transform duration-500", isCompleted && "scale-110")}>
                 {/* Always show elliptical icon, no check or X */}
                 <img
-                  src="/assets/images/3dIcons/cross-trainer.png"
+                  src={crossTrainerIcon}
                   alt="Cardio"
                   className={cn(
                     "w-20 h-20 object-contain",
