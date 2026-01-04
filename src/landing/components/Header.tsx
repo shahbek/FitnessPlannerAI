@@ -36,7 +36,7 @@ export function Header({ onLogin }: HeaderProps) {
                 showNav ? "max-w-5xl px-8 py-4" : "max-w-[240px] px-6 py-3"
             )}
         >
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between w-full">
                 <div className="flex items-center gap-3 shrink-0">
                     <img src={logo} alt="Supercomp Logo" className="w-10 h-10 transition-transform duration-300 hover:scale-110" />
                     <span className="text-2xl font-bold tracking-tight text-foreground font-editorial">
@@ -64,7 +64,7 @@ export function Header({ onLogin }: HeaderProps) {
                         </Button>
                         <Button
                             onClick={onLogin}
-                            className="rounded-full px-6 shadow-lg shadow-primary/20 hover:shadow-primary/40 transition-all duration-300 font-sans whitespace-nowrap"
+                            className="rounded-full px-6 hover:shadow-primary/40 transition-all duration-300 font-sans whitespace-nowrap"
                         >
                             Get Started
                         </Button>

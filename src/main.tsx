@@ -8,6 +8,18 @@ import './index.css';
 
 import { convex } from './lib/convex';
 
+import { registerSW } from 'virtual:pwa-register';
+
+// Initialize PWA
+const updateSW = registerSW({
+  onNeedRefresh() {
+    console.log('🔄 New content available, click on reload button to update.');
+  },
+  onOfflineReady() {
+    console.log('📶 App is ready to work offline.');
+  },
+});
+
 // Client initialized in lib/convex.ts
 console.log('🔗 Convex client initialized');
 

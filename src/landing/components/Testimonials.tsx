@@ -4,20 +4,20 @@ import { Star } from 'lucide-react';
 const testimonials = [
     {
         name: "Sarah J.",
-        role: "Marathon Runner",
-        content: "The adaptive training plan is a game changer. It adjusted my volume when I was feeling fatigued, preventing injury.",
+        role: "Busy Professional",
+        content: "I never felt lost. Every day I knew exactly what to eat and how to train. It took all the guesswork out of my routine.",
         rating: 5
     },
     {
         name: "Mike T.",
-        role: "Powerlifter",
-        content: "Finally, an app that understands periodization. My bench press increased by 20lbs in just 8 weeks.",
+        role: "Fitness Enthusiast",
+        content: "The plan forecast was scarily accurate. I hit my 12% body fat goal almost exactly on the predicted date. Unreal precision.",
         rating: 5
     },
     {
         name: "Elena R.",
-        role: "Yoga Instructor",
-        content: "I love how it balances strength training with my yoga practice. The meal plans are actually delicious too!",
+        role: "New Mom",
+        content: "Finally, a tool that actually works. I lost 15lbs without stressing over the details because the app handled everything for me.",
         rating: 5
     }
 ];
