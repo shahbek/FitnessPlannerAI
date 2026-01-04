@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowRight } from 'lucide-react';
 import dashboardImg from '@/assets/images/dashboard.png';
-import ss1 from '@/assets/images/ss1.PNG';
-import ss2 from '@/assets/images/ss2.PNG';
-import ss3 from '@/assets/images/ss3.PNG';
+import ss1 from '@/assets/images/ss1.png';
+import ss2 from '@/assets/images/ss2.png';
+import ss3 from '@/assets/images/ss3.png';
 
 interface HeroProps {
     onStart: () => void;
