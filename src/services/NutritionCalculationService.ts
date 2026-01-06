@@ -502,10 +502,26 @@ export class NutritionCalculationService {
     );
 
     // Step 4: Carbs fill remaining calories
+    // CRITICAL: Enforce minimum carb floor (brain requires ~130g glucose/day, keto minimum ~20-50g)
+    // DYNAMIC MINIMUM: Scale with calories to avoid displacing protein on low-cal days
+    // Formula: ~15% of target as carbs (realistic for templates), range: 20-50g
+    const dynamicMin = Math.max(20, Math.min(50, (targetCalories * 0.15) / 4));
+    const MIN_CARBS = Math.round(dynamicMin);
     const proteinCalories = protein * 4;
     const fatCalories = fat * 9;
     const remainingCalories = Math.max(targetCalories - proteinCalories - fatCalories, 0);
-    const carbs = Math.round((remainingCalories / 4) * 10) / 10;
+    const carbsFromRemaining = Math.round((remainingCalories / 4) * 10) / 10;
+    
+    // Ensure minimum carbs, even if it means exceeding target calories slightly
+    const carbs = Math.max(carbsFromRemaining, MIN_CARBS);
+    
+    // If we had to add carbs, log a warning
+    if (carbs > carbsFromRemaining && carbsFromRemaining === 0) {
+      console.warn(
+        `⚠️ [NUTRITION] Protein+fat calories (${Math.round(proteinCalories + fatCalories)}) exceed target (${targetCalories}). ` +
+        `Added ${MIN_CARBS}g minimum carbs. Consider lowering protein (${protein}g) or fat (${fat}g) targets.`
+      );
+    }
 
     // Step 5: Collect sources
     const sources = this.collectMacroSources(goalType);
@@ -785,10 +801,26 @@ Expected fat loss: ${expectedWeeklyFatLoss.toFixed(2)} kg/week (${((expectedWeek
     const fat = Math.round(metrics.weightKg * fatPerKg * 10) / 10;
 
     // Carbs fill remaining calories
+    // CRITICAL: Enforce minimum carb floor (brain requires ~130g glucose/day, keto minimum ~20-50g)
+    // DYNAMIC MINIMUM: Scale with calories to avoid displacing protein on low-cal days
+    // Formula: ~15% of target as carbs (realistic for templates), range: 20-50g
+    const dynamicMin = Math.max(20, Math.min(50, (targetCalories * 0.15) / 4));
+    const MIN_CARBS = Math.round(dynamicMin);
     const proteinCalories = protein * 4;
     const fatCalories = fat * 9;
     const remainingCalories = Math.max(targetCalories - proteinCalories - fatCalories, 0);
-    const carbs = Math.round((remainingCalories / 4) * 10) / 10;
+    const carbsFromRemaining = Math.round((remainingCalories / 4) * 10) / 10;
+    
+    // Ensure minimum carbs, even if it means exceeding target calories slightly
+    const carbs = Math.max(carbsFromRemaining, MIN_CARBS);
+    
+    // If we had to add carbs, log a warning
+    if (carbs > carbsFromRemaining && carbsFromRemaining === 0) {
+      console.warn(
+        `⚠️ [NUTRITION] Protein+fat calories (${Math.round(proteinCalories + fatCalories)}) exceed target (${targetCalories}). ` +
+        `Added ${MIN_CARBS}g minimum carbs. Consider lowering protein (${protein}g) or fat (${fat}g) targets.`
+      );
+    }
 
     // Generate reasoning
     const reasoning = this.generateCategoryMacroReasoning(
@@ -914,10 +946,26 @@ Expected fat loss: ${expectedWeeklyFatLoss.toFixed(2)} kg/week (${((expectedWeek
     const fat = Math.round(weightKg * fatPerKg * 10) / 10;
 
     // Carbs fill remaining calories
+    // CRITICAL: Enforce minimum carb floor (brain requires ~130g glucose/day, keto minimum ~20-50g)
+    // DYNAMIC MINIMUM: Scale with calories to avoid displacing protein on low-cal days
+    // Formula: ~15% of target as carbs (realistic for templates), range: 20-50g
+    const dynamicMin = Math.max(20, Math.min(50, (targetCalories * 0.15) / 4));
+    const MIN_CARBS = Math.round(dynamicMin);
     const proteinCalories = protein * 4;
     const fatCalories = fat * 9;
     const remainingCalories = Math.max(targetCalories - proteinCalories - fatCalories, 0);
-    const carbs = Math.round((remainingCalories / 4) * 10) / 10;
+    const carbsFromRemaining = Math.round((remainingCalories / 4) * 10) / 10;
+    
+    // Ensure minimum carbs, even if it means exceeding target calories slightly
+    const carbs = Math.max(carbsFromRemaining, MIN_CARBS);
+    
+    // If we had to add carbs, log a warning
+    if (carbs > carbsFromRemaining && carbsFromRemaining === 0) {
+      console.warn(
+        `⚠️ [NUTRITION] Protein+fat calories (${Math.round(proteinCalories + fatCalories)}) exceed target (${targetCalories}). ` +
+        `Added ${MIN_CARBS}g minimum carbs. Consider lowering protein (${protein}g) or fat (${fat}g) targets.`
+      );
+    }
 
     // Generate detailed reasoning
     const reasoning = this.generateBodyFatGoalReasoning(

@@ -269,7 +269,9 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
     const mappedFormData = {
       ...formData,
       goal: formData.primaryGoal, // Map primaryGoal to goal for AI service
-      bodyFat: formData.bodyFat || 20, // Add default body fat if not provided
+      // IMPORTANT: Only include bodyFat if user explicitly provided it
+      // If undefined, NutritionCalculationService will correctly fall back to Mifflin-St Jeor
+      bodyFat: formData.bodyFat ? formData.bodyFat : undefined,
       targetBf: formData.targetBf || 15, // Add default target body fat if not provided
     };
 
