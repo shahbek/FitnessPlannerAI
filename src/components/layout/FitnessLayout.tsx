@@ -849,6 +849,10 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
         if ('sessionDuration' in form && form.sessionDuration) {
           planUserProfile.sessionDuration = form.sessionDuration;
         }
+        // ✅ Add activityLevel for accurate TDEE calculation
+        if ('activityLevel' in form && (form as any).activityLevel) {
+          planUserProfile.activityLevel = (form as any).activityLevel;
+        }
 
         // Handle array fields - ensure they're arrays, not empty strings
         if ('equipmentAccess' in form && form.equipmentAccess) {

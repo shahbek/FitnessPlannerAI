@@ -12,6 +12,7 @@ interface BMRAndMetabolicAgeProps {
     bodyFat?: number;
     experienceLevel?: string;
     workoutDaysPerWeek?: number;
+    activityLevel?: string;
   };
 }
 
@@ -181,6 +182,7 @@ export function BMRAndMetabolicAge({ plan, userProfile }: BMRAndMetabolicAgeProp
       heightCm: height,
       age,
       gender: gender?.toLowerCase() === 'male' || gender?.toLowerCase() === 'm' ? 'male' : 'female',
+      activityLevel: planUserProfile?.activityLevel || userProfile?.activityLevel,
       experienceLevel: planUserProfile?.experienceLevel || userProfile?.experienceLevel || planUserProfile?.workoutLevel || '',
       trainingDaysPerWeek: planUserProfile?.workoutDaysPerWeek || userProfile?.workoutDaysPerWeek || 3,
       bodyFat
