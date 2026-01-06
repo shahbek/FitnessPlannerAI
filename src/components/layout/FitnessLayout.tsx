@@ -183,27 +183,9 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
 
   // Generate breadcrumb JSX based on current view
   const renderBreadcrumb = () => {
-    // Show breadcrumb for selected workout plans
-    if (selectedWorkoutId) {
-      const selectedWorkout = workoutHistory.find(w => w.id === selectedWorkoutId);
-      if (selectedWorkout) {
-        return (
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                {/* Made "Your Plans" non-clickable or essentially a reset to default plan */}
-                <span className="font-medium">Your Plans</span>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbPage>{selectedWorkout.title}</BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-        );
-      }
-    }
-
+    // ✅ Check currentView FIRST before selectedWorkoutId
+    // This ensures Settings breadcrumb shows even when a plan is selected
+    
     // Settings breadcrumb
     if (currentView.startsWith('settings')) {
       return (
@@ -237,6 +219,27 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
           </BreadcrumbList>
         </Breadcrumb>
       );
+    }
+    
+    // Show breadcrumb for selected workout plans (only if not in Settings)
+    if (selectedWorkoutId) {
+      const selectedWorkout = workoutHistory.find(w => w.id === selectedWorkoutId);
+      if (selectedWorkout) {
+        return (
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                {/* Made "Your Plans" non-clickable or essentially a reset to default plan */}
+                <span className="font-medium">Your Plans</span>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{selectedWorkout.title}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+        );
+      }
     }
 
     // No breadcrumb for home view
@@ -1425,6 +1428,18 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
           } else {
             clearError();
             handleGeneratePlan(form);
+          }
+        }}
+        onViewPlan={() => {
+          // ✅ Navigate to the plan and ensure we have a plan selected
+          // Find the most recent plan (should be the newly generated one)
+          const latestPlan = workoutHistory[0];
+          if (latestPlan) {
+            setSelectedWorkoutId(latestPlan.id);
+            setCurrentView('home'); // 'home' is the correct view for workout content
+          } else {
+            // Fallback: if no plans, just go to home (will show empty state)
+            setCurrentView('home');
           }
         }}
       />

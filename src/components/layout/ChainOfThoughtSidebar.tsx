@@ -20,6 +20,7 @@ interface ChainOfThoughtSidebarProps {
   onCancel?: () => void;
   error?: string | null;
   onRetry?: () => void;
+  onViewPlan?: () => void; // Navigate to the generated plan
 }
 
 export function ChainOfThoughtSidebar({
@@ -28,7 +29,8 @@ export function ChainOfThoughtSidebar({
   currentLoading,
   ragProgress,
   error,
-  onRetry
+  onRetry,
+  onViewPlan
 }: ChainOfThoughtSidebarProps) {
   const [messageIndex, setMessageIndex] = useState(0);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -47,11 +49,13 @@ export function ChainOfThoughtSidebar({
 
   // Timer for total generation time and pause animation when complete
   useEffect(() => {
-    if (currentLoading) {
+    const isGenerationComplete = !currentLoading && ragProgress?.phase === 'complete';
+    
+    if (currentLoading && ragProgress?.phase !== 'complete') {
       setMessageIndex(0);
       // Reset minimize state on new generation
       setIsMinimized(true); // Start minimized by default as per user preference implied by "when in the small circle view" focus
-    } else {
+    } else if (isGenerationComplete) {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -68,17 +72,17 @@ export function ChainOfThoughtSidebar({
         clearInterval(intervalRef.current);
       }
     };
-  }, [currentLoading]);
+  }, [currentLoading, ragProgress?.phase]);
 
   // Rotate messages every 3 seconds
   useEffect(() => {
-    if (currentLoading) {
+    if (currentLoading && ragProgress?.phase !== 'complete') {
       const messageInterval = setInterval(() => {
         setMessageIndex(prev => (prev + 1) % messages.length);
       }, 3000);
       return () => clearInterval(messageInterval);
     }
-  }, [currentLoading, messages.length]);
+  }, [currentLoading, ragProgress?.phase, messages.length]);
 
   // Auto-scroll reasoning area when content changes (for streaming text)
   useEffect(() => {
@@ -153,15 +157,15 @@ export function ChainOfThoughtSidebar({
         isMinimized ? "opacity-100 delay-200" : "opacity-0 pointer-events-none"
       )}>
         <div className="flex items-center justify-center" style={{
-          filter: currentLoading
+          filter: (currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete')
             ? 'brightness(0) saturate(100%) invert(38%) sepia(100%) saturate(2163%) hue-rotate(355deg) brightness(96%) contrast(96%)'
             : 'brightness(0) saturate(100%) grayscale(100%)'
         }}>
           <Lottie
             lottieRef={lottieRef}
             animationData={logoLoadingAnimation}
-            loop={currentLoading}
-            autoplay={currentLoading}
+            loop={currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete'}
+            autoplay={currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete'}
             style={lottieStyle}
           />
         </div>
@@ -204,40 +208,63 @@ export function ChainOfThoughtSidebar({
 
         <div className="flex-1 flex flex-col overflow-hidden pt-12">
           <div className="flex flex-col flex-1 min-h-0">
-            {/* Loading State */}
-            {currentLoading && (
+            {/* Single container for both states - smooth transition */}
+            {(currentLoading || (!error && normalizedProgress)) && (
               <div className="flex flex-col flex-1 min-h-0 p-4">
-                {/* Big Centered Lottie Animation */}
-                <div className="flex-shrink-0 flex flex-col items-center justify-center py-4">
-                  <div className="w-22 h-22 flex items-center justify-center" style={{
-                    filter: 'brightness(0) saturate(100%) invert(38%) sepia(100%) saturate(2163%) hue-rotate(355deg) brightness(96%) contrast(96%)'
-                  }}>
+                {/* Lottie Animation - same element, just transitions between states */}
+                <div className="flex-shrink-0 flex flex-col items-center justify-center py-4 transition-all duration-700 ease-in-out">
+                  <div 
+                    className="w-22 h-22 flex items-center justify-center transition-all duration-700 ease-in-out" 
+                    style={{
+                      filter: (currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete')
+                        ? 'brightness(0) saturate(100%) invert(38%) sepia(100%) saturate(2163%) hue-rotate(355deg) brightness(96%) contrast(96%)'
+                        : 'brightness(0) saturate(100%) grayscale(100%)'
+                    }}
+                  >
                     <Lottie
                       lottieRef={lottieRef}
                       animationData={logoLoadingAnimation}
-                      loop={true}
-                      autoplay={true}
+                      loop={currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete'}
+                      autoplay={currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete'}
                       style={lottieStyle}
                     />
                   </div>
 
-                  {/* Interactive Messages with TextEffect */}
-                  <div className="mt-4 text-center h-8">
-                    <TextEffect
-                      key={messageIndex}
-                      as="h2"
-                      preset="fade-in-blur"
-                      per="word"
-                      className="text-lg font-editorial font-light text-foreground"
-                      trigger={true}
-                    >
-                      {messages[messageIndex]}
-                    </TextEffect>
+                  {/* Text - smoothly transitions between loading and complete */}
+                  <div className="mt-4 text-center h-auto min-h-[2rem] transition-all duration-700 ease-in-out">
+                    {currentLoading || (normalizedProgress || ragProgress)?.phase !== 'complete' ? (
+                      <TextEffect
+                        key={messageIndex}
+                        as="h2"
+                        preset="fade-in-blur"
+                        per="word"
+                        className="text-lg font-editorial font-light text-foreground"
+                        trigger={true}
+                      >
+                        {messages[messageIndex]}
+                      </TextEffect>
+                    ) : (
+                      <TextEffect
+                        key="complete"
+                        as="h2"
+                        preset="fade-in-blur"
+                        per="word"
+                        className="text-lg font-editorial font-light text-foreground"
+                        trigger={true}
+                      >
+                        Your plan is ready
+                      </TextEffect>
+                    )}
                   </div>
                 </div>
 
-                {/* Hierarchical Step Structure */}
-                <div className="flex-shrink-0 space-y-3 px-2 pb-4">
+                {/* Hierarchical Step Structure - fade out when complete */}
+                <div className={cn(
+                  "flex-shrink-0 space-y-3 px-2 pb-4 transition-all duration-700 ease-in-out",
+                  currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete' 
+                    ? "opacity-100" 
+                    : "opacity-0 h-0 overflow-hidden"
+                )}>
                   <div className="space-y-1">
                     {/* Workout Planning */}
                     {((normalizedProgress || ragProgress)?.phase === 'workout_planning' ||
@@ -311,20 +338,42 @@ export function ChainOfThoughtSidebar({
                   </div>
                 </div>
 
-                {/* Scrollable Reasoning Area - Takes remaining space */}
+                {/* Scrollable Reasoning Area - smooth transition between loading and complete */}
                 {ragProgress?.aiReasoning && (
                   <div
                     ref={reasoningScrollRef}
-                    className="flex-1 overflow-y-auto px-2 min-h-0 scroll-smooth [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] bg-muted/30 rounded-lg p-3 mx-2 mb-2 font-mono text-xs"
+                    className={cn(
+                      "flex-1 overflow-y-auto px-4 mt-4 min-h-0 scroll-smooth border-t pt-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] transition-all duration-700 ease-in-out",
+                      (currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete')
+                        ? "font-mono text-xs bg-muted/30 rounded-lg px-2 mx-2 mb-2" 
+                        : "text-sm"
+                    )}
                   >
                     <div className="text-muted-foreground whitespace-pre-wrap leading-relaxed">
                       <StreamingText
                         text={normalizedProgress?.aiReasoning || ragProgress?.aiReasoning || ''}
                         speed={3}
                         delay={10}
-                        pauseOnComplete={(normalizedProgress || ragProgress)?.reasoningMode === 'complete'}
+                        pauseOnComplete={true}
                       />
                     </div>
+                  </div>
+                )}
+
+                {/* CTA - fade in when complete */}
+                {!currentLoading && (normalizedProgress || ragProgress)?.phase === 'complete' && (
+                  <div className="mt-auto pt-4 animate-in fade-in duration-1000 delay-300">
+                    <Button 
+                      onClick={() => {
+                        if (onViewPlan) {
+                          onViewPlan();
+                        }
+                        onClose();
+                      }} 
+                      className="w-full"
+                    >
+                      View Plan
+                    </Button>
                   </div>
                 )}
               </div>
@@ -350,62 +399,6 @@ export function ChainOfThoughtSidebar({
                     Retry Generation
                   </Button>
                 )}
-              </div>
-            )}
-
-            {/* Completed Plan Generation */}
-            {!currentLoading && !error && (
-              <div className="flex flex-col flex-1 min-h-0 p-4">
-                {/* Grey Paused Lottie Animation */}
-                <div className="flex-shrink-0 flex flex-col items-center justify-center py-8">
-                  <div className="w-32 h-32 flex items-center justify-center" style={{
-                    filter: 'brightness(0) saturate(100%) grayscale(100%)'
-                  }}>
-                    <Lottie
-                      lottieRef={lottieRef}
-                      animationData={logoLoadingAnimation}
-                      loop={false}
-                      autoplay={false}
-                      style={{ width: '128px', height: '128px' }}
-                    />
-                  </div>
-
-                  {/* Completion Message */}
-                  <div className="mt-6 text-center">
-                    <TextEffect
-                      as="h2"
-                      preset="fade-in-blur"
-                      per="word"
-                      className="text-xl font-editorial font-light text-foreground"
-                      trigger={true}
-                    >
-                      Your plan is ready
-                    </TextEffect>
-                  </div>
-                </div>
-
-                {/* Show reasoning text when available */}
-                {(normalizedProgress?.aiReasoning || ragProgress?.aiReasoning) && (
-                  <div
-                    ref={reasoningScrollRef}
-                    className="flex-1 overflow-y-auto px-4 mt-4 min-h-0 scroll-smooth border-t pt-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"
-                  >
-                    <div className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed pr-2 pb-4">
-                      <StreamingText
-                        text={normalizedProgress?.aiReasoning || ragProgress?.aiReasoning || ''}
-                        speed={3}
-                        delay={10}
-                        pauseOnComplete={true}
-                      />
-                    </div>
-                  </div>
-                )}
-
-                <div className="mt-auto pt-4">
-                  <Button onClick={onClose} className="w-full">
-                    View Plan
-                  </Button>
-                </div>
               </div>
             )}
           </div>
