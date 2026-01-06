@@ -127,24 +127,18 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
         // 2. Keep saved plans
         const merged = [...generatingPlans, ...savedWorkoutPlans];
 
-        // 3. Update selected ID if we replaced a local pending plan with a real one?
-        // Actually, the cached hook handles ID consistency (using same hash logic).
-        // If IDs match, we don't need to do anything special for selection preservation hopefully.
-
         return merged;
       });
 
-      // Auto-select logic - ALWAYS ensure a plan is selected if available
-      // This prevents the "No active plan" / "Dashboard Overview" screen
-      if (!selectedWorkoutId && savedWorkoutPlans.length > 0) {
-        // Try to find active plan
-        const activePlan = savedWorkoutPlans.find((p: any) => p.data?.isActive);
-        if (activePlan) {
-          setSelectedWorkoutId(activePlan.id);
-        } else {
-          // Default to most recent (index 0)
-          setSelectedWorkoutId(savedWorkoutPlans[0].id);
-        }
+      // ✅ Check if current selection exists in savedWorkoutPlans
+      const currentlySelected = savedWorkoutPlans.find((p: any) => p.id === selectedWorkoutId);
+      
+      // If we don't have a valid selection, select the most recent one
+      if (!currentlySelected && savedWorkoutPlans.length > 0) {
+        const mostRecentCompleted = savedWorkoutPlans[0];
+        console.log('🔄 No valid selection, auto-selecting most recent completed plan:', mostRecentCompleted.id, mostRecentCompleted.title);
+        setSelectedWorkoutId(mostRecentCompleted.id);
+        setCurrentView('home');
       }
     }
   }, [savedWorkoutPlans, selectedWorkoutId]); // Added selectedWorkoutId dependency to re-check if selection is cleared
@@ -154,12 +148,35 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
     if (!selectedWorkoutId && workoutHistory.length > 0) {
       const activePlan = workoutHistory.find(p => p.data?.isActive);
       if (activePlan) {
+        console.log('🎯 Auto-selecting active plan:', activePlan.id);
         setSelectedWorkoutId(activePlan.id);
+        setCurrentView('home');
       } else {
+        console.log('🎯 Auto-selecting most recent plan:', workoutHistory[0].id);
         setSelectedWorkoutId(workoutHistory[0].id);
+        setCurrentView('home');
       }
     }
   }, [selectedWorkoutId, workoutHistory]);
+
+  // ✅ NEW: Watch for plan generation completion and auto-navigate
+  useEffect(() => {
+    // Check if there's a plan that was just completed (has convexId but was recently isGenerating)
+    if (workoutHistory.length > 0) {
+      const mostRecentPlan = workoutHistory[0];
+      
+      // If the most recent plan is NOT generating and has a convexId
+      // AND we don't have it selected, select it
+      if (mostRecentPlan && 
+          !mostRecentPlan.data?.isGenerating && 
+          mostRecentPlan.convexId &&
+          selectedWorkoutId !== mostRecentPlan.id) {
+        console.log('✅ Plan generation completed, auto-selecting:', mostRecentPlan.id, mostRecentPlan.title);
+        setSelectedWorkoutId(mostRecentPlan.id);
+        setCurrentView('home');
+      }
+    }
+  }, [workoutHistory, selectedWorkoutId]);
 
 
   const handleNewWorkout = () => {
@@ -1001,8 +1018,9 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
               return w;
             }));
 
-            // ✅ NAVIGATION: Ensure the newly generated plan stays selected
+            // ✅ NAVIGATION: Ensure the newly generated plan stays selected and view is set to home
             setSelectedWorkoutId(updatedWorkout.id);
+            setCurrentView('home');
           })
           .catch(err => {
             console.error('❌ Failed to save workout plan:', err);

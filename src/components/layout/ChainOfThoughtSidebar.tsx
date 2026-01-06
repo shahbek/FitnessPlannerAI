@@ -34,17 +34,41 @@ export function ChainOfThoughtSidebar({
 }: ChainOfThoughtSidebarProps) {
   const [messageIndex, setMessageIndex] = useState(0);
   const [isMinimized, setIsMinimized] = useState(false);
+  const [cachedProgress, setCachedProgress] = useState<any>(null);
   const reasoningScrollRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const lottieRef = useRef<any>(null);
 
-  // Interactive messages array
+  // Clear cached progress when sidebar closes or new generation starts
+  useEffect(() => {
+    if (!isOpen) {
+      // Delay clearing to allow closing animation
+      const timer = setTimeout(() => {
+        setCachedProgress(null);
+        setMessageIndex(0);
+      }, 500);
+      return () => clearTimeout(timer);
+    } else if (currentLoading && ragProgress?.phase !== 'complete') {
+      // New generation started, clear old data
+      setCachedProgress(null);
+    }
+  }, [isOpen, currentLoading, ragProgress?.phase]);
+
+  // Update cached progress when new progress comes in
+  useEffect(() => {
+    if (ragProgress) {
+      setCachedProgress(ragProgress);
+    }
+  }, [ragProgress]);
+
+  // Interactive messages array - shown while actively generating
   const messages = [
-    "We are generating your plan",
-    "Sit still",
-    "This will be worth it",
+    "Thinking",
+    "Planning",
+    "Analyzing",
+    "Calculating",
+    "Optimizing",
     "Almost there",
-    "Creating something special",
   ];
 
   // Timer for total generation time and pause animation when complete
@@ -54,18 +78,26 @@ export function ChainOfThoughtSidebar({
     if (currentLoading && ragProgress?.phase !== 'complete') {
       setMessageIndex(0);
       // Reset minimize state on new generation
-      setIsMinimized(true); // Start minimized by default as per user preference implied by "when in the small circle view" focus
+      setIsMinimized(true); // Start minimized by default
+      
+      // Ensure animation is playing
+      if (lottieRef.current && !lottieRef.current.isPaused) {
+        lottieRef.current.play();
+      }
     } else if (isGenerationComplete) {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-      // Pause animation when complete
-      if (lottieRef.current) {
-        lottieRef.current.pause();
-        // Go to frame 0
-        lottieRef.current.goToAndStop(0, true);
-      }
+      
+      // Smoothly transition to paused state after a brief delay
+      setTimeout(() => {
+        if (lottieRef.current) {
+          lottieRef.current.pause();
+          // Go to frame 0 for clean gray logo
+          lottieRef.current.goToAndStop(0, true);
+        }
+      }, 500); // 500ms delay for smoother transition
     }
     return () => {
       if (intervalRef.current) {
@@ -73,6 +105,20 @@ export function ChainOfThoughtSidebar({
       }
     };
   }, [currentLoading, ragProgress?.phase]);
+
+  // Normalize progress format for display - use cachedProgress to retain data
+  // ⚠️ MUST be defined before any functions or effects that use it
+  const progressToUse = ragProgress || cachedProgress;
+  const normalizedProgress = progressToUse ? {
+    phase: progressToUse.phase || 'initialization',
+    progress: progressToUse.progress ?? null,
+    currentStep: progressToUse.currentStep || '',
+    reasoning: progressToUse.reasoning || [],
+    aiReasoning: progressToUse.reasoning && progressToUse.reasoning.length > 0
+      ? progressToUse.reasoning.map((step: string) => `> ${step}`).join('\n')
+      : progressToUse.currentStep || '',
+    reasoningMode: progressToUse.phase === 'complete' ? 'complete' as const : 'thinking' as const,
+  } : null;
 
   // Rotate messages every 3 seconds
   useEffect(() => {
@@ -86,7 +132,7 @@ export function ChainOfThoughtSidebar({
 
   // Auto-scroll reasoning area when content changes (for streaming text)
   useEffect(() => {
-    if (reasoningScrollRef.current && ragProgress?.aiReasoning) {
+    if (reasoningScrollRef.current && progressToUse?.aiReasoning) {
       const scrollContainer = reasoningScrollRef.current;
       // Use requestAnimationFrame to ensure DOM has updated
       requestAnimationFrame(() => {
@@ -94,7 +140,7 @@ export function ChainOfThoughtSidebar({
         scrollContainer.scrollTop = scrollContainer.scrollHeight;
       });
     }
-  }, [ragProgress?.aiReasoning]);
+  }, [progressToUse?.aiReasoning]);
 
   // Map phase to hierarchical step structure
   const getStepStatus = (phase: string, currentPhase: string) => {
@@ -117,17 +163,40 @@ export function ChainOfThoughtSidebar({
     return 'pending';
   };
 
-  // Normalize progress format for display
-  const normalizedProgress = ragProgress ? {
-    phase: ragProgress.phase || 'initialization',
-    progress: ragProgress.progress ?? null,
-    currentStep: ragProgress.currentStep || '',
-    reasoning: ragProgress.reasoning || [],
-    aiReasoning: ragProgress.reasoning && ragProgress.reasoning.length > 0
-      ? ragProgress.reasoning.map((step: string) => `> ${step}`).join('\n')
-      : ragProgress.currentStep || '',
-    reasoningMode: ragProgress.phase === 'complete' ? 'complete' as const : 'thinking' as const,
-  } : null;
+  // Generate plan summary for completion state
+  const getPlanSummary = () => {
+    if (!progressToUse || progressToUse.phase !== 'complete') return '';
+    
+    // Extract key details from the plan
+    const reasoning = progressToUse.reasoning || [];
+    
+    // Try to extract weeks count
+    const weeksMatch = reasoning.find((r: string) => r.includes('weekly outline') || r.includes('week'))?.match(/(\d+)\s*week/i);
+    const weeks = weeksMatch ? weeksMatch[1] : null;
+    
+    // Try to extract plan type/goal
+    const planTypeMatch = reasoning.find((r: string) => r.includes('Program') || r.includes('plan'))?.match(/([\w\s]+)\s+Program/i);
+    const planType = planTypeMatch ? planTypeMatch[1] : 'Personalized Fitness';
+    
+    // Build summary
+    let summary = `We've generated your ${weeks ? `${weeks}-week ` : ''}${planType} plan.`;
+    
+    // Add meal count if available
+    const mealsMatch = reasoning.find((r: string) => r.includes('meal'))?.match(/(\d+)\s*days of meal/i);
+    if (mealsMatch) {
+      summary += ` Including ${mealsMatch[1]} days of customized meal plans`;
+    }
+    
+    // Add workout count if available
+    const workoutsMatch = reasoning.find((r: string) => r.includes('workout'))?.match(/(\d+)\s*workout/i);
+    if (workoutsMatch) {
+      summary += ` and ${workoutsMatch[1]} workout sessions`;
+    }
+    
+    summary += '. Everything is tailored to your goals, experience level, and lifestyle.';
+    
+    return summary;
+  };
 
   if (!isOpen) return null;
 
@@ -136,12 +205,12 @@ export function ChainOfThoughtSidebar({
     ? { width: '40px', height: '40px' }
     : { width: '100px', height: '100px' };
 
-  // Container classes for transition
+  // Container classes for transition - responsive for mobile
   const containerClasses = cn(
     "fixed z-50 transition-all duration-500 ease-in-out overflow-hidden liquid-sidebar",
     isMinimized
       ? "bottom-[10px] right-[10px] w-14 h-14 rounded-full cursor-pointer hover:scale-105"
-      : "bottom-[10px] right-[10px] w-96 h-[500px] rounded-2xl shadow-2xl"
+      : "bottom-0 right-0 left-0 w-full h-[70vh] rounded-t-2xl sm:bottom-[10px] sm:right-[10px] sm:left-auto sm:w-96 sm:h-[500px] sm:rounded-2xl shadow-2xl"
   );
 
   return (
@@ -157,15 +226,15 @@ export function ChainOfThoughtSidebar({
         isMinimized ? "opacity-100 delay-200" : "opacity-0 pointer-events-none"
       )}>
         <div className="flex items-center justify-center" style={{
-          filter: (currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete')
+          filter: (currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete')
             ? 'brightness(0) saturate(100%) invert(38%) sepia(100%) saturate(2163%) hue-rotate(355deg) brightness(96%) contrast(96%)'
             : 'brightness(0) saturate(100%) grayscale(100%)'
         }}>
           <Lottie
             lottieRef={lottieRef}
             animationData={logoLoadingAnimation}
-            loop={currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete'}
-            autoplay={currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete'}
+            loop={currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete'}
+            autoplay={currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete'}
             style={lottieStyle}
           />
         </div>
@@ -176,20 +245,22 @@ export function ChainOfThoughtSidebar({
         "flex flex-col h-full transition-opacity duration-300",
         isMinimized ? "opacity-0 pointer-events-none" : "opacity-100 delay-200"
       )}>
-        {/* Header Actions */}
-        <div className="p-4 flex items-center justify-between absolute top-0 left-0 right-0 z-10">
+        {/* Header Actions - Darker with inner shadow for 3D effect */}
+        <div className="px-3 py-2 flex items-center justify-between absolute top-0 left-0 right-0 z-10 bg-muted/30 border-b border-border/50" style={{
+          boxShadow: 'inset 0 -1px 3px rgba(0, 0, 0, 0.1), inset 0 1px 2px rgba(255, 255, 255, 0.05)'
+        }}>
           {/* Minimize Button */}
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8 rounded-full bg-background/50 hover:bg-background/80 backdrop-blur-sm"
+            className="h-7 w-7"
             onClick={(e) => {
               e.stopPropagation();
               setIsMinimized(true);
             }}
             aria-label="Minimize sidebar"
           >
-            <Minimize2 className="h-4 w-4" />
+            <Minimize2 className="h-3.5 w-3.5" />
           </Button>
 
           {/* Close Button (only when complete or error) */}
@@ -197,26 +268,26 @@ export function ChainOfThoughtSidebar({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-full bg-background/50 hover:bg-background/80 backdrop-blur-sm"
+              className="h-7 w-7"
               onClick={onClose}
               aria-label="Close sidebar"
             >
-              <X className="h-4 w-4" />
+              <X className="h-3.5 w-3.5" />
             </Button>
           )}
         </div>
 
-        <div className="flex-1 flex flex-col overflow-hidden pt-12">
+        <div className="flex-1 flex flex-col overflow-hidden pt-10 bg-background">
           <div className="flex flex-col flex-1 min-h-0">
-            {/* Single container for both states - smooth transition */}
-            {(currentLoading || (!error && normalizedProgress)) && (
+            {/* Single container - always show when not in error state */}
+            {!error && (
               <div className="flex flex-col flex-1 min-h-0 p-4">
                 {/* Lottie Animation - same element, just transitions between states */}
                 <div className="flex-shrink-0 flex flex-col items-center justify-center py-4 transition-all duration-700 ease-in-out">
                   <div 
                     className="w-22 h-22 flex items-center justify-center transition-all duration-700 ease-in-out" 
                     style={{
-                      filter: (currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete')
+                      filter: (currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete')
                         ? 'brightness(0) saturate(100%) invert(38%) sepia(100%) saturate(2163%) hue-rotate(355deg) brightness(96%) contrast(96%)'
                         : 'brightness(0) saturate(100%) grayscale(100%)'
                     }}
@@ -224,15 +295,15 @@ export function ChainOfThoughtSidebar({
                     <Lottie
                       lottieRef={lottieRef}
                       animationData={logoLoadingAnimation}
-                      loop={currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete'}
-                      autoplay={currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete'}
+                      loop={currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete'}
+                      autoplay={currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete'}
                       style={lottieStyle}
                     />
                   </div>
 
                   {/* Text - smoothly transitions between loading and complete */}
-                  <div className="mt-4 text-center h-auto min-h-[2rem] transition-all duration-700 ease-in-out">
-                    {currentLoading || (normalizedProgress || ragProgress)?.phase !== 'complete' ? (
+                  <div className="mt-4 text-center transition-all duration-700 ease-in-out">
+                    {currentLoading || (normalizedProgress || progressToUse)?.phase !== 'complete' ? (
                       <TextEffect
                         key={messageIndex}
                         as="h2"
@@ -244,16 +315,29 @@ export function ChainOfThoughtSidebar({
                         {messages[messageIndex]}
                       </TextEffect>
                     ) : (
-                      <TextEffect
-                        key="complete"
-                        as="h2"
-                        preset="fade-in-blur"
-                        per="word"
-                        className="text-lg font-editorial font-light text-foreground"
-                        trigger={true}
-                      >
-                        Your plan is ready
-                      </TextEffect>
+                      <div className="space-y-2">
+                        <TextEffect
+                          key="complete"
+                          as="h2"
+                          preset="fade-in-blur"
+                          per="word"
+                          className="text-lg font-editorial font-light text-foreground"
+                          trigger={true}
+                        >
+                          Your plan is ready
+                        </TextEffect>
+                        {/* Streaming summary below the title */}
+                        {getPlanSummary() && (
+                          <div className="text-sm text-muted-foreground max-w-[280px] mx-auto">
+                            <StreamingText
+                              text={getPlanSummary()}
+                              speed={20}
+                              delay={100}
+                              pauseOnComplete={true}
+                            />
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -261,25 +345,25 @@ export function ChainOfThoughtSidebar({
                 {/* Hierarchical Step Structure - fade out when complete */}
                 <div className={cn(
                   "flex-shrink-0 space-y-3 px-2 pb-4 transition-all duration-700 ease-in-out",
-                  currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete' 
+                  currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete' 
                     ? "opacity-100" 
                     : "opacity-0 h-0 overflow-hidden"
                 )}>
                   <div className="space-y-1">
                     {/* Workout Planning */}
-                    {((normalizedProgress || ragProgress)?.phase === 'workout_planning' ||
-                      (normalizedProgress || ragProgress)?.phase === 'sessions' ||
-                      getStepStatus('sessions', (normalizedProgress || ragProgress)?.phase || 'feasibility') === 'active' ||
-                      getStepStatus('sessions', (normalizedProgress || ragProgress)?.phase || 'feasibility') === 'complete') && (
+                    {((normalizedProgress || progressToUse)?.phase === 'workout_planning' ||
+                      (normalizedProgress || progressToUse)?.phase === 'sessions' ||
+                      getStepStatus('sessions', (normalizedProgress || progressToUse)?.phase || 'feasibility') === 'active' ||
+                      getStepStatus('sessions', (normalizedProgress || progressToUse)?.phase || 'feasibility') === 'complete') && (
                         <ChainOfThoughtStep
                           label={
-                            getStepStatus('sessions', (normalizedProgress || ragProgress)?.phase || 'feasibility') === 'active'
+                            getStepStatus('sessions', (normalizedProgress || progressToUse)?.phase || 'feasibility') === 'active'
                               ? <TextShimmer as="span">Generating Workouts</TextShimmer>
                               : 'Generating Workouts'
                           }
-                          status={getStepStatus('sessions', (normalizedProgress || ragProgress)?.phase || 'feasibility')}
+                          status={getStepStatus('sessions', (normalizedProgress || progressToUse)?.phase || 'feasibility')}
                         >
-                          {((normalizedProgress || ragProgress)?.phase === 'workout_planning' || (normalizedProgress || ragProgress)?.phase === 'sessions') && (
+                          {((normalizedProgress || progressToUse)?.phase === 'workout_planning' || (normalizedProgress || progressToUse)?.phase === 'sessions') && (
                             <div className="ml-6 mt-1 text-xs text-muted-foreground">
                               {normalizedProgress?.currentStep || 'Creating workout sessions'}
                             </div>
@@ -288,19 +372,19 @@ export function ChainOfThoughtSidebar({
                       )}
 
                     {/* Meal Plan */}
-                    {((normalizedProgress || ragProgress)?.phase === 'meal_planning' ||
-                      (normalizedProgress || ragProgress)?.phase === 'meals' ||
-                      getStepStatus('meals', (normalizedProgress || ragProgress)?.phase || 'feasibility') === 'active' ||
-                      getStepStatus('meals', (normalizedProgress || ragProgress)?.phase || 'feasibility') === 'complete') && (
+                    {((normalizedProgress || progressToUse)?.phase === 'meal_planning' ||
+                      (normalizedProgress || progressToUse)?.phase === 'meals' ||
+                      getStepStatus('meals', (normalizedProgress || progressToUse)?.phase || 'feasibility') === 'active' ||
+                      getStepStatus('meals', (normalizedProgress || progressToUse)?.phase || 'feasibility') === 'complete') && (
                         <ChainOfThoughtStep
                           label={
-                            getStepStatus('meals', (normalizedProgress || ragProgress)?.phase || 'feasibility') === 'active'
+                            getStepStatus('meals', (normalizedProgress || progressToUse)?.phase || 'feasibility') === 'active'
                               ? <TextShimmer as="span">Generating Meal Plan</TextShimmer>
                               : 'Generating Meal Plan'
                           }
-                          status={getStepStatus('meals', (normalizedProgress || ragProgress)?.phase || 'feasibility')}
+                          status={getStepStatus('meals', (normalizedProgress || progressToUse)?.phase || 'feasibility')}
                         >
-                          {((normalizedProgress || ragProgress)?.phase === 'meals' || (normalizedProgress || ragProgress)?.phase === 'meal_planning') && (
+                          {((normalizedProgress || progressToUse)?.phase === 'meals' || (normalizedProgress || progressToUse)?.phase === 'meal_planning') && (
                             <div className="ml-6 mt-1 text-xs text-muted-foreground">
                               {normalizedProgress?.currentStep || 'Analyzing nutritional requirements'}
                             </div>
@@ -308,19 +392,39 @@ export function ChainOfThoughtSidebar({
                         </ChainOfThoughtStep>
                       )}
 
-                    {/* Verification */}
-                    {((normalizedProgress || ragProgress)?.phase === 'verification' ||
-                      getStepStatus('finalizing', (normalizedProgress || ragProgress)?.phase || 'feasibility') === 'active' ||
-                      getStepStatus('finalizing', (normalizedProgress || ragProgress)?.phase || 'feasibility') === 'complete') && (
+                    {/* Shopping List */}
+                    {((normalizedProgress || progressToUse)?.phase === 'shopping' ||
+                      getStepStatus('shopping', (normalizedProgress || progressToUse)?.phase || 'feasibility') === 'active' ||
+                      getStepStatus('shopping', (normalizedProgress || progressToUse)?.phase || 'feasibility') === 'complete') && (
                         <ChainOfThoughtStep
                           label={
-                            getStepStatus('finalizing', (normalizedProgress || ragProgress)?.phase || 'feasibility') === 'active'
+                            getStepStatus('shopping', (normalizedProgress || progressToUse)?.phase || 'feasibility') === 'active'
+                              ? <TextShimmer as="span">Generating Shopping Lists</TextShimmer>
+                              : 'Generating Shopping Lists'
+                          }
+                          status={getStepStatus('shopping', (normalizedProgress || progressToUse)?.phase || 'feasibility')}
+                        >
+                          {((normalizedProgress || progressToUse)?.phase === 'shopping') && (
+                            <div className="ml-6 mt-1 text-xs text-muted-foreground">
+                              {normalizedProgress?.currentStep || 'Creating weekly shopping lists'}
+                            </div>
+                          )}
+                        </ChainOfThoughtStep>
+                      )}
+
+                    {/* Verification */}
+                    {((normalizedProgress || progressToUse)?.phase === 'verification' ||
+                      getStepStatus('finalizing', (normalizedProgress || progressToUse)?.phase || 'feasibility') === 'active' ||
+                      getStepStatus('finalizing', (normalizedProgress || progressToUse)?.phase || 'feasibility') === 'complete') && (
+                        <ChainOfThoughtStep
+                          label={
+                            getStepStatus('finalizing', (normalizedProgress || progressToUse)?.phase || 'feasibility') === 'active'
                               ? <TextShimmer as="span">Verifying Plan</TextShimmer>
                               : 'Verifying Plan'
                           }
-                          status={getStepStatus('finalizing', (normalizedProgress || ragProgress)?.phase || 'feasibility')}
+                          status={getStepStatus('finalizing', (normalizedProgress || progressToUse)?.phase || 'feasibility')}
                         >
-                          {((normalizedProgress || ragProgress)?.phase === 'verification') && (
+                          {((normalizedProgress || progressToUse)?.phase === 'verification') && (
                             <div className="ml-6 mt-1 text-xs text-muted-foreground">
                               {normalizedProgress?.currentStep || 'Validating plan components'}
                             </div>
@@ -332,28 +436,23 @@ export function ChainOfThoughtSidebar({
                   {/* Progress Bar */}
                   <div className="space-y-2 pt-2">
                     <Progress
-                      value={normalizedProgress?.progress ?? ragProgress?.progress ?? null}
+                      value={normalizedProgress?.progress ?? progressToUse?.progress ?? null}
                       className="h-1.5"
                     />
                   </div>
                 </div>
 
-                {/* Scrollable Reasoning Area - smooth transition between loading and complete */}
-                {ragProgress?.aiReasoning && (
+                {/* Scrollable Reasoning Area - only show during loading */}
+                {progressToUse?.aiReasoning && (currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete') && (
                   <div
                     ref={reasoningScrollRef}
-                    className={cn(
-                      "flex-1 overflow-y-auto px-4 mt-4 min-h-0 scroll-smooth border-t pt-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] transition-all duration-700 ease-in-out",
-                      (currentLoading && (normalizedProgress || ragProgress)?.phase !== 'complete')
-                        ? "font-mono text-xs bg-muted/30 rounded-lg px-2 mx-2 mb-2" 
-                        : "text-sm"
-                    )}
+                    className="flex-1 overflow-y-auto px-2 mt-4 min-h-0 scroll-smooth [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] font-mono text-xs bg-muted/30 rounded-lg p-3 mx-2 mb-2"
                   >
                     <div className="text-muted-foreground whitespace-pre-wrap leading-relaxed">
                       <StreamingText
-                        text={normalizedProgress?.aiReasoning || ragProgress?.aiReasoning || ''}
-                        speed={3}
-                        delay={10}
+                        text={normalizedProgress?.aiReasoning || progressToUse?.aiReasoning || ''}
+                        speed={15}
+                        delay={5}
                         pauseOnComplete={true}
                       />
                     </div>
@@ -361,7 +460,7 @@ export function ChainOfThoughtSidebar({
                 )}
 
                 {/* CTA - fade in when complete */}
-                {!currentLoading && (normalizedProgress || ragProgress)?.phase === 'complete' && (
+                {!currentLoading && (normalizedProgress || progressToUse)?.phase === 'complete' && (
                   <div className="mt-auto pt-4 animate-in fade-in duration-1000 delay-300">
                     <Button 
                       onClick={() => {

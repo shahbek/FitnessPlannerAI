@@ -35,18 +35,19 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
     return (
         <Dialog open={isOpen} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-[425px]">
-                <DialogHeader className="gap-2 sm:text-left">
-                    <DialogTitle className="font-editorial text-2xl font-light">{title}</DialogTitle>
-                    <DialogDescription className="pt-2">
+            <DialogContent className="max-w-[calc(100vw-2rem)] sm:max-w-[425px]">
+                <DialogHeader className="gap-2 text-left">
+                    <DialogTitle className="font-editorial text-xl sm:text-2xl font-light">{title}</DialogTitle>
+                    <DialogDescription className="pt-2 text-sm">
                         {description}
                     </DialogDescription>
                 </DialogHeader>
-                <DialogFooter className="gap-2 sm:gap-0 mt-4">
+                <DialogFooter className="gap-2 sm:gap-0 mt-4 flex-col sm:flex-row">
                     <Button
                         variant="outline"
                         onClick={() => onOpenChange(false)}
                         disabled={isLoading}
+                        className="w-full sm:w-auto"
                     >
                         {cancelText}
                     </Button>
@@ -58,6 +59,7 @@ export function ConfirmDialog({
                             // or let parent pass a wrapped function that closes it
                         }}
                         disabled={isLoading}
+                        className="w-full sm:w-auto"
                     >
                         {isLoading ? 'Processing...' : confirmText}
                     </Button>
