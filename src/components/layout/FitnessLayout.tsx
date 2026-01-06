@@ -459,13 +459,27 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
     } catch (err: any) {
       console.error('Integrated plan generation failed:', err);
 
-      // Record failed generation attempt (no token deduction)
+      // ✅ CLEANUP: Remove the optimistic "generating" plan from sidebar
+      const optimisticPlan = workoutHistory.find(w => w.data?.isGenerating);
+      if (optimisticPlan) {
+        setWorkoutHistory(prev => prev.filter(w => w.id !== optimisticPlan.id));
+        
+        // ✅ NAVIGATION: Select the first available plan (or undefined if none)
+        const remainingPlans = workoutHistory.filter(w => w.id !== optimisticPlan.id);
+        if (remainingPlans.length > 0) {
+          setSelectedWorkoutId(remainingPlans[0].id);
+        } else {
+          setSelectedWorkoutId(undefined);
+        }
+      }
+
+      // ✅ FIXED: Record failed generation with 0 tokens (no charge for failures)
       if (recordTokenUsage) {
         try {
           await recordTokenUsage({
             operationType: "plan_generation",
-            tokensUsed: 100, // PLAN_GENERATION_COST
-            status: "failed", // Failed - no token deduction
+            tokensUsed: 0, // ✅ NO tokens charged for failures
+            status: "failed",
             operationSteps: [
               "feasibility_assessment",
               "strategic_framework",
@@ -481,14 +495,11 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
               errorDetails: err instanceof Error ? err.stack : String(err),
             },
           });
-          console.log('❌ Recorded failed generation attempt');
+          console.log('❌ Recorded failed generation (0 tokens charged)');
         } catch (tokenError) {
           console.error("Failed to record failed token usage:", tokenError);
         }
       }
-
-      // Clean up failed optimistic plan
-      setWorkoutHistory(prev => prev.filter(w => w.data?.isGenerating && !w.convexId));
 
       toast({
         variant: 'destructive',
@@ -979,11 +990,16 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
               if (w.id === updatedWorkout.id && !w.convexId) {
                 // Just add the convexId, keep the existing ID for now
                 // When Convex query returns, it will replace this with the correct ID
+                // ✅ Remove isGenerating flag to show final plan name in sidebar
                 console.log('📝 Adding convexId to plan:', w.id, '->', convexId);
-                return { ...w, convexId };
+                const updatedData = w.data ? { ...w.data, isGenerating: false } : w.data;
+                return { ...w, convexId, data: updatedData };
               }
               return w;
             }));
+
+            // ✅ NAVIGATION: Ensure the newly generated plan stays selected
+            setSelectedWorkoutId(updatedWorkout.id);
           })
           .catch(err => {
             console.error('❌ Failed to save workout plan:', err);

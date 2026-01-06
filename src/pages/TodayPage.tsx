@@ -3,7 +3,7 @@ import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { DailyProgressRing } from '@/components/daily-tracker/DailyProgressRing';
 import { TodayWorkoutCard } from '@/components/daily-tracker/TodayWorkoutCard';
 import { TodayCardioCard } from '@/components/daily-tracker/TodayCardioCard';
@@ -352,16 +352,9 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
 
   const isPlanActive = !!planData?.startDate;
 
+  // If no plan selected, just show the main content (user can select from sidebar)
   if (!workoutPlanId || !planData) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] p-6">
-        <Calendar className="h-16 w-16 text-slate-300 mb-4" />
-        <h2 className="text-xl font-semibold text-slate-700 mb-2">No Active Plan</h2>
-        <p className="text-slate-500 text-center max-w-sm">
-          Select a workout plan to start tracking your daily progress.
-        </p>
-      </div>
-    );
+    return null;
   }
 
   return (
