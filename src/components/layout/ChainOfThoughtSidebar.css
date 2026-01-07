@@ -10,4 +10,32 @@
     overflow: hidden;
 }
 
-/* Removed animated gradient overlay for solid background */
+/* AI Blob animation for minimized state */
+@keyframes spin-slow {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.animate-spin-slow {
+    animation: spin-slow 3s linear infinite;
+}
+
+/* Pulse glow effect for AI orb */
+@keyframes pulse-glow {
+    0%, 100% {
+        opacity: 0.6;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 1;
+        transform: scale(1.05);
+    }
+}
+
+.animate-pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+}

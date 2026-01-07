@@ -4,7 +4,7 @@ import { ChainOfThoughtStep } from '@/components/ai-elements/chain-of-thought';
 import { StreamingText } from '@/components/ai-elements/StreamingText';
 import { TextEffect } from '@/components/ui/text-effect';
 import { TextShimmer } from '@/components/ui/text-shimmer';
-import { X, AlertCircle, Minimize2 } from 'lucide-react';
+import { X, AlertCircle, Minimize2, Minus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import Lottie from 'lottie-react';
 import logoLoadingAnimation from '@/assets/lottieanimations/LogoLoading.json';
@@ -74,12 +74,12 @@ export function ChainOfThoughtSidebar({
   // Timer for total generation time and pause animation when complete
   useEffect(() => {
     const isGenerationComplete = !currentLoading && ragProgress?.phase === 'complete';
-    
+
     if (currentLoading && ragProgress?.phase !== 'complete') {
       setMessageIndex(0);
       // Reset minimize state on new generation
       setIsMinimized(true); // Start minimized by default
-      
+
       // Ensure animation is playing
       if (lottieRef.current && !lottieRef.current.isPaused) {
         lottieRef.current.play();
@@ -89,7 +89,7 @@ export function ChainOfThoughtSidebar({
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
-      
+
       // Smoothly transition to paused state after a brief delay
       setTimeout(() => {
         if (lottieRef.current) {
@@ -166,35 +166,35 @@ export function ChainOfThoughtSidebar({
   // Generate plan summary for completion state
   const getPlanSummary = () => {
     if (!progressToUse || progressToUse.phase !== 'complete') return '';
-    
+
     // Extract key details from the plan
     const reasoning = progressToUse.reasoning || [];
-    
+
     // Try to extract weeks count
     const weeksMatch = reasoning.find((r: string) => r.includes('weekly outline') || r.includes('week'))?.match(/(\d+)\s*week/i);
     const weeks = weeksMatch ? weeksMatch[1] : null;
-    
+
     // Try to extract plan type/goal
     const planTypeMatch = reasoning.find((r: string) => r.includes('Program') || r.includes('plan'))?.match(/([\w\s]+)\s+Program/i);
     const planType = planTypeMatch ? planTypeMatch[1] : 'Personalized Fitness';
-    
+
     // Build summary
     let summary = `We've generated your ${weeks ? `${weeks}-week ` : ''}${planType} plan.`;
-    
+
     // Add meal count if available
     const mealsMatch = reasoning.find((r: string) => r.includes('meal'))?.match(/(\d+)\s*days of meal/i);
     if (mealsMatch) {
       summary += ` Including ${mealsMatch[1]} days of customized meal plans`;
     }
-    
+
     // Add workout count if available
     const workoutsMatch = reasoning.find((r: string) => r.includes('workout'))?.match(/(\d+)\s*workout/i);
     if (workoutsMatch) {
       summary += ` and ${workoutsMatch[1]} workout sessions`;
     }
-    
+
     summary += '. Everything is tailored to your goals, experience level, and lifestyle.';
-    
+
     return summary;
   };
 
@@ -202,15 +202,19 @@ export function ChainOfThoughtSidebar({
 
   // Lottie style based on state
   const lottieStyle = isMinimized
-    ? { width: '40px', height: '40px' }
+    ? { width: '24px', height: '24px' }
     : { width: '100px', height: '100px' };
 
+  // Determine if actively generating
+  const isActivelyGenerating = currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete';
+
   // Container classes for transition - responsive for mobile
+  // Use ONLY right/bottom positioning to animate from bottom-right corner
   const containerClasses = cn(
-    "fixed z-50 transition-all duration-500 ease-in-out overflow-hidden liquid-sidebar",
+    "fixed z-50 overflow-hidden liquid-sidebar",
     isMinimized
-      ? "bottom-[10px] right-[10px] w-14 h-14 rounded-full cursor-pointer hover:scale-105"
-      : "bottom-0 right-0 left-0 w-full h-[70vh] rounded-t-2xl sm:bottom-[10px] sm:right-[10px] sm:left-auto sm:w-96 sm:h-[500px] sm:rounded-2xl shadow-2xl"
+      ? "bottom-3 right-3 w-10 h-10 rounded-full cursor-pointer transition-all duration-200 ease-out !bg-transparent"
+      : "bottom-3 right-3 w-[calc(100vw-24px)] md:w-96 h-[70vh] max-h-[500px] rounded-2xl shadow-2xl transition-all duration-200 ease-out"
   );
 
   return (
@@ -220,21 +224,33 @@ export function ChainOfThoughtSidebar({
       aria-label="Plan generation progress"
       onClick={() => isMinimized && setIsMinimized(false)}
     >
-      {/* Minimized View */}
+      {/* Minimized View - AI Blob Effect */}
       <div className={cn(
-        "absolute inset-0 flex items-center justify-center transition-opacity duration-300",
-        isMinimized ? "opacity-100 delay-200" : "opacity-0 pointer-events-none"
+        "absolute inset-0 flex items-center justify-center transition-opacity duration-150",
+        isMinimized ? "opacity-100" : "opacity-0 pointer-events-none"
       )}>
-        <div className="flex items-center justify-center" style={{
-          filter: (currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete')
+        {/* Animated AI Blob Background */}
+        {isActivelyGenerating && (
+          <div className="absolute inset-0 rounded-full overflow-hidden">
+            <div className="absolute inset-[-50%] animate-spin-slow" style={{
+              background: 'conic-gradient(from 0deg, #ff6b6b, #feca57, #48dbfb, #ff9ff3, #54a0ff, #ff6b6b)',
+              filter: 'blur(8px)',
+              animationDuration: '3s',
+            }} />
+          </div>
+        )}
+
+        {/* Logo */}
+        <div className="relative z-10 flex items-center justify-center" style={{
+          filter: isActivelyGenerating
             ? 'brightness(0) saturate(100%) invert(38%) sepia(100%) saturate(2163%) hue-rotate(355deg) brightness(96%) contrast(96%)'
             : 'brightness(0) saturate(100%) grayscale(100%)'
         }}>
           <Lottie
             lottieRef={lottieRef}
             animationData={logoLoadingAnimation}
-            loop={currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete'}
-            autoplay={currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete'}
+            loop={isActivelyGenerating}
+            autoplay={isActivelyGenerating}
             style={lottieStyle}
           />
         </div>
@@ -242,39 +258,37 @@ export function ChainOfThoughtSidebar({
 
       {/* Expanded View */}
       <div className={cn(
-        "flex flex-col h-full transition-opacity duration-300",
-        isMinimized ? "opacity-0 pointer-events-none" : "opacity-100 delay-200"
+        "flex flex-col h-full transition-opacity duration-150",
+        isMinimized ? "opacity-0 pointer-events-none" : "opacity-100"
       )}>
         {/* Header Actions - Darker with inner shadow for 3D effect */}
-        <div className="px-3 py-2 flex items-center justify-between absolute top-0 left-0 right-0 z-10 bg-muted/30 border-b border-border/50" style={{
-          boxShadow: 'inset 0 -1px 3px rgba(0, 0, 0, 0.1), inset 0 1px 2px rgba(255, 255, 255, 0.05)'
-        }}>
-          {/* Minimize Button */}
+        <div className="px-3 py-2 flex items-center justify-start gap-2 absolute top-0 left-0 right-0 z-10 bg-muted/30 border-b border-border/50">
+          {/* Close Button (only when complete or error) - Apple Red */}
+          {(!currentLoading || error) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 rounded-full bg-gradient-to-br from-red-400 to-red-500 border border-red-500 shadow-[0_2px_4px_rgba(220,38,38,0.25),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(153,27,27,0.2)]"
+              onClick={onClose}
+              aria-label="Close sidebar"
+            >
+              <X className="h-3 w-3 text-white" />
+            </Button>
+          )}
+
+          {/* Minimize Button - Apple Yellow */}
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7"
+            className="h-5 w-5 rounded-full bg-gradient-to-br from-amber-300 to-amber-400 border border-amber-400 shadow-[0_2px_4px_rgba(217,119,6,0.25),inset_0_1px_0_rgba(255,255,255,0.6),inset_0_-1px_0_rgba(180,83,9,0.2)]"
             onClick={(e) => {
               e.stopPropagation();
               setIsMinimized(true);
             }}
             aria-label="Minimize sidebar"
           >
-            <Minimize2 className="h-3.5 w-3.5" />
+            <Minus className="h-3 w-3 text-amber-900" />
           </Button>
-
-          {/* Close Button (only when complete or error) */}
-          {(!currentLoading || error) && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={onClose}
-              aria-label="Close sidebar"
-            >
-              <X className="h-3.5 w-3.5" />
-            </Button>
-          )}
         </div>
 
         <div className="flex-1 flex flex-col overflow-hidden pt-10 bg-background">
@@ -283,11 +297,11 @@ export function ChainOfThoughtSidebar({
             {!error && (
               <div className="flex flex-col flex-1 min-h-0 p-4">
                 {/* Lottie Animation - same element, just transitions between states */}
-                <div className="flex-shrink-0 flex flex-col items-center justify-center py-4 transition-all duration-700 ease-in-out">
-                  <div 
-                    className="w-22 h-22 flex items-center justify-center transition-all duration-700 ease-in-out" 
+                <div className="flex-shrink-0 flex flex-col items-center justify-center py-4 transition-all duration-300 ease-out">
+                  <div
+                    className="w-22 h-22 flex items-center justify-center transition-all duration-300 ease-out"
                     style={{
-                      filter: (currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete')
+                      filter: isActivelyGenerating
                         ? 'brightness(0) saturate(100%) invert(38%) sepia(100%) saturate(2163%) hue-rotate(355deg) brightness(96%) contrast(96%)'
                         : 'brightness(0) saturate(100%) grayscale(100%)'
                     }}
@@ -295,15 +309,15 @@ export function ChainOfThoughtSidebar({
                     <Lottie
                       lottieRef={lottieRef}
                       animationData={logoLoadingAnimation}
-                      loop={currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete'}
-                      autoplay={currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete'}
+                      loop={isActivelyGenerating}
+                      autoplay={isActivelyGenerating}
                       style={lottieStyle}
                     />
                   </div>
 
                   {/* Text - smoothly transitions between loading and complete */}
-                  <div className="mt-4 text-center transition-all duration-700 ease-in-out">
-                    {currentLoading || (normalizedProgress || progressToUse)?.phase !== 'complete' ? (
+                  <div className="mt-4 text-center transition-all duration-300 ease-out">
+                    {isActivelyGenerating ? (
                       <TextEffect
                         key={messageIndex}
                         as="h2"
@@ -344,9 +358,9 @@ export function ChainOfThoughtSidebar({
 
                 {/* Hierarchical Step Structure - fade out when complete */}
                 <div className={cn(
-                  "flex-shrink-0 space-y-3 px-2 pb-4 transition-all duration-700 ease-in-out",
-                  currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete' 
-                    ? "opacity-100" 
+                  "flex-shrink-0 space-y-3 px-2 pb-4 transition-all duration-300 ease-out",
+                  isActivelyGenerating
+                    ? "opacity-100"
                     : "opacity-0 h-0 overflow-hidden"
                 )}>
                   <div className="space-y-1">
@@ -443,7 +457,7 @@ export function ChainOfThoughtSidebar({
                 </div>
 
                 {/* Scrollable Reasoning Area - only show during loading */}
-                {progressToUse?.aiReasoning && (currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete') && (
+                {progressToUse?.aiReasoning && isActivelyGenerating && (
                   <div
                     ref={reasoningScrollRef}
                     className="flex-1 overflow-y-auto px-2 mt-4 min-h-0 scroll-smooth [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] font-mono text-xs bg-muted/30 rounded-lg p-3 mx-2 mb-2"
@@ -460,15 +474,15 @@ export function ChainOfThoughtSidebar({
                 )}
 
                 {/* CTA - fade in when complete */}
-                {!currentLoading && (normalizedProgress || progressToUse)?.phase === 'complete' && (
-                  <div className="mt-auto pt-4 animate-in fade-in duration-1000 delay-300">
-                    <Button 
+                {!isActivelyGenerating && (normalizedProgress || progressToUse)?.phase === 'complete' && (
+                  <div className="mt-auto pt-4 animate-in fade-in duration-300">
+                    <Button
                       onClick={() => {
                         if (onViewPlan) {
                           onViewPlan();
                         }
                         onClose();
-                      }} 
+                      }}
                       className="w-full"
                     >
                       View Plan
