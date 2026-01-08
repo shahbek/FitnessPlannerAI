@@ -16,18 +16,25 @@ export default defineConfig({
       manifest: {
         name: 'Supercomp',
         short_name: 'Supercomp',
-        description: 'Fitness plans and macro tracking',
+        description: 'AI-powered personal fitness trainer with intelligent workout and nutrition planning',
         theme_color: '#ffffff',
+        background_color: '#ffffff',
+        display: 'standalone',
+        orientation: 'portrait',
+        scope: '/',
+        start_url: '/',
         icons: [
           {
             src: '/pwa-192x192.png',
             sizes: '192x192',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           },
           {
             src: '/pwa-512x512.png',
             sizes: '512x512',
-            type: 'image/png'
+            type: 'image/png',
+            purpose: 'any maskable'
           },
           {
             src: '/icon-180x180.png',

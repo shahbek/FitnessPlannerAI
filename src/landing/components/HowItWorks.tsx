@@ -2,7 +2,7 @@ import React from 'react';
 import pullupIcon from '@/assets/images/3dicons/pullup.png';
 import calendarIcon from '@/assets/images/3dicons/calendar.png';
 import trackIcon from '@/assets/images/3dicons/track.png';
-import targetIcon from '@/assets/images/3dicons/target.png';
+
 
 const steps = [
     {
@@ -20,11 +20,7 @@ const steps = [
         title: "Track & Eat Smart",
         description: "Follow daily macro targets and meal suggestions that adapt to your progress and preferences."
     },
-    {
-        icon: targetIcon,
-        title: "Evolve With AI",
-        description: "As you log workouts and check-ins, our AI adjusts your plan in real-time to ensure continuous progress."
-    }
+
 ];
 
 export function HowItWorks() {
@@ -41,7 +37,7 @@ export function HowItWorks() {
                     </p>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
                     {steps.map((step, index) => (
                         <div
                             key={index}

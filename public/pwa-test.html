@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PWA Install Test - Supercomp</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+
+        h2 {
+            color: #666;
+            font-size: 18px;
+            margin-top: 0;
+        }
+
+        .status {
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-family: monospace;
+        }
+
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .info {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 5px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .log-entry {
+            margin: 4px 0;
+        }
+
+        .log-time {
+            color: #6c757d;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <h1>🔍 PWA Installation Diagnostics</h1>
+        <p>This page helps you verify that your PWA is properly configured and installable.</p>
+    </div>
+
+    <div class="card">
+        <h2>1. Environment Check</h2>
+        <div id="envCheck"></div>
+    </div>
+
+    <div class="card">
+        <h2>2. Manifest Check</h2>
+        <div id="manifestCheck"></div>
+    </div>
+
+    <div class="card">
+        <h2>3. Service Worker Check</h2>
+        <div id="swCheck"></div>
+    </div>
+
+    <div class="card">
+        <h2>4. Install Prompt Test</h2>
+        <div id="installStatus"></div>
+        <button id="installBtn" disabled>Trigger Install Prompt</button>
+        <button id="clearBtn">Clear Site Data</button>
+    </div>
+
+    <div class="card">
+        <h2>5. Event Log</h2>
+        <div id="eventLog" class="log"></div>
+    </div>
+
+    <script>
+        let deferredPrompt = null;
+        const log = [];
+
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            log.push({ timestamp, message, type });
+            updateLogDisplay();
+            console.log(`[${timestamp}] ${message}`);
+        }
+
+        function updateLogDisplay() {
+            const logEl = document.getElementById('eventLog');
+            logEl.innerHTML = log.map(entry =>
+                `<div class="log-entry"><span class="log-time">[${entry.timestamp}]</span> ${entry.message}</div>`
+            ).reverse().join('');
+        }
+
+        function showStatus(elementId, message, type) {
+            document.getElementById(elementId).innerHTML =
+                `<div class="status ${type}">${message}</div>`;
+        }
+
+        // 1. Environment Check
+        function checkEnvironment() {
+            const isHTTPS = window.location.protocol === 'https:';
+            const isLocalhost = window.location.hostname === 'localhost' ||
+                window.location.hostname === '127.0.0.1';
+            const isSecure = isHTTPS || isLocalhost;
+
+            let message = `
+                <strong>Protocol:</strong> ${window.location.protocol}<br>
+                <strong>Hostname:</strong> ${window.location.hostname}<br>
+                <strong>Secure Context:</strong> ${isSecure ? '✅ Yes' : '❌ No'}
+            `;
+
+            if (!isSecure) {
+                message += '<br><br>⚠️ PWA requires HTTPS or localhost!';
+            }
+
+            showStatus('envCheck', message, isSecure ? 'success' : 'error');
+            addLog(`Environment check: ${isSecure ? 'PASS' : 'FAIL'}`);
+        }
+
+        // 2. Manifest Check
+        async function checkManifest() {
+            try {
+                const manifestLink = document.querySelector('link[rel="manifest"]');
+                if (!manifestLink) {
+                    showStatus('manifestCheck', '❌ No manifest link found in HTML', 'error');
+                    addLog('Manifest check: FAIL - No link tag');
+                    return;
+                }
+
+                const manifestUrl = manifestLink.href;
+                const response = await fetch(manifestUrl);
+                const manifest = await response.json();
+
+                const requiredFields = ['name', 'short_name', 'start_url', 'display', 'icons'];
+                const missingFields = requiredFields.filter(field => !manifest[field]);
+
+                if (missingFields.length === 0) {
+                    showStatus('manifestCheck', `
+                        ✅ Manifest loaded successfully<br>
+                        <strong>Name:</strong> ${manifest.name}<br>
+                        <strong>Display:</strong> ${manifest.display}<br>
+                        <strong>Icons:</strong> ${manifest.icons?.length || 0} found
+                    `, 'success');
+                    addLog('Manifest check: PASS');
+                } else {
+                    showStatus('manifestCheck', `
+                        ⚠️ Manifest missing fields: ${missingFields.join(', ')}
+                    `, 'warning');
+                    addLog(`Manifest check: WARNING - Missing ${missingFields.join(', ')}`);
+                }
+            } catch (error) {
+                showStatus('manifestCheck', `❌ Error loading manifest: ${error.message}`, 'error');
+                addLog(`Manifest check: FAIL - ${error.message}`);
+            }
+        }
+
+        // 3. Service Worker Check
+        async function checkServiceWorker() {
+            if (!('serviceWorker' in navigator)) {
+                showStatus('swCheck', '❌ Service Workers not supported', 'error');
+                addLog('Service Worker check: FAIL - Not supported');
+                return;
+            }
+
+            try {
+                const registration = await navigator.serviceWorker.getRegistration();
+                if (registration) {
+                    const state = registration.active?.state || 'unknown';
+                    showStatus('swCheck', `
+                        ✅ Service Worker registered<br>
+                        <strong>State:</strong> ${state}<br>
+                        <strong>Scope:</strong> ${registration.scope}
+                    `, 'success');
+                    addLog(`Service Worker check: PASS - State: ${state}`);
+                } else {
+                    showStatus('swCheck', '⚠️ No Service Worker registered yet', 'warning');
+                    addLog('Service Worker check: WARNING - Not registered');
+                }
+            } catch (error) {
+                showStatus('swCheck', `❌ Error checking Service Worker: ${error.message}`, 'error');
+                addLog(`Service Worker check: FAIL - ${error.message}`);
+            }
+        }
+
+        // 4. Install Prompt
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            document.getElementById('installBtn').disabled = false;
+            showStatus('installStatus', '✅ Install prompt available! Click the button to test.', 'success');
+            addLog('beforeinstallprompt event fired - Install available!');
+        });
+
+        window.addEventListener('appinstalled', () => {
+            showStatus('installStatus', '✅ App was installed successfully!', 'success');
+            addLog('App installed successfully');
+            deferredPrompt = null;
+        });
+
+        document.getElementById('installBtn').addEventListener('click', async () => {
+            if (!deferredPrompt) {
+                showStatus('installStatus', '❌ No install prompt available', 'error');
+                addLog('Install button clicked but no prompt available');
+                return;
+            }
+
+            try {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                showStatus('installStatus', `User ${outcome} the install prompt`,
+                    outcome === 'accepted' ? 'success' : 'info');
+                addLog(`Install prompt result: ${outcome}`);
+                deferredPrompt = null;
+            } catch (error) {
+                showStatus('installStatus', `❌ Error: ${error.message}`, 'error');
+                addLog(`Install prompt error: ${error.message}`);
+            }
+        });
+
+        document.getElementById('clearBtn').addEventListener('click', async () => {
+            if (confirm('This will clear all site data and reload. Continue?')) {
+                try {
+                    // Unregister service workers
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+                    for (let registration of registrations) {
+                        await registration.unregister();
+                    }
+
+                    // Clear caches
+                    const cacheNames = await caches.keys();
+                    for (let cacheName of cacheNames) {
+                        await caches.delete(cacheName);
+                    }
+
+                    addLog('Site data cleared - reloading...');
+                    setTimeout(() => window.location.reload(), 500);
+                } catch (error) {
+                    addLog(`Error clearing data: ${error.message}`);
+                }
+            }
+        });
+
+        // Check if already installed
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            showStatus('installStatus', '✅ App is currently running as installed PWA', 'success');
+            addLog('App is running in standalone mode (installed)');
+        } else {
+            showStatus('installStatus', '⏳ Waiting for install prompt...', 'info');
+            addLog('App is running in browser mode (not installed)');
+        }
+
+        // Run all checks
+        addLog('Starting PWA diagnostics...');
+        checkEnvironment();
+        checkManifest();
+        checkServiceWorker();
+
+        // Additional browser info
+        addLog(`Browser: ${navigator.userAgent}`);
+        addLog(`Display mode: ${window.matchMedia('(display-mode: standalone)').matches ? 'standalone' : 'browser'}`);
+    </script>
+</body>
+
+</html>

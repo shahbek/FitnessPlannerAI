@@ -12,29 +12,89 @@ interface HeroProps {
 
 export function Hero({ onStart }: HeroProps) {
     const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+    const [isInstalled, setIsInstalled] = useState(false);
+    const [showIOSInstructions, setShowIOSInstructions] = useState(false);
 
     useEffect(() => {
-        console.log('Hero: Mounting PWA install listener');
+        // Check if app is already installed
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            console.log('PWA: App is already installed');
+            setIsInstalled(true);
+            return;
+        }
+
+        console.log('PWA: Setting up install listener');
         const handler = (e: any) => {
-            console.log('Hero: beforeinstallprompt fired', e);
+            console.log('PWA: beforeinstallprompt fired', e);
             e.preventDefault();
             setDeferredPrompt(e);
         };
+
         window.addEventListener('beforeinstallprompt', handler);
-        return () => window.removeEventListener('beforeinstallprompt', handler);
+
+        // Check if already installed via appinstalled event
+        window.addEventListener('appinstalled', () => {
+            console.log('PWA: App was installed');
+            setIsInstalled(true);
+            setDeferredPrompt(null);
+        });
+
+        return () => {
+            window.removeEventListener('beforeinstallprompt', handler);
+        };
     }, []);
 
+
+    const isIOS = () => {
+        return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    };
+
     const handleInstallClick = async () => {
-        console.log('Hero: Install clicked');
-        if (!deferredPrompt) {
-            console.log('Hero: No deferred prompt available (app might be installed or not installable yet)');
+        console.log('PWA: Install button clicked');
+
+        // Check if already installed
+        if (isInstalled) {
+            console.log('PWA: App is already installed');
+            alert('Supercomp is already installed on your device!');
             return;
         }
-        deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-        console.log(`User response to the install prompt: ${outcome}`);
-        setDeferredPrompt(null);
+
+        // iOS devices need manual installation
+        if (isIOS()) {
+            console.log('PWA: iOS device detected, showing manual instructions');
+            setShowIOSInstructions(true);
+            return;
+        }
+
+        // Try to use the deferred prompt
+        if (!deferredPrompt) {
+            console.log('PWA: No deferred prompt available');
+            // Provide helpful fallback message
+            alert(
+                'To install Supercomp:\n\n' +
+                '1. Click the menu (⋮) in your browser\n' +
+                '2. Select "Install app" or "Add to Home screen"\n\n' +
+                'Note: Make sure you\'re using Chrome, Edge, or Safari on a supported device.'
+            );
+            return;
+        }
+
+        try {
+            console.log('PWA: Showing install prompt');
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log(`PWA: User response: ${outcome}`);
+
+            if (outcome === 'accepted') {
+                setIsInstalled(true);
+            }
+
+            setDeferredPrompt(null);
+        } catch (error) {
+            console.error('PWA: Error showing install prompt:', error);
+        }
     };
+
 
     return (
         <section className="relative overflow-hidden w-full">
@@ -44,92 +104,106 @@ export function Hero({ onStart }: HeroProps) {
                 <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-orange-200/20 rounded-full blur-3xl" />
             </div>
 
-            {/* Full Height Intro Section */}
-            <div className="min-h-screen flex items-center justify-center relative z-10 pt-20 pb-20">
-                <div className="container px-4 md:px-6 w-full">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12 items-center max-w-7xl mx-auto">
-                        {/* Left Column: Text & CTA */}
-                        <div className="flex flex-col space-y-8 text-left z-20">
-                            <h1 className="text-5xl md:text-7xl font-bold tracking-tight text-foreground animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-100 font-editorial">
-                                Meet Supercomp, <br />
-                                <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-orange-600">
-                                    Your transformation plan, from start to finish.
-                                </span>
-                            </h1>
+            {/* Main Content Container - Natural Flow, No Forced Height */}
+            <div className="container px-4 md:px-6 w-full pt-32 pb-12 relative z-10">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-12 lg:gap-20 items-center max-w-7xl mx-auto">
 
-                            <p className="text-xl text-muted-foreground max-w-2xl animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-200 leading-relaxed font-sans">
-                                Your workouts, meals, macros, and cardio — automatically planned and perfectly aligned with your goal. Snap a photo or scan a label to track your food instantly.
-                            </p>
+                    {/* Left Column: Text & Download Button */}
+                    <div className="flex flex-col space-y-8 text-center md:text-left z-20 items-center md:items-start">
+                        <h1 className="text-5xl md:text-7xl font-bold tracking-tight text-foreground animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-100 font-editorial leading-tight">
+                            Meet Supercomp, <br />
+                            <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-orange-600">
+                                Your transformation plan, from start to finish.
+                            </span>
+                        </h1>
 
-                            {/* Download Button */}
+                        <p className="text-lg md:text-xl text-muted-foreground max-w-2xl animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-200 leading-relaxed font-sans">
+                            Your workouts, meals, macros, and cardio — automatically planned and perfectly aligned with your goal. Snap a photo or scan a label to track your food instantly.
+                        </p>
+
+                        {/* Download Button - Standardized App Icon Style (All Screens) */}
+                        <div className="flex justify-center md:justify-start animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-300">
                             <button
                                 onClick={handleInstallClick}
-                                className="group flex items-center gap-4 bg-white text-black p-2 pr-6 rounded-full shadow-2xl hover:scale-105 transition-all duration-300 w-fit cursor-pointer animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-300"
+                                className={`group flex flex-col items-center gap-3 transition-all duration-300 cursor-pointer hover:scale-105
+                                    ${isInstalled ? 'opacity-75' : ''}
+                                `}
                             >
-                                <div className="relative w-12 h-12 shrink-0">
-                                    <div className="absolute inset-0 bg-black/10 rounded-full blur-sm" />
-                                    <img src="/pwa-512x512.png" alt="App Icon" className="relative w-full h-full object-cover rounded-full" />
+                                {/* Icon Container - Sized for Mobile (w-16) and Desktop (w-20) */}
+                                <div className="relative w-16 h-16 md:w-20 md:h-20 shrink-0 shadow-xl rounded-2xl md:rounded-[22px]">
+                                    <img
+                                        src="/pwa-512x512.png"
+                                        alt="App Icon"
+                                        className="relative w-full h-full object-cover rounded-2xl md:rounded-[22px]"
+                                    />
                                 </div>
-                                <span className="font-bold text-lg tracking-tight">Download now</span>
+
+                                {/* Label Text */}
+                                <span className="font-bold text-sm md:text-base tracking-tight text-center leading-tight">
+                                    {isInstalled ? 'Opened' :
+                                        isIOS() ? 'Add to\nHome Screen' : 'Download\nnow'}
+                                </span>
                             </button>
                         </div>
+                    </div>
 
-                        {/* Right Column: Screenshots */}
-                        {/* Desktop Layout */}
-                        <div className="relative h-[600px] w-full hidden md:flex items-center justify-center animate-in fade-in zoom-in-95 duration-1000 delay-500 perspective-[2000px]">
-                            {/* SS1 - Left Back */}
-                            {/* SS1 - Left Back */}
+                    {/* Right Column: Screenshots */}
+                    <div className="relative w-full flex items-center justify-center animate-in fade-in zoom-in-95 duration-1000 delay-500 perspective-[2000px] mt-8 md:mt-0">
+                        {/* Mobile Screenshots Layout (Stacked) */}
+                        <div className="md:hidden relative h-[400px] w-full max-w-sm flex items-center justify-center">
+                            <img
+                                src={ss1}
+                                alt="App Screenshot 1"
+                                className="absolute left-0 w-[45%] rounded-[30px] border-[4px] border-white shadow-2xl -rotate-6 translate-y-8 z-10"
+                            />
+                            <img
+                                src={ss2}
+                                alt="App Screenshot 2"
+                                className="absolute left-1/2 -translate-x-1/2 w-[50%] rounded-[30px] border-[4px] border-white shadow-2xl z-20"
+                            />
+                            <img
+                                src={ss3}
+                                alt="App Screenshot 3"
+                                className="absolute right-0 w-[45%] rounded-[30px] border-[4px] border-white shadow-2xl rotate-6 translate-y-8 z-10"
+                            />
+                        </div>
+
+                        {/* Desktop Screenshots Layout (Interactive) */}
+                        <div className="hidden md:flex relative h-[600px] w-full items-center justify-center">
                             <img
                                 src={ss1}
                                 alt="App Screenshot 1"
                                 className="absolute left-16 top-0 w-[200px] rounded-[30px] border-[6px] border-white shadow-2xl -rotate-12 translate-y-12 z-10 transition-transform duration-500 hover:z-40 hover:scale-110 hover:rotate-0"
                             />
-                            {/* SS2 - Center Front */}
                             <img
                                 src={ss2}
                                 alt="App Screenshot 2"
                                 className="absolute left-1/2 -translate-x-1/2 top-8 w-[220px] rounded-[30px] border-[6px] border-white shadow-2xl z-20 transition-transform duration-500 hover:z-40 hover:scale-110"
                             />
-                            {/* SS3 - Right Back */}
                             <img
                                 src={ss3}
                                 alt="App Screenshot 3"
                                 className="absolute right-16 top-0 w-[200px] rounded-[30px] border-[6px] border-white shadow-2xl rotate-12 translate-y-12 z-10 transition-transform duration-500 hover:z-40 hover:scale-110 hover:rotate-0"
                             />
                         </div>
-
-                        {/* Mobile Layout (simplified) */}
-                        <div className="md:hidden relative h-[400px] w-full flex items-center justify-center animate-in fade-in zoom-in-95 duration-1000 delay-500">
-                            <img
-                                src={ss2}
-                                alt="App Screenshot"
-                                className="w-[240px] rounded-[30px] border-[4px] border-white shadow-2xl rotate-3"
-                            />
-                        </div>
                     </div>
                 </div>
-            </div>
 
-            {/* Bottom Section: Buttons & Dashboard */}
-            <div className="container px-4 md:px-6 relative z-10 w-full flex flex-col items-center gap-12 pb-32">
-                <div className="flex flex-col sm:flex-row items-center gap-4 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-700">
+                {/* Start Journey Button - Centered Below Grid */}
+                <div className="w-full flex justify-center mt-12 md:mt-20 animate-in fade-in slide-in-from-bottom-8 duration-1000 delay-700">
                     <Button
                         size="lg"
                         onClick={onStart}
-                        className="h-14 px-8 rounded-full text-lg shadow-xl shadow-primary/25 hover:shadow-primary/40 hover:scale-105 transition-all duration-300 font-sans"
+                        className="h-14 px-12 rounded-full text-lg shadow-xl shadow-primary/25 hover:shadow-primary/40 hover:scale-105 transition-all duration-300 font-sans"
                     >
                         Start Your Journey
                         <ArrowRight className="ml-2 w-5 h-5" />
                     </Button>
-                    <Button
-                        variant="outline"
-                        size="lg"
-                        className="h-14 px-8 rounded-full text-lg border-2 hover:bg-secondary/50 backdrop-blur-sm font-sans"
-                    >
-                        View Demo
-                    </Button>
                 </div>
+            </div>
 
+            {/* Dashboard Preview Section */}
+            <div className="container px-4 md:px-6 relative z-10 w-full flex flex-col items-center gap-12 pb-20 mt-12">
                 {/* Abstract UI Mockup Representation */}
                 <div className="w-full max-w-5xl mx-auto relative animate-in fade-in zoom-in-95 duration-1000 delay-1000">
                     <div className="relative rounded-2xl overflow-hidden border border-white/20 shadow-2xl bg-white/30 backdrop-blur-md p-2">
@@ -143,6 +217,41 @@ export function Hero({ onStart }: HeroProps) {
                     </div>
                 </div>
             </div>
+
+            {/* iOS Installation Instructions Modal */}
+            {showIOSInstructions && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowIOSInstructions(false)}>
+                    <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                        <h3 className="text-2xl font-bold mb-4 text-black">Install Supercomp on iOS</h3>
+                        <div className="space-y-4 text-gray-700">
+                            <div className="flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
+                                    <span className="font-bold text-primary">1</span>
+                                </div>
+                                <p>Tap the <strong>Share</strong> button <span className="inline-block">📤</span> at the bottom of Safari</p>
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
+                                    <span className="font-bold text-primary">2</span>
+                                </div>
+                                <p>Scroll down and tap <strong>"Add to Home Screen"</strong> <span className="inline-block">➕</span></p>
+                            </div>
+                            <div className="flex items-start gap-3">
+                                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-1">
+                                    <span className="font-bold text-primary">3</span>
+                                </div>
+                                <p>Tap <strong>"Add"</strong> in the top right corner</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => setShowIOSInstructions(false)}
+                            className="mt-6 w-full bg-primary text-white py-3 rounded-full font-semibold hover:bg-primary/90 transition-colors"
+                        >
+                            Got it!
+                        </button>
+                    </div>
+                </div>
+            )}
         </section>
     );
 }

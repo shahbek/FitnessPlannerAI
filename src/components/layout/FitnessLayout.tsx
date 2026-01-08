@@ -132,7 +132,7 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
 
       // ✅ Check if current selection exists in savedWorkoutPlans
       const currentlySelected = savedWorkoutPlans.find((p: any) => p.id === selectedWorkoutId);
-      
+
       // If we don't have a valid selection, select the most recent one
       if (!currentlySelected && savedWorkoutPlans.length > 0) {
         const mostRecentCompleted = savedWorkoutPlans[0];
@@ -159,26 +159,6 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
     }
   }, [selectedWorkoutId, workoutHistory]);
 
-  // ✅ NEW: Watch for plan generation completion and auto-navigate
-  useEffect(() => {
-    // Check if there's a plan that was just completed (has convexId but was recently isGenerating)
-    if (workoutHistory.length > 0) {
-      const mostRecentPlan = workoutHistory[0];
-      
-      // If the most recent plan is NOT generating and has a convexId
-      // AND we don't have it selected, select it
-      if (mostRecentPlan && 
-          !mostRecentPlan.data?.isGenerating && 
-          mostRecentPlan.convexId &&
-          selectedWorkoutId !== mostRecentPlan.id) {
-        console.log('✅ Plan generation completed, auto-selecting:', mostRecentPlan.id, mostRecentPlan.title);
-        setSelectedWorkoutId(mostRecentPlan.id);
-        setCurrentView('home');
-      }
-    }
-  }, [workoutHistory, selectedWorkoutId]);
-
-
   const handleNewWorkout = () => {
     setShowNewWorkoutForm(true);
   };
@@ -202,7 +182,7 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
   const renderBreadcrumb = () => {
     // ✅ Check currentView FIRST before selectedWorkoutId
     // This ensures Settings breadcrumb shows even when a plan is selected
-    
+
     // Settings breadcrumb
     if (currentView.startsWith('settings')) {
       return (
@@ -237,7 +217,7 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
         </Breadcrumb>
       );
     }
-    
+
     // Show breadcrumb for selected workout plans (only if not in Settings)
     if (selectedWorkoutId) {
       const selectedWorkout = workoutHistory.find(w => w.id === selectedWorkoutId);
@@ -483,7 +463,7 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
       const optimisticPlan = workoutHistory.find(w => w.data?.isGenerating);
       if (optimisticPlan) {
         setWorkoutHistory(prev => prev.filter(w => w.id !== optimisticPlan.id));
-        
+
         // ✅ NAVIGATION: Select the first available plan (or undefined if none)
         const remainingPlans = workoutHistory.filter(w => w.id !== optimisticPlan.id);
         if (remainingPlans.length > 0) {
