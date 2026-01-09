@@ -48,7 +48,7 @@ import { estimateResistanceCalories } from '../utils/planCalculations';
  * Generation State
  */
 export interface GenerationState {
-  phase: 'initialization' | 'meal_planning' | 'workout_planning' | 'verification' | 'complete' | 'error';
+  phase: 'initialization' | 'meal_planning' | 'workout_planning' | 'shopping' | 'verification' | 'complete' | 'error';
   progress: number; // 0-100
   currentStep: string;
   errors: string[];
@@ -355,30 +355,33 @@ export class IntegratedPlanGenerator {
       }> = [];
 
       try {
-        for (const outline of weeklyOutlines) {
-          const dayMeals = await this.batchMealGenerator.generateWeeklyMeals(
-            userProfile,
-            outline,
-            trainingSplit,
-            (outline as any).dailyTargetsOverride,
-            {
-              onProgress: (step, progress) => {
-                this.updateState(
-                  {
-                    progress: 50 + (progress * 0.4), // 50-90%
-                    currentStep: `[Week ${outline.weekNumber}] ${step}`,
-                  },
-                  opts.onStateUpdate
-                );
-              },
-            }
-          );
+        // Optimized Plan-Level Batch Generation
+        const planResults = await this.batchMealGenerator.generatePlanMeals(
+          userProfile,
+          weeklyOutlines,
+          trainingSplit,
+          {
+            onProgress: (step, progress) => {
+              this.updateState(
+                {
+                  progress: 50 + (progress * 0.4), // 50-90%
+                  currentStep: step,
+                },
+                opts.onStateUpdate
+              );
+            },
+          }
+        );
+
+        // Process results into final format
+        for (const result of planResults) {
+          const { weekNumber, dayMeals } = result;
 
           const weekMealPlans = dayMeals.map((meals, index) => {
             const day = trainingSplit.days[index];
             const totalMacros = this.calculateDayMacros(meals);
             return {
-              weekNumber: outline.weekNumber || allMealPlans.length + 1,
+              weekNumber: weekNumber,
               dayNumber: index + 1,
               dayName: day?.dayName || `Day ${index + 1}`,
               isTrainingDay: !day?.isRestDay,
@@ -388,18 +391,12 @@ export class IntegratedPlanGenerator {
           });
 
           console.log(
-            `✅ [GENERATION] Week ${outline.weekNumber} meal plans generated: ${weekMealPlans.length} days`
+            `✅ [GENERATION] Week ${weekNumber} meal plans generated: ${weekMealPlans.length} days`
           );
-          weekMealPlans.forEach((dayPlan, idx) => {
-            console.log(
-              `   Week ${outline.weekNumber} - Day ${idx + 1} (${dayPlan.dayName}): ${dayPlan.meals?.length || 0
-              } meals, macros:`,
-              dayPlan.totalMacros
-            );
-          });
 
           allMealPlans.push(...weekMealPlans);
         }
+
       } catch (error) {
         console.error('❌ [GENERATION] Meal plan generation failed:');
         console.error('   Error:', error instanceof Error ? error.message : String(error));
@@ -414,11 +411,11 @@ export class IntegratedPlanGenerator {
         currentStep: 'Final verification...',
       }, opts.onStateUpdate);
 
-      // Step 6: Compile Complete Plan
+      // Step 6: Compile Complete Plan & Generate Shopping List
       this.updateState({
-        phase: 'complete',
-        progress: 100,
-        currentStep: 'Plan generation complete!',
+        phase: 'shopping',
+        progress: 95,
+        currentStep: 'Generating shopping lists...',
       }, opts.onStateUpdate);
 
       return await this.compileCompletePlan(
@@ -580,21 +577,21 @@ export class IntegratedPlanGenerator {
         return Math.max(1, Math.min(sets + bump, 6));
       };
 
-	      return base.map((s) => {
-	        const replacedId = s.templateId.replace(/-w\d+-/g, `-w${weekNumber}-`);
-	        const nextId = replacedId === s.templateId ? `${s.templateId}-w${weekNumber}` : replacedId;
-	        const cloned: SessionTemplate = {
-	          ...s,
-	          templateId: nextId,
-	          structure: s.structure.map((ex, idx) => ({
-	            ...ex,
-	            reps: adjustReps(ex.reps),
-	            sets: adjustSets(ex.sets, idx + 1),
-	          })),
-	        };
-	        return cloned;
-	      });
-	    };
+      return base.map((s) => {
+        const replacedId = s.templateId.replace(/-w\d+-/g, `-w${weekNumber}-`);
+        const nextId = replacedId === s.templateId ? `${s.templateId}-w${weekNumber}` : replacedId;
+        const cloned: SessionTemplate = {
+          ...s,
+          templateId: nextId,
+          structure: s.structure.map((ex, idx) => ({
+            ...ex,
+            reps: adjustReps(ex.reps),
+            sets: adjustSets(ex.sets, idx + 1),
+          })),
+        };
+        return cloned;
+      });
+    };
 
     for (const outline of weeksToProcess) {
       const phase = normalizePhase(outline.phase);

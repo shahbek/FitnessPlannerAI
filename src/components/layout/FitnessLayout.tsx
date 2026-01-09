@@ -48,6 +48,52 @@ interface FitnessLayoutProps {
   isAuthFresh?: boolean;
 }
 
+// Helper component to lazily load plan data
+function PlanDataLoader({
+  convexId,
+  initialData,
+  title,
+  isAuthFresh
+}: {
+  convexId?: string,
+  initialData?: any,
+  title: string,
+  isAuthFresh: boolean
+}) {
+  // If provided initialData is sufficient (e.g. active plan or newly generated), use it.
+  // Otherwise, if we have a convexId, fetch the full plan.
+  const shouldFetch = !initialData && !!convexId;
+  const fetchedPlan = useQuery(api.workoutPlans.getWorkoutPlan, shouldFetch ? { planId: convexId as any } : "skip");
+
+  const finalData = initialData || fetchedPlan?.fullPlanData;
+
+  if (shouldFetch && !fetchedPlan) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 space-y-4">
+        <Skeleton className="h-12 w-12 rounded-full" />
+        <p className="text-muted-foreground">Loading plan details...</p>
+      </div>
+    );
+  }
+
+  if (!finalData) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-muted-foreground">Plan data unavailable.</p>
+      </div>
+    );
+  }
+
+  return (
+    <WorkoutProgramView
+      workoutData={finalData}
+      planTitle={title}
+      workoutPlanId={convexId}
+      isAuthFresh={isAuthFresh}
+    />
+  );
+}
+
 export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutProps) {
   const [showNewWorkoutForm, setShowNewWorkoutForm] = useState(false);
   const [selectedWorkoutId, setSelectedWorkoutId] = useState<number | undefined>();
@@ -847,6 +893,8 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
           // ✅ Add body composition data
           bodyFat: form.bodyFat,
           targetBodyFat: form.targetBf,
+          // ✅ Add activity level
+          activityLevel: (form as any).activityLevel || (form as any).activity,
         };
 
         // Add optional fields if they exist (with proper type conversion)
@@ -1204,10 +1252,10 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
                       {(() => {
                         const selectedWorkout = workoutHistory.find(w => w.id === selectedWorkoutId);
                         return selectedWorkout ? (
-                          <WorkoutProgramView
-                            workoutData={selectedWorkout.data}
-                            planTitle={selectedWorkout.title}
-                            workoutPlanId={selectedWorkout.convexId ? selectedWorkout.convexId.toString() : undefined}
+                          <PlanDataLoader
+                            initialData={selectedWorkout.data}
+                            title={selectedWorkout.title}
+                            convexId={selectedWorkout.convexId ? selectedWorkout.convexId.toString() : undefined}
                             isAuthFresh={isAuthFresh}
                           />
                         ) : null;
@@ -1419,7 +1467,7 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
         ragProgress={currentProgress}
         onCancel={USE_INTEGRATED_GENERATOR ? handleCancelIntegratedGeneration : handleCancelGeneration}
         error={currentError}
-        isSaving={!currentLoading && !currentError && workoutHistory.find(w => w.id === selectedWorkoutId)?.data?.isGenerating === true}
+        isSaving={!currentLoading && !currentError && !!workoutHistory.find(w => w.id === selectedWorkoutId && w.data?.isGenerating)}
         onRetry={() => {
           if (USE_INTEGRATED_GENERATOR) {
             clearIntegratedError();

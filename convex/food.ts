@@ -346,6 +346,15 @@ function normalizeUSDAFood(food: any) {
         }));
     }
 
+    // Fix for foodCategory validation error
+    // Sometimes USDA API returns an object { id, code, description } instead of a string
+    let category = food.foodCategory;
+    if (typeof category === 'object' && category !== null && category.description) {
+        category = category.description;
+    } else if (typeof category === 'object') {
+        category = JSON.stringify(category);
+    }
+
     return {
         fdcId: food.fdcId,
         name: (food.description || food.lowercaseDescription || '').toLowerCase(),
@@ -354,6 +363,6 @@ function normalizeUSDAFood(food: any) {
         nutrients: normalizedNutrients,
         brandOwner: food.brandOwner,
         ingredients: food.ingredients,
-        foodCategory: food.foodCategory,
+        foodCategory: category,
     };
 }

@@ -16,7 +16,7 @@ import { convex } from '@/lib/convex';
  * Progress Update Interface
  */
 export interface PlanGenerationProgress {
-  phase: 'initialization' | 'workout_planning' | 'meal_planning' | 'verification' | 'complete' | 'error';
+  phase: 'initialization' | 'workout_planning' | 'meal_planning' | 'shopping' | 'verification' | 'complete' | 'error';
   progress: number; // 0-100
   currentStep: string;
   reasoning?: string[]; // CoT reasoning steps

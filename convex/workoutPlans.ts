@@ -243,11 +243,36 @@ export const getUserWorkoutPlans = query({
       .collect();
 
     console.log('[getUserWorkoutPlans] Found', plans.length, 'plans');
-    plans.forEach(plan => {
-      console.log('  - Plan:', plan.name, 'hasFullData:', !!plan.fullPlanData);
-    });
 
-    return plans;
+    // Optimize payload: Only return full data for the active plan
+    // For others, return summary only to prevent timeouts
+    return plans.map(plan => {
+      const isFullDataIncluded = plan.isActive;
+      return {
+        ...plan,
+        fullPlanData: isFullDataIncluded ? plan.fullPlanData : undefined
+      };
+    });
+  },
+});
+
+// Get single workout plan by ID
+export const getWorkoutPlan = query({
+  args: {
+    planId: v.id("workoutPlans"),
+  },
+  handler: async (ctx, args) => {
+    const user = await authComponent.getAuthUser(ctx);
+    if (!user) {
+      return null;
+    }
+
+    const plan = await ctx.db.get(args.planId);
+    if (!plan || plan.userId !== user._id as any) {
+      return null;
+    }
+
+    return plan;
   },
 });
 

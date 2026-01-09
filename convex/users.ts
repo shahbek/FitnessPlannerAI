@@ -54,6 +54,9 @@ export const upsertUserProfile = mutation({
     dislikedIngredients: v.optional(v.array(v.string())),
     schedule: v.optional(v.string()),
     preferences: v.optional(v.string()),
+    // Activity
+    activityLevel: v.optional(v.string()),
+    activityMultiplier: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);

@@ -156,6 +156,7 @@ export function ChainOfThoughtSidebar({
       'initialization': 'feasibility',
       'workout_planning': 'sessions',
       'meal_planning': 'meals',
+      'shopping': 'shopping',
       'verification': 'finalizing',
       'complete': 'complete',
       'error': 'error',
