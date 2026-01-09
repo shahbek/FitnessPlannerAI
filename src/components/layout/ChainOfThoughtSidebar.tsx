@@ -21,6 +21,7 @@ interface ChainOfThoughtSidebarProps {
   error?: string | null;
   onRetry?: () => void;
   onViewPlan?: () => void; // Navigate to the generated plan
+  isSaving?: boolean;
 }
 
 export function ChainOfThoughtSidebar({
@@ -30,7 +31,8 @@ export function ChainOfThoughtSidebar({
   ragProgress,
   error,
   onRetry,
-  onViewPlan
+  onViewPlan,
+  isSaving = false
 }: ChainOfThoughtSidebarProps) {
   const [messageIndex, setMessageIndex] = useState(0);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -73,18 +75,24 @@ export function ChainOfThoughtSidebar({
 
   // Timer for total generation time and pause animation when complete
   useEffect(() => {
-    const isGenerationComplete = !currentLoading && ragProgress?.phase === 'complete';
+    // Determine if we should be animating (aligned with isActivelyGenerating logic)
+    const shouldAnimate = !error && (
+      isSaving ||
+      (currentLoading && ragProgress?.phase !== 'complete') ||
+      (!ragProgress && !cachedProgress) // Initializing state
+    );
 
-    if (currentLoading && ragProgress?.phase !== 'complete') {
+    // Determine if we are fully complete
+    const isFullyComplete = !isSaving && !currentLoading && ragProgress?.phase === 'complete';
+
+    if (shouldAnimate) {
       setMessageIndex(0);
-      // Reset minimize state on new generation
-      setIsMinimized(true); // Start minimized by default
 
       // Ensure animation is playing
       if (lottieRef.current && !lottieRef.current.isPaused) {
         lottieRef.current.play();
       }
-    } else if (isGenerationComplete) {
+    } else if (isFullyComplete) {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -104,7 +112,7 @@ export function ChainOfThoughtSidebar({
         clearInterval(intervalRef.current);
       }
     };
-  }, [currentLoading, ragProgress?.phase]);
+  }, [currentLoading, ragProgress?.phase, isSaving, error, cachedProgress, ragProgress]);
 
   // Normalize progress format for display - use cachedProgress to retain data
   // ⚠️ MUST be defined before any functions or effects that use it
@@ -122,13 +130,13 @@ export function ChainOfThoughtSidebar({
 
   // Rotate messages every 3 seconds
   useEffect(() => {
-    if (currentLoading && ragProgress?.phase !== 'complete') {
+    if ((currentLoading || isSaving) && ragProgress?.phase !== 'complete') {
       const messageInterval = setInterval(() => {
         setMessageIndex(prev => (prev + 1) % messages.length);
       }, 3000);
       return () => clearInterval(messageInterval);
     }
-  }, [currentLoading, ragProgress?.phase, messages.length]);
+  }, [currentLoading, isSaving, ragProgress?.phase, messages.length]);
 
   // Auto-scroll reasoning area when content changes (for streaming text)
   useEffect(() => {
@@ -206,7 +214,16 @@ export function ChainOfThoughtSidebar({
     : { width: '100px', height: '100px' };
 
   // Determine if actively generating
-  const isActivelyGenerating = currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete';
+  // Consider active if:
+  // 1. isSaving is true (finalizing)
+  // 2. OR currentLoading is true AND phase is not complete
+  // 3. OR we have no progress yet (initializing state before loading becomes true)
+  // BUT ensure we don't show active if error exists
+  const isActivelyGenerating = !error && (
+    isSaving ||
+    (currentLoading && (normalizedProgress || progressToUse)?.phase !== 'complete') ||
+    !progressToUse
+  );
 
   // Container classes for transition - responsive for mobile
   // Use ONLY right/bottom positioning to animate from bottom-right corner
@@ -216,6 +233,13 @@ export function ChainOfThoughtSidebar({
       ? "bottom-3 right-3 w-10 h-10 rounded-full cursor-pointer transition-all duration-200 ease-out !bg-transparent"
       : "bottom-3 right-3 w-[calc(100vw-24px)] md:w-96 h-[70vh] max-h-[500px] rounded-2xl shadow-2xl transition-all duration-200 ease-out"
   );
+
+  // Determine display message
+  const getDisplayMessage = () => {
+    if (isSaving) return "Finalizing your plan...";
+    if (!progressToUse) return "Initializing...";
+    return messages[messageIndex];
+  };
 
   return (
     <div
@@ -264,7 +288,7 @@ export function ChainOfThoughtSidebar({
         {/* Header Actions - Darker with inner shadow for 3D effect */}
         <div className="px-3 py-2 flex items-center justify-start gap-2 absolute top-0 left-0 right-0 z-10 bg-muted/30 border-b border-border/50">
           {/* Close Button (only when complete or error) - Apple Red */}
-          {(!currentLoading || error) && (
+          {(!isActivelyGenerating || error) && (
             <Button
               variant="ghost"
               size="icon"
@@ -319,14 +343,14 @@ export function ChainOfThoughtSidebar({
                   <div className="mt-4 text-center transition-all duration-300 ease-out">
                     {isActivelyGenerating ? (
                       <TextEffect
-                        key={messageIndex}
+                        key={messageIndex + (isSaving ? 'saving' : 'gen')}
                         as="h2"
                         preset="fade-in-blur"
                         per="word"
                         className="text-lg font-editorial font-light text-foreground"
                         trigger={true}
                       >
-                        {messages[messageIndex]}
+                        {getDisplayMessage()}
                       </TextEffect>
                     ) : (
                       <div className="space-y-2">

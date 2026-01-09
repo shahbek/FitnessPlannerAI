@@ -1419,6 +1419,7 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
         ragProgress={currentProgress}
         onCancel={USE_INTEGRATED_GENERATOR ? handleCancelIntegratedGeneration : handleCancelGeneration}
         error={currentError}
+        isSaving={!currentLoading && !currentError && workoutHistory.find(w => w.id === selectedWorkoutId)?.data?.isGenerating === true}
         onRetry={() => {
           if (USE_INTEGRATED_GENERATOR) {
             clearIntegratedError();
