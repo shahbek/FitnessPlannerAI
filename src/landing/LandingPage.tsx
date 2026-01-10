@@ -4,6 +4,7 @@ import { Hero } from './components/Hero';
 import { HowItWorks } from './components/HowItWorks';
 import { Testimonials } from './components/Testimonials';
 import { Pricing } from './components/Pricing';
+import { FAQ } from './components/FAQ';
 import { Footer } from './components/Footer';
 
 interface LandingPageProps {
@@ -19,8 +20,10 @@ export function LandingPage({ onLogin }: LandingPageProps) {
                 <HowItWorks />
                 <Testimonials />
                 <Pricing onSelect={onLogin} />
+                <FAQ />
             </main>
             <Footer />
         </div>
     );
 }
+

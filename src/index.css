@@ -1,21 +1,5 @@
 /* Custom Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Xanh+Mono:ital@0;1&display=swap');
-
-@font-face {
-  font-family: 'SF Pro Rounded';
-  src: url('./assets/fonts/SF Pro Rounded - Thin.ttf') format('truetype');
-  font-weight: 100;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'SF Pro Rounded';
-  src: url('./assets/fonts/SF Pro Rounded - Semi Bold.ttf') format('truetype');
-  font-weight: 600;
-  font-style: normal;
-  font-display: swap;
-}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&family=Nunito:ital,wght@0,200..1000;1,200..1000&display=swap');
 
 @font-face {
   font-family: 'ITC Garamond Std';
