@@ -11,10 +11,14 @@ import {
 import { DailyTimeline } from './DailyTimeline';
 import { calculateWeeklyDeficitSummary, getTDEE, WeeklyDeficitSummary } from '@/utils/planCalculations';
 import { getAverageDailyTargets } from '@/utils/planTargets';
+import { kgToLbs } from '@/utils/unitConversion';
 
 interface WeeklyProgressionTimelineProps {
   plan: any;
   weeklySchedule?: any[];
+  userProfile?: {
+    units?: string;
+  };
 }
 
 interface DaySchedule {
@@ -62,7 +66,7 @@ interface WeekData {
   deficitSummary?: WeeklyDeficitSummary | null;
 }
 
-export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgressionTimelineProps) {
+export function WeeklyProgressionTimeline({ plan, weeklySchedule, userProfile }: WeeklyProgressionTimelineProps) {
   const [selectedDays, setSelectedDays] = useState<Record<number, string>>({});
   // Track which day tooltip is open (for click support on mobile)
   const [openDayTooltip, setOpenDayTooltip] = useState<string | null>(null);
@@ -679,8 +683,8 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                               <div className="flex items-baseline">
                                 <span
                                   className={`text-3xl font-black tabular-nums tracking-tight ${isDeficit
-                                      ? 'bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-500'
-                                      : 'bg-gradient-to-br from-amber-400 via-orange-500 to-rose-500'
+                                    ? 'bg-gradient-to-br from-emerald-400 via-teal-500 to-cyan-500'
+                                    : 'bg-gradient-to-br from-amber-400 via-orange-500 to-rose-500'
                                     } bg-clip-text text-transparent drop-shadow-sm`}
                                 >
                                   {isDeficit ? '−' : '+'}{absoluteDeficit.toLocaleString()}
@@ -699,13 +703,19 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                               <div className="flex items-baseline">
                                 <span
                                   className={`text-3xl font-black tabular-nums tracking-tight ${isDeficit
-                                      ? 'bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-500'
-                                      : 'bg-gradient-to-br from-rose-400 via-pink-500 to-purple-500'
+                                    ? 'bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-500'
+                                    : 'bg-gradient-to-br from-rose-400 via-pink-500 to-purple-500'
                                     } bg-clip-text text-transparent drop-shadow-sm`}
                                 >
-                                  {isDeficit ? '−' : '+'}{absoluteWeightChange.toFixed(2)}
+                                  {isDeficit ? '−' : '+'}
+                                  {userProfile?.units === 'imperial'
+                                    ? kgToLbs(absoluteWeightChange).toFixed(2)
+                                    : absoluteWeightChange.toFixed(2)
+                                  }
                                 </span>
-                                <span className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-wide">kg</span>
+                                <span className="text-[10px] font-bold text-slate-400 ml-1 uppercase tracking-wide">
+                                  {userProfile?.units === 'imperial' ? 'lbs' : 'kg'}
+                                </span>
                               </div>
                             </div>
                           </div>
@@ -731,7 +741,7 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                                 <span className="font-mono text-slate-300">{Math.abs(week.deficitSummary!.averageDailyDeficit).toLocaleString()} kcal</span>
                               </div>
                               <div className="flex justify-between text-[10px] pt-1 text-slate-500">
-                                <span>7,700 kcal ≈ 1 kg body weight</span>
+                                <span>7,700 kcal ≈ 1 kg (2.2 lbs) body weight</span>
                               </div>
                             </div>
                           </div>
@@ -760,13 +770,13 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
                   <div className="absolute bottom-0 right-[10%] w-[40%] h-[50%] bg-gradient-to-tl from-black/20 to-transparent rounded-full blur-md pointer-events-none"></div>
 
                   <div className="relative flex items-center justify-center gap-5 text-sm">
-	                    <div className="flex items-center gap-2">
-	                      <span className="text-base drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">🍎</span>
-	                      <span className="font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
-	                        {Math.round(Number(week.targets.calories || 0)).toLocaleString()}
-	                      </span>
-	                      <span className="text-xs font-bold text-orange-50 uppercase tracking-wider drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">kcal</span>
-	                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-base drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">🍎</span>
+                      <span className="font-black text-white drop-shadow-[0_2px_4px_rgba(0,0,0,0.5)]">
+                        {Math.round(Number(week.targets.calories || 0)).toLocaleString()}
+                      </span>
+                      <span className="text-xs font-bold text-orange-50 uppercase tracking-wider drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">kcal</span>
+                    </div>
                     <div className="w-px h-5 bg-gradient-to-b from-transparent via-orange-200/80 to-transparent shadow-[0_0_4px_rgba(255,255,255,0.5)]"></div>
                     <div className="flex items-center gap-2">
                       <span className="text-base drop-shadow-[0_2px_3px_rgba(0,0,0,0.4)]">🥩</span>
@@ -808,6 +818,6 @@ export function WeeklyProgressionTimeline({ plan, weeklySchedule }: WeeklyProgre
           <span className="font-medium">Rest</span>
         </div>
       </div>
-    </div>
+    </div >
   );
 }

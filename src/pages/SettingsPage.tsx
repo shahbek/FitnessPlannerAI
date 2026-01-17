@@ -32,6 +32,8 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
   const initializeAccount = useMutation(api.accounts.initializeAccount);
   const syncAccountEmail = useMutation(api.accounts.syncAccountEmail);
   const userAccount = useQuery(api.accounts.getUserAccount);
+  const userProfile = useQuery(api.users.getUserProfile);
+  const updateUserProfile = useMutation(api.users.upsertUserProfile);
   const tokenUsage = useQuery(api.accounts.getTokenUsage, { limit: 100 });
   const { toast } = useToast();
 
@@ -365,6 +367,34 @@ export function SettingsPage({ currentView = 'account', onViewChange }: Settings
               <p className="text-sm text-muted-foreground">
                 Email cannot be changed
               </p>
+            </div>
+
+            {/* Preferences */}
+            <div className="space-y-4 pt-4 border-t">
+              <h3 className="text-lg font-medium">Preferences</h3>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label>Unit System</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Choose between Metric (kg/cm) and Imperial (lbs/ft)
+                  </p>
+                </div>
+                <div className="inline-flex rounded-lg bg-muted p-1">
+                  <button
+                    onClick={() => updateUserProfile({ units: 'metric' })}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${userProfile?.units === 'metric' || !userProfile?.units ? 'bg-white shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    Metric
+                  </button>
+                  <button
+                    onClick={() => updateUserProfile({ units: 'imperial' })}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${userProfile?.units === 'imperial' ? 'bg-white shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    Imperial
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-end gap-2">

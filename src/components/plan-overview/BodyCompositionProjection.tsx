@@ -9,6 +9,7 @@ import {
   calculateBMI,
   estimateBodyFatFromBMI
 } from '@/utils/planCalculations';
+import { kgToLbs } from '@/utils/unitConversion';
 import {
   AreaChart,
   Area,
@@ -32,6 +33,7 @@ interface BodyCompositionProjectionProps {
     bodyFat?: number;
     targetBodyFat?: number;
     experienceLevel?: string;
+    units?: string;
   };
 }
 
@@ -78,6 +80,11 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
   }
 
   const finalProjection = projections[projections.length - 1];
+  const units = userProfile?.units || 'metric';
+
+  // Helper for conversion
+  const convertWeight = (kg: number) => units === 'imperial' ? kgToLbs(kg) : kg;
+  const weightUnit = units === 'imperial' ? 'lbs' : 'kg';
 
   // Calculate total changes
   const startingFatMass = startingWeight * (startingBodyFat / 100);
@@ -107,8 +114,8 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
     ...projections.map(p => ({
       week: p.weekNumber,
       weight: p.weight,
-      leanMass: p.leanMass,
-      fatMass: p.fatMass,
+      leanMass: convertWeight(p.leanMass),
+      fatMass: convertWeight(p.fatMass),
     }))
   ];
 
@@ -128,7 +135,7 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
               <div className="w-2.5 h-2.5 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500" />
               <span className="text-slate-700 min-w-[80px]">Weight:</span>
               <span className="text-slate-900 font-black text-base">
-                {totalWeight.toFixed(1)} kg
+                {totalWeight.toFixed(1)} {weightUnit}
               </span>
             </div>
             {/* Lean Mass */}
@@ -136,7 +143,7 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#6366f1' }} />
               <span className="text-slate-600 min-w-[80px]">Lean Mass:</span>
               <span className="text-indigo-700 font-bold">
-                {leanMass.toFixed(1)} kg
+                {leanMass.toFixed(1)} {weightUnit}
               </span>
             </div>
             {/* Fat Mass */}
@@ -144,7 +151,7 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: '#f59e0b' }} />
               <span className="text-slate-600 min-w-[80px]">Fat Mass:</span>
               <span className="text-amber-700 font-bold">
-                {fatMass.toFixed(1)} kg
+                {fatMass.toFixed(1)} {weightUnit}
               </span>
             </div>
           </div>
@@ -220,7 +227,7 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
                   dy={5}
                 />
                 <YAxis
-                  label={{ value: 'kg', angle: -90, position: 'insideLeft', fill: '#94a3b8', fontSize: 11 }}
+                  label={{ value: weightUnit, angle: -90, position: 'insideLeft', fill: '#94a3b8', fontSize: 11 }}
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: '#64748b', fontSize: 11, fontWeight: 500 }}
@@ -263,11 +270,11 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
               <div className="bg-white/60 p-4 rounded-xl border border-white/60 shadow-sm backdrop-blur-sm group hover:shadow-md transition-all">
                 <div className="text-xs text-blue-600 mb-1 font-bold uppercase tracking-wide">Projected Weight</div>
                 <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-black text-blue-900 tracking-tight">{finalProjection.weight.toFixed(1)}</span>
-                  <span className="text-sm font-bold text-blue-600">kg</span>
+                  <span className="text-4xl font-black text-blue-900 tracking-tight">{convertWeight(finalProjection.weight).toFixed(1)}</span>
+                  <span className="text-sm font-bold text-blue-600">{weightUnit}</span>
                 </div>
                 <div className="text-xs text-blue-500 mt-2 font-medium bg-blue-50 inline-block px-2 py-1 rounded-full">
-                  From {startingWeight.toFixed(1)} kg
+                  From {convertWeight(startingWeight).toFixed(1)} {weightUnit}
                 </div>
               </div>
 
@@ -293,7 +300,7 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
               <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-200/50">
                 <span className="text-xs text-slate-600">Fat Mass</span>
                 <span className={`text-xs font-bold px-2 py-0.5 rounded ${isFatLoss ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                  {isFatLoss ? '−' : '+'}{Math.abs(totalFatChange).toFixed(2)} kg ({fatChangePercent.toFixed(1)}%)
+                  {isFatLoss ? '−' : '+'}{Math.abs(convertWeight(totalFatChange)).toFixed(2)} {weightUnit} ({fatChangePercent.toFixed(1)}%)
                 </span>
               </div>
 
@@ -301,7 +308,7 @@ export function BodyCompositionProjection({ plan, weeklySchedule, userProfile }:
               <div className="flex items-center justify-between mb-3">
                 <span className="text-xs text-slate-600">Lean Mass</span>
                 <span className={`text-xs font-bold px-2 py-0.5 rounded ${isMuscleGain ? 'bg-indigo-50 text-indigo-700' : 'bg-rose-50 text-rose-700'}`}>
-                  {isMuscleGain ? '+' : '−'}{Math.abs(totalLeanMassChange).toFixed(2)} kg ({leanMassChangePercent.toFixed(1)}%)
+                  {isMuscleGain ? '+' : '−'}{Math.abs(convertWeight(totalLeanMassChange)).toFixed(2)} {weightUnit} ({leanMassChangePercent.toFixed(1)}%)
                 </span>
               </div>
 

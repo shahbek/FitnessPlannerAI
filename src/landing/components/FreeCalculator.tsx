@@ -477,6 +477,7 @@ export function FreeCalculator() {
                                 <div className="mt-auto pt-4 relative group">
                                     <div className="absolute -inset-1 bg-gradient-to-r from-orange-400 to-amber-600 rounded-xl blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200 animate-pulse" />
                                     <Button
+                                        onClick={() => window.location.href = '/login'}
                                         className={cn(
                                             "w-full relative rounded-xl text-white font-bold shadow-md transition-all h-14 text-lg overflow-hidden",
                                             "bg-gradient-to-br from-amber-400 to-orange-600 border border-orange-400",

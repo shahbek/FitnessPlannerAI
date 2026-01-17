@@ -17,6 +17,7 @@ import { DailyMacroTrends } from './DailyMacroTrends';
 import { BMRAndMetabolicAge } from './BMRAndMetabolicAge';
 import { WeighingTiming } from './WeighingTiming';
 import type { PhaseProgressionRow } from '@/utils/workoutDataParser';
+import { kgToLbs } from '@/utils/unitConversion';
 
 interface EnhancedPhasesOverviewProps {
   plan: any;
@@ -35,6 +36,7 @@ interface EnhancedPhasesOverviewProps {
     dietaryRestrictions?: string[];
     bodyFat?: number;
     targetBodyFat?: number;
+    units?: string;
   };
   workoutPlanId?: string; // Convex ID for the workout plan
 }
@@ -75,13 +77,21 @@ export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile, work
 
     const proteinPerKg = userProfile?.weight && metrics.protein > 0 ? (metrics.protein / userProfile.weight).toFixed(1) : '1.8';
 
+    // Unit Conversion
+    const units = userProfile?.units || 'metric';
+    const displayWeeklyChange = units === 'imperial' ? kgToLbs(Math.abs(weeklyWeightChange)).toFixed(2) : Math.abs(weeklyWeightChange).toFixed(2);
+    const displayTotalChange = units === 'imperial' ? kgToLbs(Math.abs(totalWeightChange)).toFixed(1) : Math.abs(totalWeightChange).toFixed(1);
+    const weightUnit = units === 'imperial' ? 'lbs' : 'kg';
+    // Protein is standardly g/kg even in imperial (sometimes g/lb but g/kg is science standard, leaving as is or converting display only if requested. Usually macros stay metric).
+
     return {
       totalWeeks,
       goal,
       dailySurplusOrDeficit,
       isDeficit,
-      weeklyWeightChange: Math.abs(weeklyWeightChange).toFixed(2),
-      totalWeightChange: Math.abs(totalWeightChange).toFixed(1),
+      weeklyWeightChange: displayWeeklyChange,
+      totalWeightChange: displayTotalChange,
+      weightUnit,
       proteinPerKg,
       trainingDays: metrics.trainingFrequency || userProfile?.workoutDaysPerWeek || 0,
       targetCalories: Math.round(targetCalories),
@@ -115,8 +125,8 @@ export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile, work
                   Training frequency is established at <strong className="font-semibold text-slate-900">{planSummary.trainingDays} sessions per week</strong>,
                   utilizing progressive overload principles across three distinct phases: Foundation, Progression, and Peak.
                   {planSummary.totalWeeks > 0 && (
-                    <> Based on the prescribed energy balance, projected outcomes include approximately <strong className="font-semibold text-slate-900">{planSummary.weeklyWeightChange} kg</strong> of
-                      weekly weight {planSummary.isDeficit ? 'reduction' : 'gain'}, yielding an estimated total {planSummary.isDeficit ? 'loss' : 'gain'} of <strong className="font-semibold text-slate-900">{planSummary.totalWeightChange} kg</strong> over
+                    <> Based on the prescribed energy balance, projected outcomes include approximately <strong className="font-semibold text-slate-900">{planSummary.weeklyWeightChange} {planSummary.weightUnit}</strong> of
+                      weekly weight {planSummary.isDeficit ? 'reduction' : 'gain'}, yielding an estimated total {planSummary.isDeficit ? 'loss' : 'gain'} of <strong className="font-semibold text-slate-900">{planSummary.totalWeightChange} {planSummary.weightUnit}</strong> over
                       the program duration.</>
                   )}
                 </p>
@@ -188,6 +198,7 @@ export function EnhancedPhasesOverview({ plan, weeklySchedule, userProfile, work
           <WeeklyProgressionTimeline
             plan={plan}
             weeklySchedule={weeklySchedule}
+            userProfile={userProfile}
           />
         </div>
 

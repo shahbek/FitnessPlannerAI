@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useQuery, useMutation } from 'convex/react';
 import { api } from '../../../convex/_generated/api';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -43,8 +43,18 @@ export function WorkoutProgramView({ workoutData, planTitle, workoutPlanId, isAu
   // Fallback to logged-in user's profile if plan doesn't have one
   const planUserProfile = workoutData?.userProfile;
   // Skip query if auth is not fresh to avoid Unauthenticated error
+  // Skip query if auth is not fresh to avoid Unauthenticated error
   const loggedInUserProfile = useQuery(api.users.getUserProfile, isAuthFresh ? {} : "skip");
-  const userProfile = planUserProfile || loggedInUserProfile || undefined;
+
+  // MERGE LOGIC: Use Plan Profile as base, but override with live User Profile settings (like units)
+  const userProfile = useMemo(() => {
+    const base = planUserProfile || loggedInUserProfile || {};
+    // If we have a live user profile, prefer their current unit preference
+    if (loggedInUserProfile?.units) {
+      return { ...base, units: loggedInUserProfile.units };
+    }
+    return base;
+  }, [planUserProfile, loggedInUserProfile]);
 
   // Parse the data when component mounts or data changes
   useEffect(() => {

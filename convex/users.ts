@@ -57,6 +57,7 @@ export const upsertUserProfile = mutation({
     // Activity
     activityLevel: v.optional(v.string()),
     activityMultiplier: v.optional(v.number()),
+    units: v.optional(v.string()), // "metric" | "imperial" system preference
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);

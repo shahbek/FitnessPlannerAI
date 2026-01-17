@@ -2,6 +2,7 @@ import { Badge } from '@/components/ui/badge';
 import { User, Target, Dumbbell, Calendar, Activity, Heart, Zap } from 'lucide-react';
 import { calculateBMI, getBMIClassification, getTDEE } from '@/utils/planCalculations';
 import { GoalCategory, getGoalCategoryLabel } from '@/models/UserProfile';
+import { kgToLbs, cmToInches, formatHeight } from '@/utils/unitConversion';
 
 // BMI Gauge Component
 interface BMIGaugeProps {
@@ -168,6 +169,7 @@ interface UserProfileSummaryProps {
     sessionDuration?: number;
     equipmentAccess?: string[];
     dietaryRestrictions?: string[];
+    units?: string;
   };
   plan: {
     metrics?: {
@@ -188,6 +190,8 @@ export function UserProfileSummary({ userProfile, plan }: UserProfileSummaryProp
 
   const bmiClassification = bmi ? getBMIClassification(bmi) : null;
 
+  const units = userProfile?.units || 'metric';
+
   // Use CENTRALIZED TDEE calculation for consistency across all components
   const maintenanceCalories = getTDEE(plan as any, userProfile as any);
 
@@ -200,11 +204,11 @@ export function UserProfileSummary({ userProfile, plan }: UserProfileSummaryProp
     if (goalCategory) {
       return getGoalCategoryLabel(goalCategory);
     }
-    
+
     // Fall back to legacy primaryGoal
     const legacyGoal = userProfile?.primaryGoal;
     if (!legacyGoal) return '—';
-    
+
     return legacyGoal
       .split('_')
       .map(word => word.charAt(0).toUpperCase() + word.slice(1))
@@ -215,7 +219,7 @@ export function UserProfileSummary({ userProfile, plan }: UserProfileSummaryProp
   const formatExperience = () => {
     const level = userProfile?.experienceLevel || userProfile?.workoutLevel;
     if (!level) return '—';
-    
+
     // Map common values to proper labels
     const levelMap: Record<string, string> = {
       'beginner': 'Beginner (0-1 year)',
@@ -223,7 +227,7 @@ export function UserProfileSummary({ userProfile, plan }: UserProfileSummaryProp
       'advanced': 'Advanced (4-7 years)',
       'expert': 'Expert (7+ years)',
     };
-    
+
     const lowerLevel = level.toLowerCase();
     return levelMap[lowerLevel] || level.charAt(0).toUpperCase() + level.slice(1);
   };
@@ -284,10 +288,9 @@ export function UserProfileSummary({ userProfile, plan }: UserProfileSummaryProp
               <Target className="h-5 w-5 text-white drop-shadow-md" />
               <span className="text-xs font-bold text-orange-50 uppercase tracking-wide drop-shadow-md">Goal</span>
             </div>
-            <div className={`font-black text-white drop-shadow-lg leading-tight ${
-              (formatGoal()?.length || 0) > 12 ? 'text-lg' : 
+            <div className={`font-black text-white drop-shadow-lg leading-tight ${(formatGoal()?.length || 0) > 12 ? 'text-lg' :
               (formatGoal()?.length || 0) > 8 ? 'text-xl' : 'text-2xl'
-            }`}>
+              }`}>
               {formatGoal()}
             </div>
           </div>
@@ -303,9 +306,8 @@ export function UserProfileSummary({ userProfile, plan }: UserProfileSummaryProp
               <Dumbbell className="h-5 w-5 text-white drop-shadow-md" />
               <span className="text-xs font-bold text-purple-50 uppercase tracking-wide drop-shadow-md">Level</span>
             </div>
-            <div className={`font-black text-white drop-shadow-lg leading-tight ${
-              (formatExperience()?.length || 0) > 15 ? 'text-base' : 'text-xl'
-            }`}>
+            <div className={`font-black text-white drop-shadow-lg leading-tight ${(formatExperience()?.length || 0) > 15 ? 'text-base' : 'text-xl'
+              }`}>
               {formatExperience()}
             </div>
           </div>
@@ -348,8 +350,10 @@ export function UserProfileSummary({ userProfile, plan }: UserProfileSummaryProp
                   📏 <span>Height</span>
                 </div>
                 <div className="text-lg font-bold text-slate-800">
-                  {userProfile?.height ? `${userProfile.height}` : '—'}
-                  <span className="text-xs font-normal text-slate-500 ml-1">cm</span>
+                  {userProfile?.height ? (
+                    units === 'imperial' ? formatHeight(userProfile.height, 'imperial') : userProfile.height
+                  ) : '—'}
+                  <span className="text-xs font-normal text-slate-500 ml-1">{units === 'imperial' ? '' : 'cm'}</span>
                 </div>
               </div>
             </div>
@@ -362,8 +366,10 @@ export function UserProfileSummary({ userProfile, plan }: UserProfileSummaryProp
                   ⚖️ <span>Weight</span>
                 </div>
                 <div className="text-lg font-bold text-slate-800">
-                  {userProfile?.weight ? `${userProfile.weight}` : '—'}
-                  <span className="text-xs font-normal text-slate-500 ml-1">kg</span>
+                  {userProfile?.weight ? (
+                    units === 'imperial' ? kgToLbs(userProfile.weight).toFixed(1) : userProfile.weight
+                  ) : '—'}
+                  <span className="text-xs font-normal text-slate-500 ml-1">{units === 'imperial' ? 'lbs' : 'kg'}</span>
                 </div>
               </div>
             </div>

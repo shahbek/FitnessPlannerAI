@@ -37,6 +37,7 @@ export default defineSchema({
     workoutDaysPerWeek: v.optional(v.number()),
     sessionDuration: v.optional(v.number()),
     equipmentAccess: v.optional(v.array(v.string())),
+    units: v.optional(v.string()), // "metric" | "imperial"
 
     // Dietary & Nutrition
     dietaryRestrictions: v.optional(v.array(v.string())), // Keeping for backward compatibility

@@ -19,6 +19,7 @@ import {
   CheckCircle,
   AlertCircle
 } from 'lucide-react';
+import { kgToLbs, lbsToKg, cmToFtIn, ftInToCm } from '@/utils/unitConversion';
 
 interface FormData {
   // Base fields from DEFAULT_FORM_STATE
@@ -26,6 +27,8 @@ interface FormData {
   sex: string;
   heightCm: number | '';
   weightKg: number | '';
+  weightKg: number | '';
+  units: 'metric' | 'imperial';
   bodyFat?: number; // Optional: current body fat for BMR calculation (non-body_fat_goal modes)
 
   // New goal category system
@@ -70,6 +73,7 @@ interface CompleteFormData extends Omit<FormData, 'likedIngredients' | 'disliked
   dislikedIngredients: string[];
   allergies: string[];
   cuisinePreferences: string[];
+  units: 'metric' | 'imperial';
 }
 
 interface MultistepProfileFormProps {
@@ -88,7 +92,9 @@ const defaultFormData: FormData = {
   age: DEFAULT_FORM_STATE.age,
   sex: DEFAULT_FORM_STATE.sex,
   heightCm: DEFAULT_FORM_STATE.heightCm,
+  heightCm: DEFAULT_FORM_STATE.heightCm,
   weightKg: DEFAULT_FORM_STATE.weightKg,
+  units: 'metric',
   bodyFat: undefined, // Optional by default
   goalCategory: DEFAULT_FORM_STATE.goalCategory,
   bodyFatGoal: undefined, // Only set when body_fat_goal is selected
@@ -141,6 +147,31 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
         [field]: value
       }
     }));
+  };
+
+  const toggleUnits = () => {
+    setFormData(prev => {
+      const newUnits = prev.units === 'metric' ? 'imperial' : 'metric';
+
+      // Convert values if they exist
+      let newHeight = prev.heightCm;
+      let newWeight = prev.weightKg;
+
+      // Note: Internal storage is technically "metric" (cm/kg) in naming, 
+      // but we will use the logic that input values should be presented in proper unit.
+      // IF we want to store pure metric internally always:
+      // We keep prev.heightCm as CM, but we just change how it is DISPLAYED.
+      // However, here since basic Input fields are bound to formData.heightCm, 
+      // it is cleaner to just keep everything in state as-is and rely on conversion helper at render time?
+      // NO, standard practice: keep state as Source of Truth (Metric) or view state?
+      // The prompt requested: "So when creating 'New fitness program' it can be the correct metrics."
+
+      // Better approach for this form:
+      // Keep internal state as Metric (cm/kg).
+      // Add helper input handlers that convert on the fly.
+
+      return { ...prev, units: newUnits };
+    });
   };
 
   const handleGoalCategoryChange = (value: GoalCategory) => {
@@ -269,26 +300,84 @@ export function MultistepProfileForm({ onComplete, onCancel }: MultistepProfileF
                 </Select>
               </div>
 
-              <div>
-                <Label htmlFor="heightCm">Height (cm) *</Label>
-                <Input
-                  id="heightCm"
-                  type="number"
-                  value={formData.heightCm}
-                  onChange={(e) => updateFormData('heightCm', e.target.value === '' ? '' : parseInt(e.target.value))}
-                  placeholder="175"
-                  className="font-mono"
-                />
+              {/* Unit Toggle */}
+              <div className="col-span-1 md:col-span-2 flex justify-center py-2">
+                <div className="inline-flex rounded-lg bg-muted p-1">
+                  <button
+                    onClick={() => updateFormData('units', 'metric')}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${formData.units === 'metric' ? 'bg-white shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    Metric (kg/cm)
+                  </button>
+                  <button
+                    onClick={() => updateFormData('units', 'imperial')}
+                    className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${formData.units === 'imperial' ? 'bg-white shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    Imperial (lbs/ft)
+                  </button>
+                </div>
               </div>
 
               <div>
-                <Label htmlFor="weightKg">Weight (kg) *</Label>
+                <Label htmlFor="heightCm">Height ({formData.units === 'imperial' ? 'ft/in' : 'cm'}) *</Label>
+                {formData.units === 'metric' ? (
+                  <Input
+                    id="heightCm"
+                    type="number"
+                    value={formData.heightCm}
+                    onChange={(e) => updateFormData('heightCm', e.target.value === '' ? '' : parseInt(e.target.value))}
+                    placeholder="175"
+                    className="font-mono"
+                  />
+                ) : (
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Input
+                        type="number"
+                        placeholder="5"
+                        value={formData.heightCm ? cmToFtIn(Number(formData.heightCm)).ft : ''}
+                        onChange={(e) => {
+                          const ft = parseInt(e.target.value) || 0;
+                          const inches = formData.heightCm ? cmToFtIn(Number(formData.heightCm)).in : 0;
+                          updateFormData('heightCm', ftInToCm(ft, inches));
+                        }}
+                        className="font-mono"
+                      />
+                      <span className="absolute right-3 top-2.5 text-xs text-muted-foreground">ft</span>
+                    </div>
+                    <div className="relative flex-1">
+                      <Input
+                        type="number"
+                        placeholder="9"
+                        value={formData.heightCm ? cmToFtIn(Number(formData.heightCm)).in : ''}
+                        onChange={(e) => {
+                          const inches = parseInt(e.target.value) || 0;
+                          const ft = formData.heightCm ? cmToFtIn(Number(formData.heightCm)).ft : 0;
+                          updateFormData('heightCm', ftInToCm(ft, inches));
+                        }}
+                        className="font-mono"
+                      />
+                      <span className="absolute right-3 top-2.5 text-xs text-muted-foreground">in</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <Label htmlFor="weightKg">Weight ({formData.units === 'imperial' ? 'lbs' : 'kg'}) *</Label>
                 <Input
                   id="weightKg"
                   type="number"
-                  value={formData.weightKg}
-                  onChange={(e) => updateFormData('weightKg', e.target.value === '' ? '' : parseInt(e.target.value))}
-                  placeholder="70"
+                  value={formData.units === 'imperial' && formData.weightKg ? kgToLbs(Number(formData.weightKg)) : formData.weightKg}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    if (isNaN(val)) {
+                      updateFormData('weightKg', '');
+                    } else {
+                      updateFormData('weightKg', formData.units === 'imperial' ? lbsToKg(val) : val);
+                    }
+                  }}
+                  placeholder={formData.units === 'imperial' ? "150" : "70"}
                   className="font-mono"
                 />
               </div>
