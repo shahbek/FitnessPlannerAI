@@ -7,6 +7,8 @@ import { Pricing } from './components/Pricing';
 import { FAQ } from './components/FAQ';
 import { Footer } from './components/Footer';
 
+import { FreeCalculator } from './components/FreeCalculator';
+
 interface LandingPageProps {
     onLogin: () => void;
 }
@@ -18,6 +20,7 @@ export function LandingPage({ onLogin }: LandingPageProps) {
             <main>
                 <Hero onStart={onLogin} />
                 <HowItWorks />
+                <FreeCalculator />
                 <Testimonials />
                 <Pricing onSelect={onLogin} />
                 <FAQ />
