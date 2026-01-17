@@ -33,3 +33,7 @@ export const formatWeight = (kg: number, units: 'metric' | 'imperial'): string =
     }
     return `${kg} kg`;
 };
+
+export const cmToInches = (cm: number): number => {
+    return cm / 2.54;
+};

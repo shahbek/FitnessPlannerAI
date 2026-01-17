@@ -27,7 +27,6 @@ interface FormData {
   sex: string;
   heightCm: number | '';
   weightKg: number | '';
-  weightKg: number | '';
   units: 'metric' | 'imperial';
   bodyFat?: number; // Optional: current body fat for BMR calculation (non-body_fat_goal modes)
 
@@ -91,7 +90,6 @@ const steps = [
 const defaultFormData: FormData = {
   age: DEFAULT_FORM_STATE.age,
   sex: DEFAULT_FORM_STATE.sex,
-  heightCm: DEFAULT_FORM_STATE.heightCm,
   heightCm: DEFAULT_FORM_STATE.heightCm,
   weightKg: DEFAULT_FORM_STATE.weightKg,
   units: 'metric',

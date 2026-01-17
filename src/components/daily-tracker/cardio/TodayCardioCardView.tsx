@@ -23,6 +23,7 @@ export interface TodayCardioCardViewProps {
     actualDuration?: number | null;
     onComplete?: (e: React.MouseEvent) => void;
     onSkip?: (e: React.MouseEvent) => void;
+    isDemo?: boolean;
 }
 
 export function TodayCardioCardView({
@@ -31,6 +32,7 @@ export function TodayCardioCardView({
     actualDuration,
     onComplete,
     onSkip,
+    isDemo = false,
 }: TodayCardioCardViewProps) {
     const isCompleted = status === 'completed';
     const isSkipped = status === 'skipped';
