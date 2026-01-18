@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Upload, Camera, Check, RefreshCw, Info, AlertTriangle, ArrowRight, X, ChevronLeft } from 'lucide-react';
 import { realAIClient } from '@/ai/realAIClient';
-import { Pose, POSE_CONNECTIONS } from '@mediapipe/pose';
+import * as mpPose from '@mediapipe/pose';
 import * as CameraUtils from '@mediapipe/camera_utils';
 import { drawConnectors, drawLandmarks } from '@mediapipe/drawing_utils';
 import { Helmet } from 'react-helmet-async';
@@ -40,7 +40,7 @@ export function BodyCompositionAnalyzer() {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isAutoCaptureEnabled, setIsAutoCaptureEnabled] = useState(true);
     const [countdown, setCountdown] = useState<number | null>(null);
-    const poseEstimatorRef = useRef<Pose | null>(null);
+    const poseEstimatorRef = useRef<mpPose.Pose | null>(null);
     const lastPoseTimeRef = useRef<number>(0);
     const stabilityCounterRef = useRef<number>(0);
     const isPoseDetectedRef = useRef<boolean>(false);
@@ -71,7 +71,7 @@ export function BodyCompositionAnalyzer() {
     // Initialize MediaPipe Pose
     useEffect(() => {
         if (phase === 'camera' && !poseEstimatorRef.current) {
-            const pose = new Pose({
+            const pose = new mpPose.Pose({
                 locateFile: (file) => {
                     return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
                 }
