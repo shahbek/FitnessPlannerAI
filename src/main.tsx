@@ -2,6 +2,7 @@ import ReactDOM from 'react-dom/client';
 import { ConvexReactClient } from 'convex/react';
 import { ConvexBetterAuthProvider } from '@convex-dev/better-auth/react';
 import { authClient } from './lib/auth-client';
+import { HelmetProvider } from 'react-helmet-async';
 import App from './App';
 import { Toaster } from './components/ui/toaster';
 import './index.css';
@@ -27,7 +28,9 @@ console.log('🔗 Convex client initialized with URL:', import.meta.env.VITE_CON
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <ConvexBetterAuthProvider client={convex} authClient={authClient}>
-    <App />
-    <Toaster />
+    <HelmetProvider>
+      <App />
+      <Toaster />
+    </HelmetProvider>
   </ConvexBetterAuthProvider>
 );

@@ -20,6 +20,11 @@ const LandingPage = lazy(() =>
   import('@/landing/LandingPage').then(module => ({ default: module.LandingPage }))
 );
 
+// Lazy load BodyCompositionPage
+const BodyCompositionPage = lazy(() =>
+  import('@/landing/free-tools/BodyCompositionPage').then(module => ({ default: module.BodyCompositionPage }))
+);
+
 export default function App() {
   // Use our new cached auth hook
   // This will return the cached user immediately if available
@@ -67,6 +72,10 @@ export default function App() {
       </ErrorBoundary>
       {isAuthenticated ? (
         <FitnessLayout isAuthFresh={isFresh} />
+      ) : window.location.pathname === '/free-tools/ai-body-fat-test' ? (
+        <Suspense fallback={null}>
+          <BodyCompositionPage onLogin={() => setShowLanding(false)} />
+        </Suspense>
       ) : showLanding ? (
         <Suspense fallback={null}>
           <LandingPage onLogin={() => setShowLanding(false)} />

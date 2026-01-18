@@ -10,7 +10,7 @@ export interface AIClientConfig {
 
 export interface AIClientMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  content: string | Array<{ type: string; text?: string; image_url?: { url: string } }>;
 }
 
 export interface AIClientRequest {
@@ -18,6 +18,7 @@ export interface AIClientRequest {
   temperature?: number;
   max_tokens?: number;
   stream?: boolean;
+  modelOverride?: string;
 }
 
 export interface AIClientResponse {
@@ -97,6 +98,57 @@ export class RealAIClient {
       // For non-Groq providers, make direct request
       return this.makeDirectRequest(request);
     }
+  }
+
+  /**
+   * Generate a response using a vision model (supports image input)
+   */
+  async generateVisionResponse(
+    prompt: string,
+    imageUrl: string,
+    systemPrompt?: string
+  ): Promise<string> {
+    const messages: any[] = [];
+
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt });
+    }
+
+    messages.push({
+      role: 'user',
+      content: [
+        { type: 'text', text: prompt },
+        {
+          type: 'image_url',
+          image_url: {
+            url: imageUrl
+          }
+        }
+      ]
+    });
+
+    // Special handling for Groq Vision: it needs a specific model
+    // If current model is not a vision model, force use llama-3.2-90b-vision-preview for this request
+    const visionModel = this.config?.model.includes('vision')
+      ? this.config.model
+      : 'meta-llama/llama-4-scout-17b-16e-instruct';
+
+    // Create a temporary config for this request if needed, or just pass the model param
+    // But since makeAPICall uses this.config.model, we need to temporarily override or pass it
+    // Implementation strategy: construct a custom request object that will be handled by makeAPICall
+
+    // We'll call generateResponse but we need to ensure the underlying makeAPICall handles the object content correctly
+    // Our types define content as string, but for vision it's complex.
+    // We'll cast to any for the messages to bypass strict type checking for this specific call
+
+    const response = await this.generateResponse({
+      messages: messages as any,
+      temperature: 0.1,
+      max_tokens: 1000,
+      modelOverride: visionModel
+    });
+
+    return response.content;
   }
 
   /**
@@ -216,7 +268,7 @@ export class RealAIClient {
         console.log(`🔧 Using provider: ${provider}`);
         console.log(`🔧 Using model: ${this.config!.model}`);
         console.log(`🔧 Using API key: ${this.config!.apiKey.substring(0, 10)}...`);
-        
+
         const response = await this.makeAPICall(request);
         return this.parseResponse(response);
       } catch (error) {
@@ -281,7 +333,7 @@ export class RealAIClient {
 
     if (!response.ok) {
       const errorText = await response.text();
-      
+
       // Handle specific rate limit errors
       if (response.status === 429) {
         const retryAfterHeader = response.headers.get('retry-after');
@@ -298,7 +350,7 @@ export class RealAIClient {
           throw new Error(`Rate limit exceeded. Please wait before making another request.`);
         }
       }
-      
+
       // Handle other HTTP errors
       throw new Error(`HTTP ${response.status}: ${response.statusText}\n${errorText}`);
     }
@@ -310,8 +362,10 @@ export class RealAIClient {
    * Build request body based on provider
    */
   private buildRequestBody(request: AIClientRequest, model: string, provider: string): any {
+    const targetModel = request.modelOverride || model;
+
     const baseBody = {
-      model,
+      model: targetModel,
       temperature: request.temperature || 0.3,
       max_tokens: request.max_tokens || 4000,
       stream: request.stream || false
@@ -359,11 +413,11 @@ export class RealAIClient {
    */
   async complete(prompt: string, systemPrompt?: string): Promise<string> {
     const messages: AIClientMessage[] = [];
-    
+
     if (systemPrompt) {
       messages.push({ role: 'system', content: systemPrompt });
     }
-    
+
     messages.push({ role: 'user', content: prompt });
 
     const response = await this.generateResponse({
@@ -379,7 +433,7 @@ export class RealAIClient {
    * Generate a structured response with specific format
    */
   async generateStructuredResponse(
-    prompt: string, 
+    prompt: string,
     systemPrompt: string,
     expectedFormat: string,
     options?: {
@@ -420,7 +474,7 @@ You are a specialized JSON response generator. Your ONLY job is to return valid 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         console.log(`🤖 Generating structured response (attempt ${attempt}/${maxRetries})`);
-        
+
         const response = await this.generateResponse({
           messages,
           temperature: attempt === 1 ? temperature : Math.min(temperature + 0.1, 0.3), // Slightly increase temperature on retries
@@ -431,11 +485,11 @@ You are a specialized JSON response generator. Your ONLY job is to return valid 
 
         // Validate that the response is parseable JSON
         const cleanedContent = this.extractJsonFromResponse(response.content);
-        
+
         try {
           JSON.parse(cleanedContent);
           console.log(`✅ Successfully generated valid JSON on attempt ${attempt}`);
-          
+
           // Extract confidence and reasoning from response
           const confidenceMatch = response.content.match(/confidence[:\s]*(\d+(?:\.\d+)?)/i);
           const reasoningMatch = response.content.match(/reasoning[:\s]*(.+?)(?=\n\n|\n[A-Z]|$)/is);
@@ -447,7 +501,7 @@ You are a specialized JSON response generator. Your ONLY job is to return valid 
           };
         } catch (parseError) {
           console.warn(`⚠️ Attempt ${attempt} failed JSON validation:`, parseError);
-          
+
           if (attempt < maxRetries) {
             // Add more specific instructions for retry
             messages.push({
@@ -478,33 +532,33 @@ You are a specialized JSON response generator. Your ONLY job is to return valid 
    */
   private extractJsonFromResponse(content: string): string {
     let cleaned = content.trim();
-    
+
     // Remove markdown code blocks
     const codeBlockMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (codeBlockMatch) {
       cleaned = codeBlockMatch[1].trim();
     }
-    
+
     // Find JSON object or array
     const arrayMatch = cleaned.match(/\[[\s\S]*?\]/);
     const objectMatch = cleaned.match(/\{[\s\S]*?\}/);
-    
+
     if (arrayMatch) {
       cleaned = arrayMatch[0];
     } else if (objectMatch) {
       cleaned = objectMatch[0];
     }
-    
+
     // Remove any trailing text after the JSON
     const lastBrace = cleaned.lastIndexOf('}');
     const lastBracket = cleaned.lastIndexOf(']');
-    
+
     if (lastBrace > lastBracket && lastBrace !== -1) {
       cleaned = cleaned.substring(0, lastBrace + 1);
     } else if (lastBracket !== -1) {
       cleaned = cleaned.substring(0, lastBracket + 1);
     }
-    
+
     return cleaned.trim();
   }
 

@@ -7,8 +7,8 @@ export function Footer() {
     return (
         <footer className="bg-white/50 backdrop-blur-md border-t border-white/20 py-12 font-sans">
             <div className="container px-4 md:px-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                    <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+                    <div className="space-y-4 md:col-span-2">
                         <div className="flex items-center gap-2">
                             <img src={logo} alt="Supercomp Logo" className="w-6 h-6" />
                             <span className="text-xl font-bold tracking-tight font-editorial">Supercomp</span>
@@ -27,7 +27,20 @@ export function Footer() {
                             <li><a href="#" className="hover:text-primary">FAQ</a></li>
                         </ul>
                     </div>
+
+                    <div>
+                        <h4 className="font-bold mb-4 font-editorial">Free Tools</h4>
+                        <ul className="space-y-2 text-sm text-muted-foreground">
+                            <li>
+                                <a href="/free-tools/ai-body-fat-test" className="hover:text-primary flex items-center gap-2">
+                                    AI Body Fat Test <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-bold">NEW</span>
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
                 </div>
+
+
 
                 <div className="flex flex-col md:flex-row items-center justify-between pt-8 border-t border-black/5">
                     <p className="text-sm text-muted-foreground">
