@@ -1,21 +1,15 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import Webcam from 'react-webcam';
-import type { WebcamProps } from 'react-webcam'; // Type import
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Upload, Camera, Check, RefreshCw, Info, AlertTriangle, ArrowRight, X, ChevronLeft } from 'lucide-react';
+import { Upload, RefreshCw, Info, AlertTriangle, ArrowRight, X, ChevronLeft, Image as ImageIcon } from 'lucide-react';
 import { realAIClient } from '@/ai/realAIClient';
-import * as mpPose from '@mediapipe/pose';
-import * as CameraUtils from '@mediapipe/camera_utils';
-import { drawConnectors, drawLandmarks } from '@mediapipe/drawing_utils';
 import { Helmet } from 'react-helmet-async';
+import bodyscanImage from '@/assets/images/3dicons/bodyscan.png';
 
 // Types for analysis results
 interface BodyCompositionResult {
     bodyFatPercentage: number;
-    leanMassPercentage: number;
     regionAnalysis: {
         core: string;
         chest: string;
@@ -25,8 +19,8 @@ interface BodyCompositionResult {
     recommendations: string[];
 }
 
-// State machine phases
-type Phase = 'intro' | 'input-selection' | 'camera' | 'upload' | 'analyzing' | 'results' | 'error';
+// State machine phases - Simpler now without camera
+type Phase = 'intro' | 'upload' | 'analyzing' | 'results' | 'error';
 
 export function BodyCompositionAnalyzer() {
     const [phase, setPhase] = useState<Phase>('intro');
@@ -35,28 +29,16 @@ export function BodyCompositionAnalyzer() {
     const [result, setResult] = useState<BodyCompositionResult | null>(null);
     const [error, setError] = useState<string | null>(null);
 
-    // Camera & Auto-Capture Refs
-    const webcamRef = useRef<Webcam>(null);
-    const canvasRef = useRef<HTMLCanvasElement>(null);
-    const [isAutoCaptureEnabled, setIsAutoCaptureEnabled] = useState(true);
-    const [countdown, setCountdown] = useState<number | null>(null);
-    const poseEstimatorRef = useRef<mpPose.Pose | null>(null);
-    const lastPoseTimeRef = useRef<number>(0);
-    const stabilityCounterRef = useRef<number>(0);
-    const isPoseDetectedRef = useRef<boolean>(false);
-
     // Initialize AI Client on mount
     useEffect(() => {
         const initAI = async () => {
             const apiKey = import.meta.env.VITE_GROQ_API_KEY;
             if (apiKey) {
                 try {
-                    // Auto-detect provider based on endpoint or use explicit 'groq' convention if supported
-                    // Passing full Groq endpoint just in case
                     await realAIClient.initialize(
                         apiKey,
                         'https://api.groq.com/openai/v1/chat/completions',
-                        'meta-llama/llama-4-scout-17b-16e-instruct'
+                        'meta-llama/llama-4-scout-17b-16e-instruct' // Fallback handled in client but good to be explicit
                     );
                 } catch (e) {
                     console.error("Failed to initialize AI client:", e);
@@ -68,376 +50,171 @@ export function BodyCompositionAnalyzer() {
         initAI();
     }, []);
 
-    // Initialize MediaPipe Pose
-    useEffect(() => {
-        if (phase === 'camera' && !poseEstimatorRef.current) {
-            const pose = new mpPose.Pose({
-                locateFile: (file) => {
-                    return `https://cdn.jsdelivr.net/npm/@mediapipe/pose/${file}`;
-                }
-            });
-
-            pose.setOptions({
-                modelComplexity: 1,
-                smoothLandmarks: true,
-                enableSegmentation: false,
-                minDetectionConfidence: 0.5,
-                minTrackingConfidence: 0.5
-            });
-
-            pose.onResults(onPoseResults);
-            poseEstimatorRef.current = pose;
-
-            // Start camera loop
-            if (typeof window !== 'undefined' && webcamRef.current && webcamRef.current.video) {
-                // We need a custom loop to send frames to MediaPipe
-                const camera = new CameraUtils.Camera(webcamRef.current.video, {
-                    onFrame: async () => {
-                        if (webcamRef.current && webcamRef.current.video && poseEstimatorRef.current) {
-                            await poseEstimatorRef.current.send({ image: webcamRef.current.video });
-                        }
-                    },
-                    width: 640,
-                    height: 480
-                });
-                camera.start();
-            }
-        }
-
-        return () => {
-            // Cleanup if needed, though CameraUtils handles stream cleanup mostly
-            poseEstimatorRef.current?.close();
-            poseEstimatorRef.current = null;
-        };
-    }, [phase]);
-
-    // Handle Pose Results & Auto-Capture Logic
-    const onPoseResults = useCallback((results: any) => {
-        if (!canvasRef.current || !webcamRef.current?.video) return;
-
-        const canvasCtx = canvasRef.current.getContext('2d');
-        if (!canvasCtx) return;
-
-        // Draw video frame
-        canvasCtx.save();
-        canvasCtx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-
-        // Draw landmarks
-        if (results.poseLandmarks) {
-            isPoseDetectedRef.current = true;
-
-            // Draw skeleton
-            drawConnectors(canvasCtx, results.poseLandmarks, mpPose.POSE_CONNECTIONS,
-                { color: '#f43e01', lineWidth: 4 }); // Brand color
-            drawLandmarks(canvasCtx, results.poseLandmarks,
-                { color: '#ffffff', lineWidth: 2 });
-
-            // Auto-Capture Logic
-            // Check if user is stable (simplified: if valid pose detected for extensive frames)
-            // In a real app, we'd check movement delta. For now, we trust presence + time.
-            if (isAutoCaptureEnabled && !countdown) {
-                stabilityCounterRef.current += 1;
-
-                if (stabilityCounterRef.current > 60) { // ~2 seconds @ 30fps
-                    startAutoCaptureCountdown();
-                }
-            }
-        } else {
-            isPoseDetectedRef.current = false;
-            stabilityCounterRef.current = 0;
-        }
-        canvasCtx.restore();
-    }, [isAutoCaptureEnabled, countdown]);
-
-    const startAutoCaptureCountdown = () => {
-        stabilityCounterRef.current = 0; // Reset
-        setCountdown(3);
-
-        const interval = setInterval(() => {
-            setCountdown(prev => {
-                if (prev === 1) {
-                    clearInterval(interval);
-                    capturePhoto();
-                    return null;
-                }
-                return (prev || 0) - 1;
-            });
-        }, 1000);
-    };
-
-    const capturePhoto = useCallback(() => {
-        const imageSrc = webcamRef.current?.getScreenshot();
-        if (imageSrc) {
-            setCapturedImage(imageSrc);
-            setPhase('analyzing');
-            analyzeImage(imageSrc);
-        }
-    }, [webcamRef]);
-
-    const onFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                const base64 = reader.result as string;
-                setCapturedImage(base64);
-                setPhase('analyzing');
-                analyzeImage(base64);
-            };
-            reader.readAsDataURL(file);
-        }
-    };
-
     const analyzeImage = async (base64Image: string) => {
         setIsAnalyzing(true);
+        setPhase('analyzing');
         setError(null);
 
         try {
             const prompt = `
-      Act as an elite physique coach. Provide a detailed aesthetic analysis of this body.
-      
-      Analyze these specific regions if visible:
-      1. Core (Abs/Obliques) - separation, definition
-      2. Chest - fullness, shape
-      3. Arms (Biceps/Triceps) - size, vascularity
-      4. Legs (Quads/Calves) - sweep, definition
-      
-      For each region, provide a specific observation.
-      
-      Output JSON format:
-      {
-        "bodyFatPercentage": number,
-        "regionAnalysis": {
-            "core": "string",
-            "chest": "string",
-            "arms": "string",
-            "legs": "string"
-        },
-        "recommendations": ["string", "string"] (2 key actionable tips)
-      }
-      `;
+            Act as an elite physique coach and biometrics expert. Analyze this image to estimate body composition parameters.
+
+            Provide the output in STRICT JSON format with NO markdown formatting, NO backticks, and NO additional text.
+            
+            JSON Schema:
+            {
+              "bodyFatPercentage": number, // Best estimate based on visible vascularity, separation, and definition
+              "regionAnalysis": {
+                "core": "string", // Specific observation about abs/obliques
+                "chest": "string", // Specific observation about chest development
+                "arms": "string", // Specific observation about biceps/triceps/shoulders
+                "legs": "string" // Specific observation about quads/hamstrings/calves
+              },
+              "recommendations": ["string", "string"] // Exactly 2 specific, actionable bio-hacks or training tips
+            }
+            `;
+
+            // Using the real AI client to call Groq Vision
+            // We need to bypass the standard text-only interface for vision if possible,
+            // or ensure our client supports the content array format.
+            // Based on previous files, we added 'generateVisionResponse'.
 
             const response = await realAIClient.generateVisionResponse(prompt, base64Image);
 
-            // Parse JSON
-            let data: BodyCompositionResult;
-            try {
-                // extract json block if needed
-                const jsonMatch = response.match(/\{[\s\S]*\}/);
-                const jsonStr = jsonMatch ? jsonMatch[0] : response;
-                const parsed = JSON.parse(jsonStr);
+            // Parse valid JSON from response (handling potential markdown wrappers)
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) throw new Error("No JSON found in response");
 
-                // Programmatically calculate lean mass to ensure logical consistency
-                data = {
-                    ...parsed,
-                    leanMassPercentage: 100 - parsed.bodyFatPercentage
-                };
+            const parsedData = JSON.parse(jsonMatch[0]);
 
-                setResult(data);
-                setPhase('results');
-            } catch (e) {
-                console.warn("Raw vision response parse failed", response);
-                throw new Error("Could not parse AI analysis results. " + response.substring(0, 50));
+            // Validate basic structure
+            if (typeof parsedData.bodyFatPercentage !== 'number') {
+                throw new Error("Invalid response format");
             }
+
+            setResult(parsedData);
+            setPhase('results');
+
         } catch (err) {
-            console.error('Analysis failed:', err);
-            setError('We could not analyze this image. Please ensure the full body is visible and try again.');
+            console.error("Analysis Failed:", err);
+            setError("Could not analyze image. Please ensure the lighting is good and try again.");
             setPhase('error');
         } finally {
             setIsAnalyzing(false);
         }
     };
 
-    // Render Helpers
+    const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64 = reader.result as string;
+                setCapturedImage(base64);
+                // Auto-start analysis on upload
+                analyzeImage(base64);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    // --- RENDER PHASES ---
+
     const renderIntro = () => (
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center space-y-12 max-w-4xl mx-auto flex flex-col items-center">
-            <div className="space-y-6">
-                <div className="inline-flex items-center px-4 py-1.5 rounded-full border border-primary/20 bg-primary/5 text-primary text-sm font-medium">
-                    <span className="flex w-2 h-2 rounded-full bg-primary mr-2 animate-pulse" />
-                    Free AI Tool
+        <div className="max-w-2xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="text-center space-y-4">
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold uppercase tracking-widest mb-4">
+                    <RefreshCw className="w-3 h-3" /> AI Computer Vision 2.0
                 </div>
-
-                <h1 className="text-5xl md:text-7xl font-black tracking-tight text-foreground leading-[1.1]">
-                    AI Body Fat <span className="text-primary">Scanner</span>
+                <h1 className="text-4xl md:text-5xl font-black font-editorial tracking-tight text-slate-900">
+                    What's Your <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-amber-600">True</span> Body Fat?
                 </h1>
-
-                <p className="text-xl md:text-2xl text-muted-foreground max-w-2xl mx-auto font-light leading-relaxed">
-                    Get an instant, medical-grade body composition analysis using just your camera. Powered by advanced computer vision.
+                <p className="text-lg text-slate-600 max-w-xl mx-auto leading-relaxed">
+                    Stop guessing. Our advanced AI analyzes your physique instantly to give you a professional body composition report.
                 </p>
             </div>
 
-            <div className="grid md:grid-cols-3 gap-8 w-full text-left">
-                {[
-                    { icon: Camera, title: "1. Scan Body", desc: "Use your camera or upload a photo." },
-                    { icon: RefreshCw, title: "2. AI Analysis", desc: "Our vision model maps your physique." },
-                    { icon: ArrowRight, title: "3. Get Metrics", desc: "View BF%, Lean Mass & Insights." }
-                ].map((item, i) => (
-                    <Card key={i} className="bg-card border-border/50 shadow-sm hover:shadow-md transition-all">
-                        <CardContent className="pt-6">
-                            <div className="mb-4 w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-                                <item.icon className="w-6 h-6" />
-                            </div>
-                            <h3 className="font-bold text-lg mb-2">{item.title}</h3>
-                            <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
-                        </CardContent>
-                    </Card>
-                ))}
+            <div className="grid md:grid-cols-2 gap-4">
+                <Card className="bg-slate-50 border-slate-200">
+                    <CardContent className="p-6 flex flex-col items-center text-center space-y-3">
+                        <div className="w-48 h-48 mb-4">
+                            <img src={bodyscanImage} alt="Body Scan" className="w-full h-full object-contain drop-shadow-md" />
+                        </div>
+                        <h3 className="font-bold text-slate-900">How to Prepare</h3>
+                        <p className="text-sm text-slate-500">
+                            Wear tight-fitting athletic wear or swimwear. Ensure good lighting and a plain background.
+                        </p>
+                    </CardContent>
+                </Card>
+                <Card className="bg-slate-50 border-slate-200 h-full">
+                    <CardContent className="h-full p-6 flex flex-col items-center justify-center text-center space-y-3">
+                        <div className="w-12 h-12 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-700">
+                            <AlertTriangle className="w-6 h-6" />
+                        </div>
+                        <h3 className="font-bold text-slate-900">Privacy First</h3>
+                        <p className="text-sm text-slate-500">
+                            Images are analyzed by AI and immediately discarded. No photos are stored on our servers.
+                        </p>
+                    </CardContent>
+                </Card>
             </div>
 
-            <div className="flex flex-col items-center gap-6">
+            <div className="flex justify-center pt-4">
                 <Button
                     size="lg"
-                    className="h-16 px-10 rounded-full text-xl font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_8px_30px_rgb(244,62,1,0.3)] transition-all hover:scale-105"
-                    onClick={() => setPhase('input-selection')}>
-                    Start Analysis
+                    className="h-14 px-8 rounded-full text-lg font-bold bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all"
+                    onClick={() => setPhase('upload')}
+                >
+                    Start Analysis <ArrowRight className="ml-2 w-5 h-5" />
                 </Button>
-
-                <p className="text-sm text-muted-foreground/60 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4" />
-                    Images are processed privately and never stored.
-                </p>
-            </div>
-        </motion.div>
-    );
-
-    const renderInputSelection = () => (
-        <div className="max-w-lg mx-auto w-full space-y-8 text-center">
-            <div className="space-y-4">
-                <Button variant="ghost" className="rounded-full pl-0 hover:bg-transparent hover:text-primary" onClick={() => setPhase('intro')}>
-                    <ChevronLeft className="w-5 h-5 mr-1" /> Back
-                </Button>
-                <h2 className="text-3xl font-bold">Choose Input Method</h2>
-            </div>
-
-            <div className="grid gap-6">
-                <Button
-                    variant="outline"
-                    className="h-40 flex flex-col gap-4 border-2 border-dashed hover:border-primary hover:bg-primary/5 transition-all group"
-                    onClick={() => setPhase('camera')}>
-                    <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                        <Camera className="w-8 h-8" />
-                    </div>
-                    <div className="text-left">
-                        <div className="font-bold text-lg">Use Camera</div>
-                        <div className="text-sm text-muted-foreground">Best for auto-capture</div>
-                    </div>
-                </Button>
-
-                <div className="relative group">
-                    <input
-                        type="file"
-                        accept="image/*"
-                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
-                        onChange={onFileUpload}
-                    />
-                    <Button variant="outline" className="w-full h-40 flex flex-col gap-4 border-2 border-dashed hover:border-blue-500 hover:bg-blue-500/5 transition-all">
-                        <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 group-hover:scale-110 transition-transform">
-                            <Upload className="w-8 h-8" />
-                        </div>
-                        <div className="text-left">
-                            <div className="font-bold text-lg">Upload Photo</div>
-                            <div className="text-sm text-muted-foreground">From your gallery</div>
-                        </div>
-                    </Button>
-                </div>
             </div>
         </div>
     );
 
-    const renderCamera = () => (
-        <div className="max-w-2xl mx-auto w-full relative">
-            <Button variant="secondary" size="sm" className="mb-4 rounded-full" onClick={() => setPhase('input-selection')}>
-                Cancel
-            </Button>
-
-            <div className="relative rounded-3xl overflow-hidden shadow-2xl bg-black aspect-[3/4] md:aspect-[4/3] ring-4 ring-border">
-                <Webcam
-                    ref={webcamRef}
-                    audio={false}
-                    screenshotFormat="image/jpeg"
-                    videoConstraints={{ facingMode: "user" }}
-                    className="absolute inset-0 w-full h-full object-cover"
-                />
-                <canvas
-                    ref={canvasRef}
-                    className="absolute inset-0 w-full h-full pointer-events-none"
-                />
-
-                {/* Overlays */}
-                <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-between p-8">
-                    <div className={`
-                        px-6 py-3 rounded-full text-sm font-bold backdrop-blur-md transition-all
-                        ${countdown ? 'bg-primary text-white scale-110' : 'bg-black/40 text-white'}
-                    `}>
-                        {countdown ? `STAY STILL: ${countdown}` :
-                            isAutoCaptureEnabled ? "Stand back to show full body" : "Position yourself"}
-                    </div>
-
-                    {!isAutoCaptureEnabled && (
-                        <Button
-                            size="lg"
-                            onClick={capturePhoto}
-                            className="rounded-full w-20 h-20 p-0 border-[6px] border-white/30 bg-white hover:bg-white/90 pointer-events-auto shadow-2xl"
-                        >
-                            <div className="w-16 h-16 rounded-full bg-transparent border-2 border-black/10" />
-                        </Button>
-                    )}
-                </div>
-
-                {/* Auto Capture Count */}
-                {countdown && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/10 backdrop-blur-[1px]">
-                        <div className="text-[120px] font-black text-white animate-bounce drop-shadow-2xl">
-                            {countdown}
-                        </div>
-                    </div>
-                )}
-            </div>
-
-            <div className="mt-6 flex justify-between items-center text-sm text-muted-foreground px-4">
-                <div className="flex items-center gap-2">
-                    <Info className="w-4 h-4" />
-                    <span>Lighting matters!</span>
-                </div>
-                <Button variant="ghost" size="sm" onClick={() => setIsAutoCaptureEnabled(!isAutoCaptureEnabled)}>
-                    {isAutoCaptureEnabled ? "Switch to Manual" : "Switch to Auto"}
+    const renderUpload = () => (
+        <div className="max-w-md mx-auto w-full animate-in fade-in zoom-in-95 duration-300">
+            <div className="mb-6 flex items-center justify-between">
+                <Button variant="ghost" onClick={() => setPhase('intro')} className="hover:text-primary pl-0">
+                    <ChevronLeft className="w-4 h-4 mr-1" /> Back
                 </Button>
+                <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Upload Photo</span>
             </div>
+
+            <label className="flex flex-col items-center justify-center w-full h-[400px] border-2 border-dashed border-slate-300 rounded-3xl cursor-pointer bg-slate-50 hover:bg-slate-100 hover:border-primary/50 transition-all group">
+                <div className="flex flex-col items-center justify-center pt-5 pb-6 text-center px-4">
+                    <div className="w-20 h-20 rounded-full bg-white shadow-sm flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                        <Upload className="w-8 h-8 text-primary" />
+                    </div>
+                    <p className="mb-2 text-lg font-bold text-slate-700">Click to upload or drag and drop</p>
+                    <p className="text-sm text-slate-500 max-w-[200px]">
+                        SVG, PNG, JPG or WEBP (MAX. 10MB)
+                    </p>
+                </div>
+                <input id="dropzone-file" type="file" className="hidden" accept="image/*" onChange={handleFileUpload} />
+            </label>
         </div>
     );
 
     const renderAnalyzing = () => (
-        <div className="flex flex-col items-center justify-center max-w-md mx-auto w-full text-center space-y-10">
-            <div className="relative w-48 h-48 mx-auto">
-                {/* Show captured image with scanning effect */}
-                <div className="absolute inset-0 rounded-2xl overflow-hidden shadow-2xl border-4 border-primary/20">
-                    {capturedImage && (
-                        <img src={capturedImage} className="w-full h-full object-cover opacity-50 blur-sm" alt="Scanning" />
-                    )}
-                </div>
-
-                <div className="absolute inset-0 border-t-4 border-primary animate-[scan_2s_ease-in-out_infinite] bg-gradient-to-b from-primary/20 to-transparent" />
-
+        <div className="max-w-md mx-auto text-center space-y-8 py-12 animate-in fade-in duration-500">
+            <div className="relative w-24 h-24 mx-auto">
+                <div className="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
+                <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
                 <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-20 h-20 rounded-full bg-background/80 backdrop-blur flex items-center justify-center shadow-xl">
-                        <RefreshCw className="w-8 h-8 text-primary animate-spin" />
-                    </div>
+                    <RefreshCw className="w-8 h-8 text-primary animate-pulse" />
                 </div>
             </div>
-
-            <div className="space-y-4">
-                <h2 className="text-3xl font-bold">Analyzing Physique...</h2>
-                <div className="space-y-2 text-muted-foreground">
-                    <p>Identifying body landmarks...</p>
-                    <p>Calculating adipose tissue density...</p>
-                    <p>Estimating lean mass ratio...</p>
-                </div>
+            <div className="space-y-2">
+                <h2 className="text-2xl font-bold text-slate-900">Analyzing Physics...</h2>
+                <p className="text-slate-500">
+                    Identifying body composition markers and calculating lean mass density.
+                </p>
             </div>
         </div>
     );
 
     const renderError = () => (
-        <div className="text-center max-w-md mx-auto space-y-6">
+        <div className="text-center max-w-md mx-auto space-y-6 animate-in fade-in zoom-in-95">
             <div className="w-20 h-20 rounded-full bg-destructive/10 flex items-center justify-center mx-auto text-destructive">
                 <AlertTriangle className="w-10 h-10" />
             </div>
@@ -446,13 +223,17 @@ export function BodyCompositionAnalyzer() {
                 <p className="text-muted-foreground">{error}</p>
             </div>
             <div className="flex gap-4 justify-center">
-                <Button variant="outline" onClick={() => setPhase('input-selection')}>Try Again</Button>
+                <Button variant="outline" onClick={() => setPhase('upload')}>Try Again</Button>
             </div>
         </div>
     );
 
     const renderResults = () => {
         if (!result) return null;
+
+        // Calculate lean mass just for display consistency if needed, though we use body fat explicitly
+        const leanMassPercent = 100 - result.bodyFatPercentage;
+
         return (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-6xl mx-auto w-full pb-12">
                 {/* Controls */}
@@ -472,71 +253,70 @@ export function BodyCompositionAnalyzer() {
                             {capturedImage && (
                                 <img src={capturedImage} alt="Analyzed Body" className="w-full h-full object-cover grayscale-[20%] contrast-110" />
                             )}
-                            <div className="absolute inset-0 ring-1 ring-inset ring-white/10 rounded-2xl pointer-events-none" />
 
                             {/* Overlay Metrics */}
-                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent flex items-end p-6">
-                                <div className="text-white w-full">
-                                    <div className="flex items-end justify-between">
-                                        <div>
-                                            <div className="text-xs font-medium opacity-80 uppercase tracking-widest mb-1">Body Fat Est.</div>
-                                            <div className="flex items-baseline gap-1">
-                                                <div className="text-6xl font-black">{result.bodyFatPercentage}</div>
-                                                <div className="text-2xl font-bold text-primary">%</div>
-                                            </div>
-                                        </div>
-                                        <div className="text-right">
-                                            <div className="text-xs font-medium opacity-80 uppercase tracking-widest mb-1">Lean Mass</div>
-                                            <div className="text-3xl font-bold">{result.leanMassPercentage}%</div>
-                                        </div>
+                            <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 via-black/50 to-transparent p-6 text-white pt-20">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <div className="text-xs font-mono opacity-70 uppercase tracking-widest mb-1">est. Body Fat</div>
+                                        <div className="text-4xl font-black">{result.bodyFatPercentage}%</div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-xs font-mono opacity-70 uppercase tracking-widest mb-1">est. Lean Mass</div>
+                                        <div className="text-4xl font-black">{leanMassPercent}%</div>
                                     </div>
                                 </div>
                             </div>
+                        </div>
+
+                        <div className="bg-blue-50/50 border border-blue-100 rounded-xl p-4 flex gap-3 text-sm text-blue-800">
+                            <Info className="w-5 h-5 shrink-0" />
+                            <p>This analysis is an AI estimate based on visual markers. Computed results may vary from DEXA scans.</p>
                         </div>
                     </div>
 
                     {/* Report Data (Right Col) */}
                     <div className="lg:col-span-7 space-y-8">
 
-                        {/* Granular Breakdown */}
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between border-b pb-2">
-                                <h3 className="font-bold text-sm uppercase tracking-wide">Regional Analysis</h3>
-                                <span className="text-xs text-muted-foreground">Aesthetic Balance</span>
-                            </div>
-
-                            <div className="grid gap-4">
-                                {result.regionAnalysis && Object.entries(result.regionAnalysis).map(([region, analysis]) => (
-                                    <div key={region} className="bg-card rounded-xl p-4 border flex flex-col md:flex-row gap-4 items-start md:items-center">
-                                        <div className="w-24 shrink-0">
-                                            <div className="text-xs font-bold uppercase text-muted-foreground tracking-wider">{region}</div>
-                                        </div>
-                                        <div className="text-sm text-foreground/90 leading-snug">
-                                            {typeof analysis === 'string' ? analysis : "Analysis pending..."}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Recommendations */}
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between border-b pb-2">
-                                <h3 className="font-bold text-sm uppercase tracking-wide">Protocol Adjustments</h3>
-                            </div>
+                        {/* Regional Breakdown Grid */}
+                        <div>
+                            <h3 className="font-bold font-editorial text-2xl mb-6 flex items-center gap-2">
+                                <span className="w-8 h-1 bg-primary block rounded-full" />
+                                Regional Analysis
+                            </h3>
                             <div className="grid sm:grid-cols-2 gap-4">
-                                {result.recommendations.map((rec, i) => (
-                                    <div key={i} className="bg-card/50 p-4 rounded-xl border border-dashed flex items-start gap-3">
-                                        <div className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0 mt-0.5">
-                                            <div className="w-1.5 h-1.5 rounded-full bg-primary" />
-                                        </div>
-                                        <span className="text-sm font-medium text-muted-foreground">{rec}</span>
+                                {Object.entries(result.regionAnalysis).map(([region, analysis]) => (
+                                    <div key={region} className="bg-card p-5 rounded-2xl border hover:border-primary/20 transition-colors shadow-sm">
+                                        <h4 className="font-mono uppercase text-xs text-muted-foreground tracking-widest mb-2">{region}</h4>
+                                        <p className="text-sm leading-relaxed text-foreground/90 font-medium">
+                                            {analysis}
+                                        </p>
                                     </div>
                                 ))}
                             </div>
                         </div>
 
-                        {/* Refined CTA */}
+                        {/* Action Plan */}
+                        <div>
+                            <h3 className="font-bold font-editorial text-2xl mb-6 flex items-center gap-2">
+                                <span className="w-8 h-1 bg-primary block rounded-full" />
+                                Strategic Recommendations
+                            </h3>
+                            <div className="space-y-3">
+                                {result.recommendations.map((rec, i) => (
+                                    <div key={i} className="flex gap-4 p-4 bg-slate-50 border rounded-xl items-start">
+                                        <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold text-primary">
+                                            {i + 1}
+                                        </div>
+                                        <p className="text-sm text-slate-700 font-medium leading-relaxed">
+                                            {rec}
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* CTA Footer */}
                         <div className="pt-8 mt-8 border-t flex flex-col sm:flex-row items-center justify-between gap-4">
                             <div className="text-sm text-muted-foreground text-center sm:text-left">
                                 <span className="block font-medium text-foreground">Ready to optimize?</span>
@@ -576,21 +356,35 @@ export function BodyCompositionAnalyzer() {
             </Helmet>
 
             <AnimatePresence mode="wait">
-                <motion.div
-                    key={phase}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    transition={{ duration: 0.3 }}
-                    className="w-full max-w-6xl"
-                >
-                    {phase === 'intro' && renderIntro()}
-                    {phase === 'input-selection' && renderInputSelection()}
-                    {phase === 'camera' && renderCamera()}
-                    {phase === 'analyzing' && renderAnalyzing()}
-                    {phase === 'error' && renderError()}
-                    {phase === 'results' && renderResults()}
-                </motion.div>
+                {phase === 'intro' && (
+                    <motion.div key="intro" exit={{ opacity: 0, y: -20 }} className="w-full">
+                        {renderIntro()}
+                    </motion.div>
+                )}
+
+                {phase === 'upload' && (
+                    <motion.div key="upload" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="w-full">
+                        {renderUpload()}
+                    </motion.div>
+                )}
+
+                {phase === 'analyzing' && (
+                    <motion.div key="analyzing" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="w-full">
+                        {renderAnalyzing()}
+                    </motion.div>
+                )}
+
+                {phase === 'error' && (
+                    <motion.div key="error" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="w-full">
+                        {renderError()}
+                    </motion.div>
+                )}
+
+                {phase === 'results' && (
+                    <motion.div key="results" className="w-full">
+                        {renderResults()}
+                    </motion.div>
+                )}
             </AnimatePresence>
         </div>
     );

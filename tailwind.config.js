@@ -129,9 +129,10 @@ export default {
 						transform: "translate(0px, 0px) scale(1)",
 					},
 				},
-				float: {
-					"0%, 100%": { transform: "translateY(0)" },
-					"50%": { transform: "translateY(-20px)" },
+				scan: {
+					"0%": { top: "0%" },
+					"50%": { top: "100%" },
+					"100%": { top: "0%" },
 				}
 			},
 			animation: {
@@ -142,6 +143,7 @@ export default {
 				'pulse-slow': 'pulse 6s cubic-bezier(0.4, 0, 0.6, 1) infinite',
 				blob: "blob 7s infinite",
 				float: "float 6s ease-in-out infinite",
+				scan: "scan 2s ease-in-out infinite",
 			}
 		}
 	},
