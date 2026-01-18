@@ -127,7 +127,7 @@ export function BodyCompositionAnalyzer() {
             isPoseDetectedRef.current = true;
 
             // Draw skeleton
-            drawConnectors(canvasCtx, results.poseLandmarks, POSE_CONNECTIONS,
+            drawConnectors(canvasCtx, results.poseLandmarks, mpPose.POSE_CONNECTIONS,
                 { color: '#f43e01', lineWidth: 4 }); // Brand color
             drawLandmarks(canvasCtx, results.poseLandmarks,
                 { color: '#ffffff', lineWidth: 2 });
