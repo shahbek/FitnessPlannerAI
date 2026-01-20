@@ -14,6 +14,7 @@ interface TodayWeightCardProps {
   currentWeight?: number | null;
   previousWeight?: number | null;
   userWeight?: number; // Default weight from user profile
+  planContext?: any; // Initialization context for lazy creation
 }
 
 export function TodayWeightCard({
@@ -22,6 +23,7 @@ export function TodayWeightCard({
   currentWeight,
   previousWeight,
   userWeight,
+  planContext,
 }: TodayWeightCardProps) {
   const updateBodyWeight = useMutation(api.dailyTracking.updateBodyWeight);
 
@@ -48,6 +50,7 @@ export function TodayWeightCard({
         workoutPlanId: workoutPlanId as any,
         date,
         weight: weightNum,
+        planContext,
       });
       setIsEditing(false);
     } catch (err) {

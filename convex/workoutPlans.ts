@@ -175,6 +175,10 @@ export const createWorkoutPlan = mutation({
     });
 
     // Deactivate other plans
+    /* 
+    FUTURE: Limit users to only one active plan per account.
+    For now, we allow multiple active plans to avoid hiding previous data unexpectedly.
+    
     const existingPlans = await ctx.db
       .query("workoutPlans")
       .withIndex("by_user_active", (q) => q.eq("userId", userId).eq("isActive", true))
@@ -183,6 +187,7 @@ export const createWorkoutPlan = mutation({
     for (const plan of existingPlans) {
       await ctx.db.patch(plan._id, { isActive: false, updatedAt: now });
     }
+    */
 
     // Create new plan with extracted metadata
     const planId = await ctx.db.insert("workoutPlans", {
@@ -246,11 +251,14 @@ export const getUserWorkoutPlans = query({
 
     // Optimize payload: Only return full data for the active plan
     // For others, return summary only to prevent timeouts
+    // The frontend must lazy-load full data using getWorkoutPlan(id)
     return plans.map(plan => {
       const isFullDataIncluded = plan.isActive;
+      // Explicitly strip fullPlanData from inactive plans to ensure performance
+      const { fullPlanData, ...summary } = plan;
       return {
-        ...plan,
-        fullPlanData: isFullDataIncluded ? plan.fullPlanData : undefined
+        ...summary,
+        fullPlanData: isFullDataIncluded ? fullPlanData : undefined
       };
     });
   },
@@ -272,6 +280,7 @@ export const getWorkoutPlan = query({
       return null;
     }
 
+    // Always return full data for single plan fetch, regardless of active status
     return plan;
   },
 });

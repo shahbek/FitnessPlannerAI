@@ -32,6 +32,7 @@ interface TodayMealsSectionProps {
   meals: Meal[];
   targetMacros?: TargetMacros;
   consumedMacros: { calories: number; protein: number; carbs: number; fat: number };
+  planContext?: any; // Initialization context
 }
 
 export function TodayMealsSection({
@@ -40,6 +41,7 @@ export function TodayMealsSection({
   meals,
   targetMacros,
   consumedMacros,
+  planContext,
 }: TodayMealsSectionProps) {
   const toggleMealConsumed = useMutation(api.dailyTracking.toggleMealConsumed);
   const addCustomMeal = useMutation(api.dailyTracking.addCustomMeal);
@@ -56,6 +58,7 @@ export function TodayMealsSection({
         workoutPlanId: workoutPlanId as any,
         date,
         mealId,
+        planContext,
       });
     } catch (err) {
       console.error('Failed to delete meal:', err);
@@ -69,6 +72,7 @@ export function TodayMealsSection({
         workoutPlanId: workoutPlanId as any,
         date,
         mealId,
+        planContext,
       });
     } catch (err) {
       console.error('Failed to toggle meal:', err);
@@ -113,6 +117,7 @@ export function TodayMealsSection({
             usdaFdcId: food.fdcId,
             servingSize: food.servingSize,
           },
+          planContext,
         });
       } else {
         // Add new meal
@@ -129,6 +134,7 @@ export function TodayMealsSection({
             usdaFdcId: food.fdcId,
             servingSize: food.servingSize,
           },
+          planContext,
         });
       }
     } catch (err) {

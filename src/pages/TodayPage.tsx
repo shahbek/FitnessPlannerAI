@@ -129,41 +129,31 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
   // Get or create daily tracking
   const getOrCreate = useMutation(api.dailyTracking.getOrCreateDailyTracking);
 
-  // Initialize tracking for the day (Only if auth is fresh)
-  React.useEffect(() => {
-    if (!workoutPlanId || !todayPlanData || !isAuthFresh) return;
-
-    const targetMacros = todayPlanData.dailyMacros
-      ? {
+  // Create plan context for lazy initialization
+  // This is passed to child components so they can initialize tracking on first action
+  const planContext = React.useMemo(() => {
+    if (!todayPlanData) return undefined;
+    return {
+      weekNumber,
+      dayNumber,
+      waterTarget,
+      targetMacros: todayPlanData.dailyMacros ? {
         calories: todayPlanData.dailyMacros.totalCalories,
         protein: todayPlanData.dailyMacros.protein,
         carbs: todayPlanData.dailyMacros.carbs,
         fat: todayPlanData.dailyMacros.fat,
-      }
-      : undefined;
-
-    const plannedMeals = todayPlanData.meals?.map((meal) => ({
-      mealId: meal.mealId,
-      mealName: meal.mealName,
-      mealType: meal.mealType,
-      calories: meal.calories,
-      protein: meal.macros.protein,
-      carbs: meal.macros.carbs,
-      fat: meal.macros.fat,
-    }));
-
-    getOrCreate({
-      workoutPlanId: workoutPlanId as any,
-      date: dateTimestamp,
-      weekNumber,
-      dayNumber,
-      targetMacros,
-      waterTarget,
-      plannedMeals,
-    }).catch((err) => {
-      console.error('Failed to init daily tracking:', err);
-    });
-  }, [workoutPlanId, dateTimestamp, weekNumber, dayNumber, todayPlanData, waterTarget, getOrCreate, isAuthFresh]);
+      } : undefined,
+      plannedMeals: todayPlanData.meals?.map((meal) => ({
+        mealId: meal.mealId,
+        mealName: meal.mealName,
+        mealType: meal.mealType,
+        calories: meal.calories,
+        protein: meal.macros.protein,
+        carbs: meal.macros.carbs,
+        fat: meal.macros.fat,
+      })),
+    };
+  }, [todayPlanData, weekNumber, dayNumber, waterTarget]);
 
   // Query tracking data
   const trackingData = useQuery(
@@ -552,6 +542,7 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
           workoutData={todayPlanData?.workouts?.[0]}
           status={trackingData?.workoutStatus}
           isRestDay={todayPlanData?.restDay}
+          planContext={planContext}
         />
 
         {/* Cardio Card */}
@@ -562,6 +553,7 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
             cardioData={cardioData}
             status={trackingData?.cardioStatus}
             actualDuration={trackingData?.cardioDurationActual}
+            planContext={planContext}
           />
         )}
 
@@ -572,6 +564,7 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
           meals={trackingData?.meals || []}
           targetMacros={trackingData?.targetMacros}
           consumedMacros={consumedMacros}
+          planContext={planContext}
         />
 
         {/* Hydration Card */}
@@ -581,6 +574,7 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
           currentIntake={trackingData?.waterIntakeMl || 0}
           target={trackingData?.waterTarget || waterTarget}
           logs={trackingData?.waterLogs || []}
+          planContext={planContext}
         />
 
         {/* Weight Card */}
@@ -590,10 +584,10 @@ export function TodayPage({ workoutPlanId, planData, isAuthFresh = false }: Toda
           currentWeight={trackingData?.bodyWeight}
           previousWeight={trackingData?.previousWeight}
           userWeight={userProfile?.weight}
+          planContext={planContext}
         />
       </div>
     </div>
   );
 }
-
 

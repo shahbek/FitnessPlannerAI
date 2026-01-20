@@ -14,6 +14,7 @@ interface TodayHydrationCardProps {
   currentIntake: number; // ml
   target: number; // ml
   logs: WaterLog[];
+  planContext?: any; // Initialization context
 }
 
 export function TodayHydrationCard({
@@ -22,6 +23,7 @@ export function TodayHydrationCard({
   currentIntake,
   target,
   logs,
+  planContext,
 }: TodayHydrationCardProps) {
   const addWaterLog = useMutation(api.dailyTracking.addWaterLog);
   const removeLastWaterLog = useMutation(api.dailyTracking.removeLastWaterLog);
@@ -37,6 +39,7 @@ export function TodayHydrationCard({
         workoutPlanId: workoutPlanId as any,
         date,
         amount,
+        planContext,
       });
     } catch (err) {
       console.error('Failed to add water log:', err);
@@ -52,6 +55,7 @@ export function TodayHydrationCard({
       await removeLastWaterLog({
         workoutPlanId: workoutPlanId as any,
         date,
+        // undo doesn't need context
       });
     } catch (err) {
       console.error('Failed to remove water log:', err);

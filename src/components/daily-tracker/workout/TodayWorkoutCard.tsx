@@ -9,6 +9,7 @@ interface TodayWorkoutCardProps {
   workoutData?: WorkoutData;
   status?: string | null;
   isRestDay?: boolean;
+  planContext?: any; // Initialization context for lazy creation
 }
 
 export function TodayWorkoutCard({
@@ -17,6 +18,7 @@ export function TodayWorkoutCard({
   workoutData,
   status,
   isRestDay,
+  planContext,
 }: TodayWorkoutCardProps) {
   const updateWorkoutStatus = useMutation(api.dailyTracking.updateWorkoutStatus);
 
@@ -28,6 +30,7 @@ export function TodayWorkoutCard({
         workoutPlanId: workoutPlanId as any,
         date,
         status: 'completed',
+        planContext,
       });
     } catch (err) {
       console.error('Failed to update workout status:', err);
@@ -40,6 +43,7 @@ export function TodayWorkoutCard({
         workoutPlanId: workoutPlanId as any,
         date,
         status: status === 'skipped' ? 'completed' : 'skipped',
+        planContext,
       });
     } catch (err) {
       console.error('Failed to update workout status:', err);

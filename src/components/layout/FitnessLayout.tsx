@@ -168,10 +168,23 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
         // EXCEPT for "generating" plans which might not be in saved yet.
 
         // 1. Keep "generating" plans (no convexId yet, or specifically marked)
-        const generatingPlans = prev.filter(p => p.data?.isGenerating && !p.convexId);
+        const generatingPlans = prev.filter(p => p.data?.isGenerating && !p.convexId && !processedPlanIds.current.has(p.id.toString()));
 
         // 2. Keep saved plans
         const merged = [...generatingPlans, ...savedWorkoutPlans];
+
+        // 🔒 OPTIMISTIC PLAN CLEANUP
+        // If we have any saved plans that match the creation time of a generating plan, remove the generating one
+        // This handles cases where the optimistic plan and the real plan momentarily coexist
+        if (generatingPlans.length > 0 && savedWorkoutPlans.length > 0) {
+          const latestSaved = savedWorkoutPlans[0]; // Assuming desc order
+          // If latest saved is very recent (within last minute), clear generating to be safe
+          const isRecent = (new Date().getTime() - new Date(latestSaved.createdAt).getTime()) < 60000;
+          if (isRecent && generatingPlans.length > 0) {
+            console.log('🧹 Cleaning up optimistic plan as fresh saved plan arrived:', latestSaved.id);
+            return savedWorkoutPlans;
+          }
+        }
 
         return merged;
       });
@@ -180,7 +193,9 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
       const currentlySelected = savedWorkoutPlans.find((p: any) => p.id === selectedWorkoutId);
 
       // If we don't have a valid selection, select the most recent one
-      if (!currentlySelected && savedWorkoutPlans.length > 0) {
+      // BUT ONLY if we are not currently generating a plan (preserving optimistic view)
+      const isGenerating = workoutHistory.some(p => p.data?.isGenerating);
+      if (!isGenerating && !currentlySelected && savedWorkoutPlans.length > 0) {
         const mostRecentCompleted = savedWorkoutPlans[0];
         console.log('🔄 No valid selection, auto-selecting most recent completed plan:', mostRecentCompleted.id, mostRecentCompleted.title);
         setSelectedWorkoutId(mostRecentCompleted.id);
@@ -300,6 +315,11 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
         console.log('✅ Workout plan deleted from Convex');
       } catch (err) {
         console.error('❌ Failed to delete workout plan:', err);
+        toast({
+          variant: 'destructive',
+          title: 'Deletion Failed',
+          description: 'Could not delete the plan. You may need to sign in again.',
+        });
       }
     }
 

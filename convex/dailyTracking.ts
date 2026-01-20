@@ -2,6 +2,77 @@ import { v } from "convex/values";
 import { mutation, query } from "./_generated/server";
 import { authComponent } from "./auth";
 
+// Shared validator for plan context (used for lazy creation)
+const planContextValidator = v.optional(v.object({
+  weekNumber: v.number(),
+  dayNumber: v.number(),
+  waterTarget: v.optional(v.number()),
+  targetMacros: v.optional(v.object({
+    calories: v.number(),
+    protein: v.number(),
+    carbs: v.number(),
+    fat: v.number(),
+  })),
+  plannedMeals: v.optional(v.array(v.object({
+    mealId: v.string(),
+    mealName: v.string(),
+    mealType: v.string(),
+    calories: v.number(),
+    protein: v.number(),
+    carbs: v.number(),
+    fat: v.number(),
+  }))),
+}));
+
+// Helper: Ensure tracking document exists (Lazy Init)
+async function ensureTrackingExists(ctx: any, userId: string, args: any) {
+  const existing = await ctx.db
+    .query("dailyTracking")
+    .withIndex("by_user_plan_date", (q: any) =>
+      q
+        .eq("userId", userId)
+        .eq("workoutPlanId", args.workoutPlanId)
+        .eq("date", args.date)
+    )
+    .first();
+
+  if (existing) {
+    return existing;
+  }
+
+  // If not found, check if we have context to create it
+  if (!args.planContext) {
+    throw new Error("Daily tracking entry not found and no initialization context provided");
+  }
+
+  // Create new entry
+  const now = Date.now();
+  const context = args.planContext;
+
+  const meals = context.plannedMeals?.map((meal: any) => ({
+    ...meal,
+    isFromPlan: true,
+    isConsumed: false,
+  })) || [];
+
+  const newId = await ctx.db.insert("dailyTracking", {
+    userId,
+    workoutPlanId: args.workoutPlanId,
+    date: args.date,
+    weekNumber: context.weekNumber,
+    dayNumber: context.dayNumber,
+    meals,
+    waterIntakeMl: 0,
+    waterTarget: context.waterTarget || 3000,
+    waterLogs: [],
+    targetMacros: context.targetMacros,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  return await ctx.db.get(newId);
+}
+
 // Get or create daily tracking entry for a specific date
 export const getOrCreateDailyTracking = mutation({
   args: {
@@ -33,46 +104,17 @@ export const getOrCreateDailyTracking = mutation({
       throw new Error("Not authenticated");
     }
     const userId = user._id as any;
-    const now = Date.now();
 
-    // Check if entry exists
-    const existing = await ctx.db
-      .query("dailyTracking")
-      .withIndex("by_user_plan_date", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("workoutPlanId", args.workoutPlanId)
-          .eq("date", args.date)
-      )
-      .first();
-
-    if (existing) {
-      return existing;
-    }
-
-    // Create new entry with planned meals
-    const meals = args.plannedMeals?.map((meal) => ({
-      ...meal,
-      isFromPlan: true,
-      isConsumed: false,
-    })) || [];
-
-    const newEntry = await ctx.db.insert("dailyTracking", {
-      userId,
-      workoutPlanId: args.workoutPlanId,
-      date: args.date,
+    // Use the uniform planContext structure for the helper
+    const planContext = {
       weekNumber: args.weekNumber,
       dayNumber: args.dayNumber,
-      meals,
-      waterIntakeMl: 0,
-      waterTarget: args.waterTarget || 3000,
-      waterLogs: [],
       targetMacros: args.targetMacros,
-      createdAt: now,
-      updatedAt: now,
-    });
+      waterTarget: args.waterTarget,
+      plannedMeals: args.plannedMeals
+    };
 
-    return await ctx.db.get(newEntry);
+    return await ensureTrackingExists(ctx, userId, { ...args, planContext });
   },
 });
 
@@ -108,6 +150,7 @@ export const updateWorkoutStatus = mutation({
     date: v.number(),
     status: v.string(), // "completed" | "skipped" | "partial"
     notes: v.optional(v.string()),
+    planContext: planContextValidator, // Optional init context
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
@@ -117,19 +160,7 @@ export const updateWorkoutStatus = mutation({
     const userId = user._id as any;
     const now = Date.now();
 
-    const existing = await ctx.db
-      .query("dailyTracking")
-      .withIndex("by_user_plan_date", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("workoutPlanId", args.workoutPlanId)
-          .eq("date", args.date)
-      )
-      .first();
-
-    if (!existing) {
-      throw new Error("Daily tracking entry not found");
-    }
+    const existing = await ensureTrackingExists(ctx, userId, args);
 
     await ctx.db.patch(existing._id, {
       workoutStatus: args.status,
@@ -150,6 +181,7 @@ export const updateCardioStatus = mutation({
     status: v.string(), // "completed" | "skipped"
     durationActual: v.optional(v.number()),
     notes: v.optional(v.string()),
+    planContext: planContextValidator,
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
@@ -159,19 +191,7 @@ export const updateCardioStatus = mutation({
     const userId = user._id as any;
     const now = Date.now();
 
-    const existing = await ctx.db
-      .query("dailyTracking")
-      .withIndex("by_user_plan_date", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("workoutPlanId", args.workoutPlanId)
-          .eq("date", args.date)
-      )
-      .first();
-
-    if (!existing) {
-      throw new Error("Daily tracking entry not found");
-    }
+    const existing = await ensureTrackingExists(ctx, userId, args);
 
     await ctx.db.patch(existing._id, {
       cardioStatus: args.status,
@@ -191,6 +211,7 @@ export const toggleMealConsumed = mutation({
     workoutPlanId: v.id("workoutPlans"),
     date: v.number(),
     mealId: v.string(),
+    planContext: planContextValidator,
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
@@ -200,22 +221,10 @@ export const toggleMealConsumed = mutation({
     const userId = user._id as any;
     const now = Date.now();
 
-    const existing = await ctx.db
-      .query("dailyTracking")
-      .withIndex("by_user_plan_date", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("workoutPlanId", args.workoutPlanId)
-          .eq("date", args.date)
-      )
-      .first();
-
-    if (!existing) {
-      throw new Error("Daily tracking entry not found");
-    }
+    const existing = await ensureTrackingExists(ctx, userId, args);
 
     const meals = existing.meals || [];
-    const updatedMeals = meals.map((meal) => {
+    const updatedMeals = meals.map((meal: any) => {
       if (meal.mealId === args.mealId) {
         return {
           ...meal,
@@ -250,6 +259,7 @@ export const addCustomMeal = mutation({
       usdaFdcId: v.optional(v.string()),
       servingSize: v.optional(v.string()),
     }),
+    planContext: planContextValidator,
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
@@ -259,19 +269,7 @@ export const addCustomMeal = mutation({
     const userId = user._id as any;
     const now = Date.now();
 
-    const existing = await ctx.db
-      .query("dailyTracking")
-      .withIndex("by_user_plan_date", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("workoutPlanId", args.workoutPlanId)
-          .eq("date", args.date)
-      )
-      .first();
-
-    if (!existing) {
-      throw new Error("Daily tracking entry not found");
-    }
+    const existing = await ensureTrackingExists(ctx, userId, args);
 
     const meals = existing.meals || [];
     const newMeal = {
@@ -307,6 +305,7 @@ export const swapMeal = mutation({
       usdaFdcId: v.optional(v.string()),
       servingSize: v.optional(v.string()),
     }),
+    planContext: planContextValidator,
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
@@ -316,22 +315,10 @@ export const swapMeal = mutation({
     const userId = user._id as any;
     const now = Date.now();
 
-    const existing = await ctx.db
-      .query("dailyTracking")
-      .withIndex("by_user_plan_date", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("workoutPlanId", args.workoutPlanId)
-          .eq("date", args.date)
-      )
-      .first();
-
-    if (!existing) {
-      throw new Error("Daily tracking entry not found");
-    }
+    const existing = await ensureTrackingExists(ctx, userId, args);
 
     const meals = existing.meals || [];
-    const updatedMeals = meals.map((meal) => {
+    const updatedMeals = meals.map((meal: any) => {
       if (meal.mealId === args.originalMealId) {
         return {
           mealId: `swapped-${now}`,
@@ -358,6 +345,7 @@ export const addWaterLog = mutation({
     workoutPlanId: v.id("workoutPlans"),
     date: v.number(),
     amount: v.number(), // ml
+    planContext: planContextValidator,
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
@@ -367,19 +355,7 @@ export const addWaterLog = mutation({
     const userId = user._id as any;
     const now = Date.now();
 
-    const existing = await ctx.db
-      .query("dailyTracking")
-      .withIndex("by_user_plan_date", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("workoutPlanId", args.workoutPlanId)
-          .eq("date", args.date)
-      )
-      .first();
-
-    if (!existing) {
-      throw new Error("Daily tracking entry not found");
-    }
+    const existing = await ensureTrackingExists(ctx, userId, args);
 
     const waterLogs = existing.waterLogs || [];
     const newLog = { amount: args.amount, timestamp: now };
@@ -401,6 +377,7 @@ export const updateBodyWeight = mutation({
     workoutPlanId: v.id("workoutPlans"),
     date: v.number(),
     weight: v.number(), // kg
+    planContext: planContextValidator,
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
@@ -410,19 +387,7 @@ export const updateBodyWeight = mutation({
     const userId = user._id as any;
     const now = Date.now();
 
-    const existing = await ctx.db
-      .query("dailyTracking")
-      .withIndex("by_user_plan_date", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("workoutPlanId", args.workoutPlanId)
-          .eq("date", args.date)
-      )
-      .first();
-
-    if (!existing) {
-      throw new Error("Daily tracking entry not found");
-    }
+    const existing = await ensureTrackingExists(ctx, userId, args);
 
     // Get previous weight from the day before (for trend)
     const yesterdayTimestamp = args.date - 86400000; // 24 hours in ms
@@ -502,9 +467,9 @@ export const getTodaySummary = query({
     }
 
     // Calculate consumed macros
-    const consumedMeals = entry.meals?.filter((m) => m.isConsumed) || [];
+    const consumedMeals = entry.meals?.filter((m: any) => m.isConsumed) || [];
     const consumedMacros = consumedMeals.reduce(
-      (acc, meal) => ({
+      (acc: any, meal: any) => ({
         calories: acc.calories + meal.calories,
         protein: acc.protein + meal.protein,
         carbs: acc.carbs + meal.carbs,
@@ -531,6 +496,7 @@ export const deleteMeal = mutation({
     workoutPlanId: v.id("workoutPlans"),
     date: v.number(),
     mealId: v.string(),
+    planContext: planContextValidator,
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
@@ -540,22 +506,10 @@ export const deleteMeal = mutation({
     const userId = user._id as any;
     const now = Date.now();
 
-    const existing = await ctx.db
-      .query("dailyTracking")
-      .withIndex("by_user_plan_date", (q) =>
-        q
-          .eq("userId", userId)
-          .eq("workoutPlanId", args.workoutPlanId)
-          .eq("date", args.date)
-      )
-      .first();
-
-    if (!existing) {
-      throw new Error("Daily tracking entry not found");
-    }
+    const existing = await ensureTrackingExists(ctx, userId, args);
 
     const meals = existing.meals || [];
-    const updatedMeals = meals.filter(meal => meal.mealId !== args.mealId);
+    const updatedMeals = meals.filter((meal: any) => meal.mealId !== args.mealId);
 
     await ctx.db.patch(existing._id, {
       meals: updatedMeals,
@@ -571,6 +525,7 @@ export const removeLastWaterLog = mutation({
   args: {
     workoutPlanId: v.id("workoutPlans"),
     date: v.number(),
+    // undo probably doesn't need to lazy-create if there's nothing to undo
   },
   handler: async (ctx, args) => {
     const user = await authComponent.getAuthUser(ctx);
@@ -591,7 +546,8 @@ export const removeLastWaterLog = mutation({
       .first();
 
     if (!existing) {
-      throw new Error("Daily tracking entry not found");
+      // If tracking doesn't exist, we can't remove a log, so just return
+      return null;
     }
 
     const waterLogs = existing.waterLogs || [];
@@ -603,7 +559,7 @@ export const removeLastWaterLog = mutation({
     const updatedLogs = waterLogs.slice(0, -1);
 
     // Recalculate total
-    const updatedWaterIntake = updatedLogs.reduce((sum, log) => sum + log.amount, 0);
+    const updatedWaterIntake = updatedLogs.reduce((sum: number, log: any) => sum + log.amount, 0);
 
     await ctx.db.patch(existing._id, {
       waterLogs: updatedLogs,

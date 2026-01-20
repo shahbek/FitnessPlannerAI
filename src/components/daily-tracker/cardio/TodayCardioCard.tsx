@@ -29,6 +29,7 @@ interface TodayCardioCardProps {
   cardioData: CardioData;
   status?: string | null;
   actualDuration?: number | null;
+  planContext?: any; // Initialization context
 }
 
 export function TodayCardioCard({
@@ -37,17 +38,9 @@ export function TodayCardioCard({
   cardioData,
   status,
   actualDuration,
+  planContext,
 }: TodayCardioCardProps) {
   const updateCardioStatus = useMutation(api.dailyTracking.updateCardioStatus);
-
-  // Extract cardio info from template or direct props
-  const cardio = cardioData.cardioTemplate || cardioData;
-  const name = cardio.name || 'Cardio Session';
-  const type = cardio.type || 'Cardio';
-  const intensity = cardio.intensity || 'Moderate';
-  const duration = cardio.durationMinutes || 30;
-  const targetHR = (cardio as any).targetHeartRate;
-  const calories = (cardio as any).caloriesBurned;
 
   const handleComplete = async () => {
     if (status === 'completed') return;
@@ -57,7 +50,8 @@ export function TodayCardioCard({
         workoutPlanId: workoutPlanId as any,
         date,
         status: 'completed',
-        durationActual: duration,
+        durationActual: cardioData?.cardioTemplate?.durationMinutes || 30, // Default if not set
+        planContext,
       });
     } catch (err) {
       console.error('Failed to update cardio status:', err);
@@ -70,24 +64,16 @@ export function TodayCardioCard({
         workoutPlanId: workoutPlanId as any,
         date,
         status: status === 'skipped' ? 'completed' : 'skipped',
+        planContext,
       });
     } catch (err) {
       console.error('Failed to update cardio status:', err);
     }
   };
 
-  const viewData = {
-    name,
-    type,
-    intensity,
-    duration,
-    targetHeartRate: targetHR,
-    caloriesBurned: calories
-  };
-
   return (
     <TodayCardioCardView
-      cardioData={viewData}
+      cardioData={cardioData}
       status={status}
       actualDuration={actualDuration}
       onComplete={handleComplete}
