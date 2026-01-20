@@ -12,6 +12,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubItem,
   SidebarMenuSubButton,
+  useSidebar,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -83,6 +84,7 @@ export function FitnessSidebar({
   const [settingsOpen, setSettingsOpen] = useState(
     currentView?.startsWith('settings') ?? false
   );
+  const { isMobile, setOpenMobile } = useSidebar();
   const [deleteConfirmation, setDeleteConfirmation] = useState<{ isOpen: boolean; planId: number | null }>({
     isOpen: false,
     planId: null
@@ -155,7 +157,10 @@ export function FitnessSidebar({
         {/* New Workout Button */}
         <div className="p-2">
           <Button
-            onClick={onNewWorkout}
+            onClick={() => {
+              onNewWorkout();
+              if (isMobile) setOpenMobile(false);
+            }}
             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
             size="sm"
           >
@@ -229,7 +234,10 @@ export function FitnessSidebar({
                 return (
                   <SidebarMenuItem key={workout.convexId ? `convex-${workout.convexId}` : `workout-${workout.id}`}>
                     <SidebarMenuButton
-                      onClick={() => onSelectWorkout(workout.id)}
+                      onClick={() => {
+                        onSelectWorkout(workout.id);
+                        if (isMobile) setOpenMobile(false);
+                      }}
                       isActive={selectedWorkoutId === workout.id}
                       className={cn(
                         "group relative",
@@ -287,7 +295,10 @@ export function FitnessSidebar({
                     Create your first plan to get started
                   </p>
                   <Button
-                    onClick={onNewWorkout}
+                    onClick={() => {
+                      onNewWorkout();
+                      if (isMobile) setOpenMobile(false);
+                    }}
                     size="sm"
                     variant="outline"
                     className="gap-2"
