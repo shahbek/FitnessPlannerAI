@@ -14,7 +14,8 @@ export function CameraCapture({ onCapture, onCancel, initialMode = 'label' }: Ca
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
-    const [stream, setStream] = useState<MediaStream | null>(null);
+    const streamRef = useRef<MediaStream | null>(null);
+    const [stream, setStream] = useState<MediaStream | null>(null); // Keep state for re-renders if needed, but rely on ref for cleanup
     const [error, setError] = useState<string>('');
     const [isCameraReady, setIsCameraReady] = useState(false);
     const [mode, setMode] = useState<'label' | 'meal'>(initialMode);
@@ -37,7 +38,9 @@ export function CameraCapture({ onCapture, onCancel, initialMode = 'label' }: Ca
                     return;
                 }
 
+                streamRef.current = mediaStream;
                 setStream(mediaStream);
+
                 if (videoRef.current) {
                     videoRef.current.srcObject = mediaStream;
                     videoRef.current.onloadedmetadata = () => {
@@ -62,8 +65,10 @@ export function CameraCapture({ onCapture, onCancel, initialMode = 'label' }: Ca
 
         return () => {
             mounted = false;
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
+            // Clean up stream from ref to avoid closure staleness
+            if (streamRef.current) {
+                streamRef.current.getTracks().forEach(track => track.stop());
+                streamRef.current = null;
             }
         };
     }, []);

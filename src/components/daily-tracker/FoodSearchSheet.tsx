@@ -75,10 +75,10 @@ export function FoodSearchSheet({
   const [isAnalyzingFood, setIsAnalyzingFood] = useState(false);
   const [analysisError, setAnalysisError] = useState<string>('');
 
-	  const searchUSDA = useAction(api.usda.searchFoods);
-	  const extractNutrition = useAction(api.groqOcr.extractNutrition);
-	  const analyzeFoodPhoto = useAction(api.groqFoodAnalysis.analyzeFoodPhoto);
-	  const upsertIngredientMappings = useAction((api as any).ingredientMappings.upsertMappings);
+  const searchUSDA = useAction(api.usda.searchFoods);
+  const extractNutrition = useAction(api.groqOcr.extractNutrition);
+  const analyzeFoodPhoto = useAction(api.groqFoodAnalysis.analyzeFoodPhoto);
+  const upsertIngredientMappings = useAction((api as any).ingredientMappings.upsertMappings);
 
   // Debounce search
   useEffect(() => {
@@ -166,33 +166,33 @@ export function FoodSearchSheet({
     // Don't switch view immediately, let user keep searching
   };
 
-	  const handleSelectFood = (food: USDAFoodItem) => {
-	    // Persist a user-confirmed mapping so future plan generations pick the same USDA item for this query.
-	    // Best-effort and non-blocking.
-	    if (query.trim() && food.fdcId && !food.fdcId.startsWith('common-')) {
-	      const fdcIdNum = Number(food.fdcId);
-	      if (Number.isFinite(fdcIdNum) && fdcIdNum > 0) {
-	        void upsertIngredientMappings({
-	          mappings: [
-	            {
-	              name: query,
-	              fdcId: fdcIdNum,
-	              description: food.description,
-	              dataType: (food as any).dataType,
-	              source: 'user_confirmed',
-	              confidence: 1,
-	            },
-	          ],
-	        }).catch((err: any) =>
-	          console.warn('⚠️ Failed to persist ingredient mapping:', err)
-	        );
-	      }
-	    }
+  const handleSelectFood = (food: USDAFoodItem) => {
+    // Persist a user-confirmed mapping so future plan generations pick the same USDA item for this query.
+    // Best-effort and non-blocking.
+    if (query.trim() && food.fdcId && !food.fdcId.startsWith('common-')) {
+      const fdcIdNum = Number(food.fdcId);
+      if (Number.isFinite(fdcIdNum) && fdcIdNum > 0) {
+        void upsertIngredientMappings({
+          mappings: [
+            {
+              name: query,
+              fdcId: fdcIdNum,
+              description: food.description,
+              dataType: (food as any).dataType,
+              source: 'user_confirmed',
+              confidence: 1,
+            },
+          ],
+        }).catch((err: any) =>
+          console.warn('⚠️ Failed to persist ingredient mapping:', err)
+        );
+      }
+    }
 
-	    const multiplier = servingMultiplier[food.fdcId] || 1;
-	    const servingStr = food.servingSize
-	      ? `${Math.round(food.servingSize * multiplier)}${food.servingSizeUnit || 'g'}`
-	      : undefined;
+    const multiplier = servingMultiplier[food.fdcId] || 1;
+    const servingStr = food.servingSize
+      ? `${Math.round(food.servingSize * multiplier)}${food.servingSizeUnit || 'g'}`
+      : undefined;
 
     onSelectFood({
       name: food.description,
@@ -1360,19 +1360,19 @@ export function FoodSearchSheet({
                             </div>
                           </div>
 
-                          {/* Action Buttons - Reverted to Emerald Style */}
-                          <div className="flex gap-3">
+                          {/* Action Buttons - Responsive Stack */}
+                          <div className="flex flex-col sm:flex-row gap-3">
                             <Button
                               onClick={handleResetAnalysis}
                               variant="outline"
-                              className="flex-1 h-12 rounded-xl font-bold"
+                              className="w-full sm:flex-1 h-12 rounded-xl font-bold order-3 sm:order-1"
                             >
                               Analyze Another
                             </Button>
                             <Button
                               onClick={handleSaveAnalyzedMeal}
                               className={cn(
-                                "flex-1 h-12 rounded-xl text-white font-bold shadow-md transition-all",
+                                "w-full sm:flex-1 h-12 rounded-xl text-white font-bold shadow-md transition-all order-1 sm:order-2",
                                 "bg-gradient-to-br from-emerald-500 to-emerald-700 border border-emerald-400",
                                 "shadow-[0_4px_12px_rgba(16,185,129,0.5),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)]",
                                 "hover:shadow-[0_6px_16px_rgba(16,185,129,0.6),inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
@@ -1383,7 +1383,7 @@ export function FoodSearchSheet({
                             <Button
                               onClick={addAnalyzedMealToBuilder}
                               className={cn(
-                                "flex-1 h-12 rounded-xl text-white font-bold shadow-md transition-all",
+                                "w-full sm:flex-1 h-12 rounded-xl text-white font-bold shadow-md transition-all order-2 sm:order-3",
                                 "bg-gradient-to-br from-amber-400 to-orange-600 border border-orange-400",
                                 "shadow-[0_4px_12px_rgba(249,115,22,0.5),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)]",
                                 "hover:shadow-[0_6px_16px_rgba(249,115,22,0.6),inset_0_1px_0_rgba(255,255,255,0.5),inset_0_-1px_0_rgba(0,0,0,0.2)] hover:-translate-y-0.5"
