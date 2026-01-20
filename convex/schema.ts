@@ -107,52 +107,12 @@ export default defineSchema({
     .index("by_goal", ["primaryGoal"]) // Legacy index
     .index("by_total_weeks", ["totalWeeks"]),
 
-  // Meal Plans
-  mealPlans: defineTable({
-    userId: v.string(), // Flexible for migration
-    workoutPlanId: v.optional(v.id("workoutPlans")),
-    name: v.string(),
 
-    // Nutritional Goals
-    dailyCalories: v.number(),
-    proteinGrams: v.number(),
-    carbsGrams: v.number(),
-    fatsGrams: v.number(),
-
-    // Meal Templates
-    meals: v.array(v.object({
-      mealNumber: v.number(),
-      name: v.string(),
-      timeOfDay: v.string(),
-      recipes: v.array(v.object({
-        name: v.string(),
-        ingredients: v.array(v.object({
-          name: v.string(),
-          amount: v.string(),
-          unit: v.string(),
-        })),
-        instructions: v.string(),
-        macros: v.object({
-          calories: v.number(),
-          protein: v.number(),
-          carbs: v.number(),
-          fats: v.number(),
-        }),
-      })),
-    })),
-
-    // Metadata
-    isActive: v.boolean(),
-    createdAt: v.number(),
-    updatedAt: v.number(),
-  }).index("by_user", ["userId"])
-    .index("by_user_active", ["userId", "isActive"])
-    .index("by_workout_plan", ["workoutPlanId"]),
 
   // Shopping Lists
   shoppingLists: defineTable({
     userId: v.string(), // Flexible for migration
-    mealPlanId: v.id("mealPlans"),
+    mealPlanId: v.string(), // Was v.id("mealPlans")
     weekNumber: v.number(),
 
     items: v.array(v.object({
@@ -165,8 +125,7 @@ export default defineSchema({
 
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_user", ["userId"])
-    .index("by_meal_plan", ["mealPlanId"]),
+  }).index("by_user", ["userId"]),
 
   // Progress Tracking
   workoutSessions: defineTable({

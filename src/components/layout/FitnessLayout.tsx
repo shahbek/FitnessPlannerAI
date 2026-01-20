@@ -132,7 +132,7 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
 
   // Convex mutations for saving plans
   const createWorkoutPlan = useMutation(api.workoutPlans.createWorkoutPlan);
-  const createMealPlan = useMutation(api.mealPlans.createMealPlan);
+  // mealPlans table removed as it was redundant
   const upsertUserProfile = useMutation(api.users.upsertUserProfile);
   const deleteWorkoutPlan = useMutation(api.workoutPlans.deleteWorkoutPlan);
 
@@ -1089,50 +1089,10 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
         }
       }
 
-      // Save meal plan to Convex - ONLY for newly generated plans
-      // ✅ CRITICAL: Only save if this is a newly generated optimistic plan
-      // Check for meal templates in both formats (RAG uses mealTemplates, Integrated uses phaseMealTemplates)
-      const mealTemplates = planToProcess.mealTemplates ||
-        (planToProcess.phaseMealTemplates?.[0] || []);
-      if (createMealPlan && mealTemplates && mealTemplates.length > 0 && isOptimisticPlan && !alreadySaved) {
-        // ✅ Handle both phaseAwareFramework and strategicFramework naming
-        const framework = planToProcess.phaseAwareFramework || planToProcess.strategicFramework;
-        const nutritionApproach = framework?.nutritionApproach;
-        const mealPlanData = {
-          name: `${updatedWorkout.title} - Meal Plan`,
-          dailyCalories: nutritionApproach?.dailyCaloriesTotal || 2000,
-          proteinGrams: nutritionApproach?.macroTargets?.proteinTotalGrams || 150,
-          carbsGrams: nutritionApproach?.macroTargets?.carbsTotalGrams || 200,
-          fatsGrams: nutritionApproach?.macroTargets?.fatsTotalGrams || 60,
-          meals: mealTemplates.map((meal: any, index: number) => ({
-            mealNumber: index + 1,
-            name: meal.mealName || `Meal ${index + 1}`,
-            timeOfDay: meal.timing || 'Any',
-            recipes: [{
-              name: meal.mealName || `Meal ${index + 1}`,
-              ingredients: meal.ingredients?.map((ing: any) => ({
-                name: ing.food || ing.name,
-                amount: ing.quantity?.toString() || '1',
-                unit: ing.unit || 'serving',
-              })) || [],
-              instructions: meal.prepNotes || 'Prepare as desired',
-              macros: {
-                calories: meal.macros?.calories || 0,
-                protein: meal.macros?.proteinG || 0,
-                carbs: meal.macros?.carbsG || 0,
-                fats: meal.macros?.fatsG || 0,
-              },
-            }],
-          })),
-        };
-        console.log('🍽️ Saving meal plan to Convex:', mealPlanData);
-        createMealPlan(mealPlanData)
-          .then(() => console.log('✅ Meal plan saved successfully'))
-          .catch(err => console.error('❌ Failed to save meal plan:', err));
-      } else {
-        if (!createMealPlan) console.warn('⚠️ createMealPlan mutation not available');
-        const mealTemplates = planToProcess?.mealTemplates || planToProcess?.phaseMealTemplates?.[0] || [];
-        if (!mealTemplates || mealTemplates.length === 0) console.warn('⚠️ No meal data to save');
+      // Meal plans saving removed as table is deleted
+      // The meal data is already stored inside the fullPlanData of the workout plan
+      if (mealTemplates && mealTemplates.length > 0) {
+        console.log('🍽️ Meal plan data generation confirmed (stored in workout plan)');
       }
 
       setWorkoutHistory(prev => {
@@ -1161,7 +1121,7 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
   }, [
     ragPlan, ragLoading, ragError,
     integratedPlan, integratedLoading, integratedError,
-    workoutHistory, form, createWorkoutPlan, createMealPlan, upsertUserProfile,
+    workoutHistory, form, createWorkoutPlan, upsertUserProfile,
     selectedWorkoutId, USE_INTEGRATED_GENERATOR
   ]);
 
