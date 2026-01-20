@@ -1138,7 +1138,7 @@ export function FoodSearchSheet({
 
               ) : activeTab === 'scan-label' ? (
                 /* OCR Scan Label Tab */
-                <div className="px-5 pt-2 pb-8 space-y-4 max-w-md mx-auto">
+                <div className="px-5 pt-2 pb-8 space-y-4 w-full max-w-md md:max-w-3xl mx-auto">
                   {showCamera ? (
                     <CameraCapture
                       onCapture={handleCameraCapture}
