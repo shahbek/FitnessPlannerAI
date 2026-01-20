@@ -73,7 +73,14 @@ export function TodayCardioCard({
 
   return (
     <TodayCardioCardView
-      cardioData={cardioData}
+      cardioData={{
+        name: cardioData.cardioTemplate?.name || cardioData.name || 'Cardio',
+        type: cardioData.cardioTemplate?.type || cardioData.type || 'General',
+        intensity: cardioData.cardioTemplate?.intensity || cardioData.intensity || 'Moderate',
+        duration: cardioData.cardioTemplate?.durationMinutes || cardioData.durationMinutes || 30,
+        targetHeartRate: cardioData.cardioTemplate?.targetHeartRate,
+        caloriesBurned: cardioData.cardioTemplate?.caloriesBurned,
+      }}
       status={status}
       actualDuration={actualDuration}
       onComplete={handleComplete}

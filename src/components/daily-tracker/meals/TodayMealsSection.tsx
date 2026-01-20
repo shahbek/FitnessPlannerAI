@@ -91,6 +91,31 @@ export function TodayMealsSection({
     setShowFoodSearch(true);
   };
 
+  /* 
+    Fallback Logic:
+    If tracking data exists (meals array populated), use it.
+    If tracking data is empty/null (not started yet), fallback to planned meals from context.
+  */
+  const effectiveMeals: Meal[] = React.useMemo(() => {
+    if (meals && meals.length > 0) {
+      return meals;
+    }
+
+    // If no tracked meals, try to show planned meals
+    if (planContext?.plannedMeals && planContext.plannedMeals.length > 0) {
+      return planContext.plannedMeals.map((pm: any) => ({
+        ...pm,
+        isFromPlan: true,
+        isConsumed: false, // Default state
+        // Ensure all required fields are present
+        mealType: pm.mealType || 'Meal',
+        mealName: pm.mealName || 'Planned Meal'
+      }));
+    }
+
+    return [];
+  }, [meals, planContext]);
+
   const handleFoodSelected = async (food: {
     name: string;
     calories: number;
@@ -148,7 +173,7 @@ export function TodayMealsSection({
   return (
     <>
       <TodayMealsSectionView
-        meals={meals}
+        meals={effectiveMeals}
         targetMacros={targetMacros}
         consumedMacros={consumedMacros}
         onToggleMeal={handleToggleMeal}
