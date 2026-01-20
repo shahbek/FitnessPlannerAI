@@ -1089,11 +1089,6 @@ export function FitnessLayout({ children, isAuthFresh = false }: FitnessLayoutPr
         }
       }
 
-      // Meal plans saving removed as table is deleted
-      // The meal data is already stored inside the fullPlanData of the workout plan
-      if (mealTemplates && mealTemplates.length > 0) {
-        console.log('🍽️ Meal plan data generation confirmed (stored in workout plan)');
-      }
 
       setWorkoutHistory(prev => {
         // Find and replace the optimistic plan with the real one
