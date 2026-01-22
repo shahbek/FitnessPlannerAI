@@ -27,6 +27,7 @@ export function Header({ onLogin }: HeaderProps) {
         <header
             onMouseEnter={() => setHovered(true)}
             onMouseLeave={() => setHovered(false)}
+            onClick={() => setHovered(true)}
             className={cn(
                 "fixed top-6 left-0 right-0 z-50 mx-auto transition-all duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]",
                 scrolled
